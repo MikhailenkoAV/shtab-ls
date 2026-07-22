@@ -8,7 +8,7 @@ test("GitHub Pages export contains the main application sections", async () => {
   assert.match(html, /Штаб ЛС/);
   assert.match(html, /Полётные смены/);
   assert.match(html, /Личные дела/);
-  assert.match(html, /solaris-cockpit-bg\.jpg/);
+  assert.match(html, /solaris-airfield-bg\.jpg/);
   assert.doesNotMatch(html, />Статус</);
 });
 
@@ -22,6 +22,7 @@ test("period report aggregates chair, aircraft type, purpose, total and night fl
       { personId: "pilot", date: "2026-08-01", activity: "flight", segments: [{ aircraft: "RA-00001", aircraftType: "Ми-8", seat: "КВС", purpose: "АОН", flightMinutes: 600, nightMinutes: 0 }] },
     ],
     "pilot",
+    "data:image/png;base64,bG9nbw==",
   );
   const serialized = JSON.stringify(report);
   assert.match(serialized, /Иванов Иван Иванович/);
@@ -34,6 +35,7 @@ test("period report aggregates chair, aircraft type, purpose, total and night fl
   assert.match(serialized, /Цель/);
   assert.match(serialized, /Налёт/);
   assert.match(serialized, /Из них ночь/);
+  assert.match(serialized, /data:image\/png;base64,bG9nbw==/);
   assert.match(serialized, /3:05/);
   assert.match(serialized, /0:45/);
   assert.doesNotMatch(serialized, /10:00/);

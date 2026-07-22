@@ -190,9 +190,14 @@ function reportFooter(currentPage: number, pageCount: number): Content {
   };
 }
 
-function reportHeader(title: string, dateFrom: string, dateTo: string): Content[] {
+function reportHeader(title: string, dateFrom: string, dateTo: string, logoDataUrl?: string): Content[] {
   return [
-    { text: "ЦЕНТР АВИАЦИИ «СОЛЯРИС»", style: "brand" },
+    logoDataUrl ? {
+      columns: [
+        { text: "ЦЕНТР АВИАЦИИ «СОЛЯРИС»", style: "brand" },
+        { image: logoDataUrl, width: 145, alignment: "right", margin: [0, -8, 0, 8] },
+      ],
+    } : { text: "ЦЕНТР АВИАЦИИ «СОЛЯРИС»", style: "brand" },
     { text: title, style: "reportTitle" },
     { text: periodLabel(dateFrom, dateTo), style: "reportPeriod" },
     { text: `Сформирован ${new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "long", year: "numeric" }).format(new Date())}`, style: "generated" },
@@ -205,6 +210,7 @@ export function buildFlightReport(
   people: FlightReportPerson[],
   shifts: FlightReportShift[],
   personId: string | null = null,
+  logoDataUrl?: string,
 ): TDocumentDefinitions {
   const periodShifts = shifts.filter((shift) => shift.activity === "flight" && shift.date >= dateFrom && shift.date <= dateTo);
   const peopleWithFlights = new Set(periodShifts.map((shift) => shift.personId));
@@ -215,7 +221,7 @@ export function buildFlightReport(
     const personShifts = periodShifts.filter((shift) => shift.personId === person.id);
     return [person.id, collectPersonTotals(person, personShifts)];
   }));
-  const content: Content[] = reportHeader("Отчёт о налёте лётного состава", dateFrom, dateTo);
+  const content: Content[] = reportHeader("Отчёт о налёте лётного состава", dateFrom, dateTo, logoDataUrl);
 
   if (!includedPeople.length) {
     content.push({ text: "В составе нет сотрудников для формирования отчёта.", style: "empty" });
@@ -338,6 +344,7 @@ export function buildEmploymentReport(
   people: FlightReportPerson[],
   shifts: FlightReportShift[],
   personId: string | null = null,
+  logoDataUrl?: string,
 ): TDocumentDefinitions {
   const periodShifts = shifts.filter((shift) => shift.date >= dateFrom && shift.date <= dateTo);
   const peopleWithEntries = new Set(periodShifts.map((shift) => shift.personId));
@@ -345,7 +352,7 @@ export function buildEmploymentReport(
     .filter((person) => personId ? person.id === personId : person.active || peopleWithEntries.has(person.id))
     .sort((left, right) => left.name.localeCompare(right.name, "ru-RU"));
   const dates = datesBetween(dateFrom, dateTo);
-  const content: Content[] = reportHeader("Ежедневная занятость сотрудников", dateFrom, dateTo);
+  const content: Content[] = reportHeader("Ежедневная занятость сотрудников", dateFrom, dateTo, logoDataUrl);
   if (!includedPeople.length) content.push({ text: "В составе нет сотрудников для формирования отчёта.", style: "empty" });
   includedPeople.forEach((person, index) => content.push(employmentPersonSection(person, dates, periodShifts, index > 0)));
 
@@ -377,6 +384,22 @@ async function getPdfMake() {
   return pdfMake;
 }
 
+async function getReportLogo(): Promise<string | undefined> {
+  try {
+    const response = await fetch(new URL("solaris-logo.png", window.location.href).toString());
+    if (!response.ok) return undefined;
+    const blob = await response.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 export async function downloadFlightReport(
   dateFrom: string,
   dateTo: string,
@@ -384,9 +407,9 @@ export async function downloadFlightReport(
   shifts: FlightReportShift[],
   personId: string | null = null,
 ) {
-  const pdfMake = await getPdfMake();
+  const [pdfMake, logoDataUrl] = await Promise.all([getPdfMake(), getReportLogo()]);
   const scope = personId ? "pilot" : "all";
-  pdfMake.createPdf(buildFlightReport(dateFrom, dateTo, people, shifts, personId)).download(`nalet-${dateFrom}-${dateTo}-${scope}.pdf`);
+  pdfMake.createPdf(buildFlightReport(dateFrom, dateTo, people, shifts, personId, logoDataUrl)).download(`nalet-${dateFrom}-${dateTo}-${scope}.pdf`);
 }
 
 export async function downloadEmploymentReport(
@@ -396,7 +419,7 @@ export async function downloadEmploymentReport(
   shifts: FlightReportShift[],
   personId: string | null = null,
 ) {
-  const pdfMake = await getPdfMake();
+  const [pdfMake, logoDataUrl] = await Promise.all([getPdfMake(), getReportLogo()]);
   const scope = personId ? "pilot" : "all";
-  pdfMake.createPdf(buildEmploymentReport(dateFrom, dateTo, people, shifts, personId)).download(`zanyatost-${dateFrom}-${dateTo}-${scope}.pdf`);
+  pdfMake.createPdf(buildEmploymentReport(dateFrom, dateTo, people, shifts, personId, logoDataUrl)).download(`zanyatost-${dateFrom}-${dateTo}-${scope}.pdf`);
 }

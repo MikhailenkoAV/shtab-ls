@@ -8,7 +8,8 @@ type View = "dashboard" | "shifts" | "people" | "personal";
 type Activity = "flight" | "trip" | "office" | "periodic_training" | "ground_training" | "standby" | "vacation" | "dayoff";
 type Seat = "КВС" | "Пилот-инструктор";
 
-type Person = { id: string; name: string; position: string; permissions: string[]; aircraftTypes: string[]; active: boolean };
+type Qualification = { id: string; operators: string[]; aircraftTypes: string[]; seats: string[] };
+type Person = { id: string; name: string; position: string; permissions: string[]; aircraftTypes: string[]; qualifications: Qualification[]; active: boolean };
 type Segment = { id: string; aircraft: string; aircraftType?: string; seat: Seat; purpose: string; flightMinutes: number; nightMinutes: number };
 type Shift = {
   id: string; personId: string; date: string; activity: Activity; start: string; workMinutes: number;
@@ -36,7 +37,8 @@ const multiDayActivities: Activity[] = ["trip", "vacation", "periodic_training"]
 const flightPurposes = ["КВП", "АОН", "АР", "АОН (УТП)"];
 const seatOptions: Seat[] = ["КВС", "Пилот-инструктор"];
 const positionOptions = ["Командир ВС", "Пилот-инструктор", "Экзаменатор"];
-const permissionOptions = ["АОН", "КВП", "АР"];
+const operatorOptions = ["КВП", "АОН", "АР"];
+const aircraftTypeOptions = ["A109", "AW109", "AW139", "AS350", "EC130", "R44", "R66", "BO105"];
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 function normalizeActivity(value: string): Activity {
@@ -68,6 +70,30 @@ function parseStoredPositions(value: string): { selected: string[]; other: strin
   return { selected: [...selected], other: other.join(", ") };
 }
 
+function orderedUnique(values: string[], preferredOrder: string[]): string[] {
+  const unique = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  return [...preferredOrder.filter((value) => unique.includes(value)), ...unique.filter((value) => !preferredOrder.includes(value))];
+}
+
+function normalizePerson(person: Person): Person {
+  const legacySeats = parseStoredPositions(person.position ?? "").selected;
+  const qualifications = person.qualifications?.length ? person.qualifications.map((qualification, index) => ({
+    id: qualification.id || `${person.id}-qualification-${index + 1}`,
+    operators: orderedUnique(qualification.operators ?? [], operatorOptions),
+    aircraftTypes: orderedUnique(qualification.aircraftTypes ?? [], aircraftTypeOptions),
+    seats: orderedUnique(qualification.seats ?? [], positionOptions),
+  })) : ((person.permissions?.length || person.aircraftTypes?.length || legacySeats.length) ? [{
+    id: `${person.id}-legacy-qualification`,
+    operators: orderedUnique(person.permissions ?? [], operatorOptions),
+    aircraftTypes: orderedUnique(person.aircraftTypes ?? [], aircraftTypeOptions),
+    seats: orderedUnique(legacySeats, positionOptions),
+  }] : []);
+  const operators = orderedUnique(qualifications.flatMap((qualification) => qualification.operators), operatorOptions);
+  const aircraftTypes = orderedUnique(qualifications.flatMap((qualification) => qualification.aircraftTypes), aircraftTypeOptions);
+  const seats = orderedUnique(qualifications.flatMap((qualification) => qualification.seats), positionOptions);
+  return { ...person, position: seats.join(", "), permissions: operators, aircraftTypes, qualifications };
+}
+
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1);
@@ -84,7 +110,7 @@ async function loadData(): Promise<AppData> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readonly");
     const request = tx.objectStore(STORE_NAME).get(STATE_KEY);
-    request.onsuccess = () => { const stored = request.result as Partial<AppData> | undefined; resolve({ people: (stored?.people ?? []).map((person) => ({ ...person, permissions: person.permissions ?? [] })), shifts: (stored?.shifts ?? []).map(normalizeShift), certifications: stored?.certifications ?? [] }); };
+    request.onsuccess = () => { const stored = request.result as Partial<AppData> | undefined; resolve({ people: (stored?.people ?? []).map(normalizePerson), shifts: (stored?.shifts ?? []).map(normalizeShift), certifications: stored?.certifications ?? [] }); };
     request.onerror = () => reject(request.error);
     tx.oncomplete = () => db.close();
   });
@@ -301,7 +327,15 @@ export default function Home() {
     setData((current) => {
       const personId = payload.targetPersonId ?? uid();
       const aircraftTypes = [...new Set(payload.records.map((record) => record.aircraftType).filter(Boolean))];
-      const people = payload.targetPersonId ? current.people : [...current.people, { id: personId, name: payload.personName, position: "Командир ВС", permissions: [], aircraftTypes, active: true }];
+      const people = payload.targetPersonId ? current.people : [...current.people, {
+        id: personId,
+        name: payload.personName,
+        position: "Командир ВС",
+        permissions: [],
+        aircraftTypes,
+        qualifications: aircraftTypes.length ? [{ id: uid(), operators: [], aircraftTypes, seats: ["Командир ВС"] }] : [],
+        active: true,
+      }];
       const kept = current.certifications.filter((record) => !(record.personId === personId && record.source === "aviabit"));
       return { ...current, people, certifications: [...kept, ...payload.records.map((record) => ({ ...record, personId }))] };
     });
@@ -321,7 +355,7 @@ export default function Home() {
       const parsed = JSON.parse(text) as { data?: AppData } | AppData;
       const restored = "data" in parsed && parsed.data ? parsed.data : parsed as AppData;
       if (!Array.isArray(restored.people) || !Array.isArray(restored.shifts)) throw new Error("Invalid backup");
-      setData({ people: restored.people.map((person) => ({ ...person, permissions: person.permissions ?? [] })), shifts: restored.shifts.map(normalizeShift), certifications: restored.certifications ?? [] }); setToast("Резервная копия восстановлена");
+      setData({ people: restored.people.map(normalizePerson), shifts: restored.shifts.map(normalizeShift), certifications: restored.certifications ?? [] }); setToast("Резервная копия восстановлена");
     }).catch(() => setToast("Не удалось прочитать резервную копию"));
     event.target.value = "";
   }
@@ -343,7 +377,7 @@ export default function Home() {
         <img src="solaris-logo.png" alt="Центр авиации «Солярис»" />
       </div>
     </aside>
-    <main className="workspace" style={{ backgroundImage: 'linear-gradient(180deg, rgba(242, 245, 246, .66), rgba(242, 245, 246, .84)), url("solaris-cockpit-bg.jpg")' }}>
+    <main className="workspace" style={{ backgroundImage: 'linear-gradient(180deg, rgba(242, 245, 246, .64), rgba(242, 245, 246, .83)), url("solaris-airfield-bg.jpg")' }}>
       <header className="topbar"><div><p className="eyebrow">{new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date())}</p><h1>{view === "dashboard" ? "Оперативная информация" : view === "shifts" ? "Полётные смены" : view === "people" ? "Личный состав" : "Личные дела"}</h1></div>
         <div className="top-actions"><span className={`save-state ${saveState}`}>{saveState === "saved" ? "Сохранено" : saveState === "saving" ? "Сохраняю…" : "Ошибка сохранения"}</span><button className="secondary-button" onClick={() => setPersonModal("new")}>+ Сотрудник</button><button className="primary-button" onClick={() => setShiftModal("new")} disabled={!data.people.length}>+ Добавить смену</button></div>
       </header>
@@ -415,22 +449,97 @@ function FlightReportModal({ people, shifts, onClose, onNotify }: { people: Pers
 }
 
 function PeopleView({ people, shifts, onAdd, onEdit, onOpenPersonal }: { people: Person[]; shifts: Shift[]; onAdd: () => void; onEdit: (person: Person) => void; onOpenPersonal: () => void }) {
-  return <section className="panel people-panel"><div className="panel-heading"><div><p className="eyebrow">Реестр</p><h2>Сотрудники</h2></div><button className="primary-button" onClick={onAdd}>+ Добавить</button></div>{!people.length ? <div className="panel-empty tall">Карточки сотрудников ещё не созданы.</div> : <div className="people-grid">{people.map((person) => { const personShifts = shifts.filter((shift) => shift.personId === person.id); return <article className="person-card" key={person.id}><div className="person-avatar">{person.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div><div className="person-body"><strong>{person.name}</strong><span>{person.position || "Должность не указана"}</span><div className="person-aircraft">Типы ВС: {person.aircraftTypes.length ? person.aircraftTypes.join(", ") : "не указаны"}</div><div className="person-permissions">Допуски: {person.permissions?.length ? person.permissions.join(", ") : "не указаны"}</div><div className="person-card-actions"><button onClick={onOpenPersonal}>Личное дело</button><button onClick={() => onEdit(person)}>Изменить</button></div></div><div className="person-stat"><strong>{personShifts.length}</strong><span>смен</span></div></article>; })}</div>}</section>;
+  return <section className="panel people-panel">
+    <div className="panel-heading"><div><p className="eyebrow">Реестр</p><h2>Сотрудники</h2></div><button className="primary-button" onClick={onAdd}>+ Добавить</button></div>
+    {!people.length ? <div className="panel-empty tall">Карточки сотрудников ещё не созданы.</div> : <div className="people-grid">{people.map((person) => {
+      const personShifts = shifts.filter((shift) => shift.personId === person.id);
+      return <article className="person-card" key={person.id}>
+        <div className="person-avatar">{person.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div>
+        <div className="person-body">
+          <strong>{person.name}</strong>
+          <span>{person.position || "Кресла не указаны"}</span>
+          <div className="person-qualification-list">{person.qualifications.length ? person.qualifications.map((qualification) => <div key={qualification.id}>
+            <b>{qualification.operators.join(", ") || "Эксплуатант не указан"}</b>
+            <span>{qualification.aircraftTypes.join(", ") || "Тип ВС не указан"}</span>
+            <small>{qualification.seats.join(", ") || "Кресла не указаны"}</small>
+          </div>) : <div><span>Наборы допуска не указаны</span></div>}</div>
+          <div className="person-card-actions"><button onClick={onOpenPersonal}>Личное дело</button><button onClick={() => onEdit(person)}>Изменить</button></div>
+        </div>
+        <div className="person-stat"><strong>{personShifts.length}</strong><span>смен</span></div>
+      </article>;
+    })}</div>}
+  </section>;
 }
 
 function PersonModal({ person, onClose, onSubmit, onDelete }: { person: Person | null; onClose: () => void; onSubmit: (person: Omit<Person, "id" | "active">) => void; onDelete?: () => void }) {
-  const parsedPositions = parseStoredPositions(person?.position ?? "");
   const [name, setName] = useState(person?.name ?? "");
-  const [positions, setPositions] = useState(parsedPositions.selected);
-  const [otherPosition, setOtherPosition] = useState(parsedPositions.other);
-  const [permissions, setPermissions] = useState(person?.permissions ?? []);
-  const [types, setTypes] = useState(person?.aircraftTypes.join(", ") ?? "");
-  function submit(event: FormEvent) {
-    event.preventDefault(); if (!name.trim()) return;
-    const position = [...positions, ...otherPosition.split(",").map((item) => item.trim()).filter(Boolean)].join(", ");
-    onSubmit({ name: name.trim(), position, permissions, aircraftTypes: types.split(",").map((item) => item.trim()).filter(Boolean) });
+  const [qualifications, setQualifications] = useState<Qualification[]>(person?.qualifications ?? []);
+  const [operators, setOperators] = useState<string[]>([]);
+  const [types, setTypes] = useState<string[]>([]);
+  const [seats, setSeats] = useState<string[]>([]);
+  const [editingQualificationId, setEditingQualificationId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  function resetQualificationDraft() {
+    setOperators([]); setTypes([]); setSeats([]); setEditingQualificationId(null); setError("");
   }
-  return <Modal title={person ? "Редактирование сотрудника" : "Новый сотрудник"} subtitle="Карточка лётного состава" onClose={onClose}><form onSubmit={submit} className="form-stack"><Field label="Ф. И. О."><input autoFocus required value={name} onChange={(event) => setName(event.target.value)} placeholder="Иванов Иван Иванович" /></Field><CheckboxGroup label="Должности" options={positionOptions} values={positions} onChange={setPositions} /><Field label="Другая должность" hint="При необходимости"><input value={otherPosition} onChange={(event) => setOtherPosition(event.target.value)} placeholder="Второй пилот" /></Field><CheckboxGroup label="Допуски" options={permissionOptions} values={permissions} onChange={setPermissions} /><Field label="Типы ВС" hint="Перечислите через запятую"><input value={types} onChange={(event) => setTypes(event.target.value)} placeholder="Ми-8, Ми-2" /></Field><div className="form-actions split">{onDelete && <button type="button" className="danger-button" onClick={onDelete}>Удалить сотрудника</button>}<span /><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button">{person ? "Сохранить изменения" : "Добавить сотрудника"}</button></div></form></Modal>;
+
+  function saveQualification() {
+    if (!operators.length || !types.length || !seats.length) {
+      setError("Для набора выберите эксплуатанта, тип ВС и хотя бы одно занимаемое кресло.");
+      return;
+    }
+    const qualification: Qualification = {
+      id: editingQualificationId ?? uid(),
+      operators: orderedUnique(operators, operatorOptions),
+      aircraftTypes: orderedUnique(types, aircraftTypeOptions),
+      seats: orderedUnique(seats, positionOptions),
+    };
+    setQualifications((current) => editingQualificationId
+      ? current.map((item) => item.id === editingQualificationId ? qualification : item)
+      : [...current, qualification]);
+    resetQualificationDraft();
+  }
+
+  function editQualification(qualification: Qualification) {
+    setOperators(qualification.operators); setTypes(qualification.aircraftTypes); setSeats(qualification.seats);
+    setEditingQualificationId(qualification.id); setError("");
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!name.trim()) { setError("Укажите Ф. И. О. сотрудника."); return; }
+    if (operators.length || types.length || seats.length || editingQualificationId) { setError("Сначала добавьте или сохраните заполненный набор допуска."); return; }
+    if (!qualifications.length) { setError("Добавьте хотя бы один набор допуска сотрудника."); return; }
+    if (qualifications.some((qualification) => !qualification.operators.length || !qualification.aircraftTypes.length || !qualification.seats.length)) {
+      setError("Отредактируйте неполный набор: эксплуатант, тип ВС и кресла обязательны."); return;
+    }
+    const permissions = orderedUnique(qualifications.flatMap((qualification) => qualification.operators), operatorOptions);
+    const aircraftTypes = orderedUnique(qualifications.flatMap((qualification) => qualification.aircraftTypes), aircraftTypeOptions);
+    const position = orderedUnique(qualifications.flatMap((qualification) => qualification.seats), positionOptions).join(", ");
+    onSubmit({ name: name.trim(), position, permissions, aircraftTypes, qualifications });
+  }
+  return <Modal title={person ? "Редактирование сотрудника" : "Новый сотрудник"} subtitle="Эксплуатант → тип ВС → занимаемые кресла" onClose={onClose} wide>
+    <form onSubmit={submit} className="form-stack person-form">
+      <Field label="Ф. И. О."><input autoFocus required value={name} onChange={(event) => setName(event.target.value)} placeholder="Иванов Иван Иванович" /></Field>
+      <section className="qualification-builder">
+        <div className="qualification-builder-heading"><div><strong>{editingQualificationId ? "Изменение набора допуска" : "Новый набор допуска"}</strong><span>Последовательно выберите данные и добавьте набор в карточку сотрудника.</span></div>{editingQualificationId && <button type="button" className="link-button" onClick={resetQualificationDraft}>Отменить изменение набора</button>}</div>
+        <div className="qualification-step"><span>1</span><CheckboxGroup label="Эксплуатант" options={operatorOptions} values={operators} onChange={setOperators} /></div>
+        <div className="qualification-step"><span>2</span><CheckboxGroup label="Тип ВС" options={aircraftTypeOptions} values={types} onChange={setTypes} columns={4} /></div>
+        <div className="qualification-step"><span>3</span><CheckboxGroup label="Занимаемые кресла" options={positionOptions} values={seats} onChange={setSeats} /></div>
+        <div className="qualification-add"><button type="button" className="secondary-button" onClick={saveQualification}>{editingQualificationId ? "Сохранить набор" : "+ Добавить набор"}</button></div>
+      </section>
+      {qualifications.length > 0 && <section className="qualification-list"><div className="section-label"><strong>Добавленные наборы</strong><span>{qualifications.length}</span></div>{qualifications.map((qualification, index) => <article className={editingQualificationId === qualification.id ? "editing" : ""} key={qualification.id}>
+        <div className="qualification-index">{index + 1}</div>
+        <div><small>Эксплуатант</small><strong>{qualification.operators.join(", ") || "Не указан"}</strong></div>
+        <div><small>Тип ВС</small><strong>{qualification.aircraftTypes.join(", ") || "Не указан"}</strong></div>
+        <div><small>Кресла</small><strong>{qualification.seats.join(", ") || "Не указаны"}</strong></div>
+        <div className="qualification-actions"><button type="button" onClick={() => editQualification(qualification)}>Изменить</button><button type="button" className="delete" onClick={() => { setQualifications((current) => current.filter((item) => item.id !== qualification.id)); if (editingQualificationId === qualification.id) resetQualificationDraft(); }}>Удалить</button></div>
+      </article>)}</section>}
+      {error && <div className="form-error">{error}</div>}
+      <div className="form-actions split">{onDelete && <button type="button" className="danger-button" onClick={onDelete}>Удалить сотрудника</button>}<span /><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button">{person ? "Подтвердить изменения" : "Добавить сотрудника"}</button></div>
+    </form>
+  </Modal>;
 }
 
 function ShiftModal({ people, shift, onClose, onSubmit, onDelete }: { people: Person[]; shift: Shift | null; onClose: () => void; onSubmit: (shift: ShiftDraft) => void; onDelete?: () => void }) {
@@ -513,8 +622,8 @@ function TimeEntry({ value, onChange, clock, required }: { value: string; onChan
   return <input type="text" inputMode="numeric" required={required} value={value} placeholder="0000" onChange={(event) => onChange(compactTime(event.target.value))} onBlur={() => { const normalized = normalizeTime(value, clock); if (normalized) onChange(normalized); }} />;
 }
 
-function CheckboxGroup({ label, options, values, onChange }: { label: string; options: string[]; values: string[]; onChange: (values: string[]) => void }) {
-  return <fieldset className="checkbox-group"><legend>{label}</legend><div>{options.map((option) => <label key={option}><input type="checkbox" checked={values.includes(option)} onChange={(event) => onChange(event.target.checked ? [...values, option] : values.filter((value) => value !== option))} /><span>{option}</span></label>)}</div></fieldset>;
+function CheckboxGroup({ label, options, values, onChange, columns = 3 }: { label: string; options: string[]; values: string[]; onChange: (values: string[]) => void; columns?: 3 | 4 }) {
+  return <fieldset className={`checkbox-group columns-${columns}`}><legend>{label}</legend><div>{options.map((option) => <label key={option}><input type="checkbox" checked={values.includes(option)} onChange={(event) => onChange(event.target.checked ? [...values, option] : values.filter((value) => value !== option))} /><span>{option}</span></label>)}</div></fieldset>;
 }
 
 function Modal({ title, subtitle, onClose, wide, children }: { title: string; subtitle: string; onClose: () => void; wide?: boolean; children: React.ReactNode }) { return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className={`modal ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="modal-title"><header><div><p className="eyebrow">Штаб ЛС</p><h2 id="modal-title">{title}</h2><span>{subtitle}</span></div><button className="modal-close" aria-label="Закрыть" onClick={onClose}>×</button></header>{children}</section></div>; }
