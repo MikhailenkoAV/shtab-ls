@@ -1,0 +1,10 @@
+{
+  "name": "Штаб ЛС",
+  "short_name": "Штаб ЛС",
+  "description": "Локальный контроль полётных смен, рабочего времени и отдыха.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f2f5f6",
+  "theme_color": "#102c40",
+  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
