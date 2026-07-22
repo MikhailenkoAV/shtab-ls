@@ -103,6 +103,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .table-panel, .people-panel { min-height: 570px; }
+.journal-filters { display: grid; grid-template-columns: repeat(4, minmax(145px, 1fr)) auto; gap: 10px; align-items: end; padding: 16px 18px; border-bottom: 1px solid #e7ecef; background: #fbfcfc; }
+.journal-filters .reset-filter { white-space: nowrap; }
+.journal-summary { padding: 9px 18px; color: #7b8b93; background: #f5f8f9; font-size: 10px; }
+.journal-summary strong { color: #334e5c; }
 .table-scroll { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 11px; }
 th { padding: 12px 15px; color: #7a8992; background: #f7f9fa; text-align: left; font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; }
@@ -112,6 +116,13 @@ td strong { color: #314956; }
 .status-pill.planned { color: #57718a; background: #ebf1f6; }
 .status-pill.actual { color: #8b641e; background: #fff2d9; }
 .status-pill.confirmed { color: #2e745e; background: #e2f3ec; }
+.status-select { min-width: 112px; padding: 6px 8px; border: 0; border-radius: 999px; outline: none; font-size: 9px; font-weight: 800; }
+.status-select.planned { color: #57718a; background: #ebf1f6; }
+.status-select.actual { color: #8b641e; background: #fff2d9; }
+.status-select.confirmed { color: #2e745e; background: #e2f3ec; }
+.row-actions { display: flex; gap: 4px; }
+.row-actions button { padding: 5px 6px; border: 0; color: #28776f; background: transparent; font-size: 9px; font-weight: 800; }
+.row-actions button.delete { color: #ad4d4d; }
 .danger-text { color: #b63e3e; font-weight: 800; }
 .success-text { color: #2c775e; font-weight: 800; }
 .panel-empty { display: grid; min-height: 120px; place-items: center; padding: 30px; color: #87969e; font-size: 12px; }
@@ -124,6 +135,9 @@ td strong { color: #314956; }
 .person-body strong, .person-body > span { display: block; }
 .person-body strong { color: #2c4554; font-size: 13px; }
 .person-body > span { margin-top: 4px; color: #7d8c94; font-size: 10px; }
+.person-aircraft { margin-top: 5px; color: #59717c; font-size: 9px; }
+.person-card-actions { display: flex; gap: 9px; margin-top: 9px; }
+.person-card-actions button { padding: 0; border: 0; color: #287a73; background: transparent; font-size: 9px; font-weight: 800; }
 .tag-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 .tag-row i { padding: 3px 6px; border-radius: 4px; color: #536c78; background: #edf2f4; font-size: 8px; font-style: normal; font-weight: 800; }
 .person-stat { text-align: center; }
@@ -215,6 +229,7 @@ td strong { color: #314956; }
 .segment-number { align-self: center; display: grid; width: 23px; height: 23px; place-items: center; border-radius: 50%; color: #4f7c82; background: #eaf2f3; font-size: 9px; font-weight: 800; }
 .remove-segment { width: 26px; height: 41px; border: 0; color: #a55e5e; background: transparent; font-size: 20px; }
 .form-actions { display: flex; justify-content: flex-end; gap: 9px; padding-top: 5px; }
+.form-error { padding: 10px 12px; border-radius: 8px; color: #9f3f3f; background: #fff0ee; font-size: 10px; }
 .toast { position: fixed; z-index: 80; right: 25px; bottom: 25px; padding: 13px 17px; border-radius: 10px; color: white; background: #173b4f; box-shadow: 0 14px 35px rgba(10,32,45,.24); font-size: 11px; font-weight: 700; animation: toast-in .2s ease; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 
@@ -222,6 +237,8 @@ td strong { color: #314956; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .content-grid { grid-template-columns: 1fr; }
   .people-grid { grid-template-columns: 1fr; }
+  .journal-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .journal-filters .reset-filter { width: 100%; }
 }
 @media (max-width: 760px) {
   .app-shell { display: block; }
@@ -242,6 +259,7 @@ td strong { color: #314956; }
   .activity-grid { grid-template-columns: repeat(2, 1fr); }
   .segment-row { grid-template-columns: 25px 1fr 1fr; }
   .remove-segment { grid-column: 3; grid-row: 1; justify-self: end; }
+  .journal-filters { grid-template-columns: 1fr; }
   .records-layout { grid-template-columns: 1fr; }
   .pilot-list { position: static; min-height: 0; }
   .pilot-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
