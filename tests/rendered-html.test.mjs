@@ -8,6 +8,8 @@ test("GitHub Pages export contains the main application sections", async () => {
   assert.match(html, /Штаб ЛС/);
   assert.match(html, /Полётные смены/);
   assert.match(html, /Личные дела/);
+  assert.match(html, /solaris-cockpit-bg\.jpg/);
+  assert.doesNotMatch(html, />Статус</);
 });
 
 test("period report aggregates chair, aircraft type, purpose, total and night flight time", () => {

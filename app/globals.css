@@ -113,20 +113,12 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .journal-summary { padding: 9px 18px; color: #7b8b93; background: #f5f8f9; font-size: 10px; }
 .journal-summary strong { color: #334e5c; }
 .table-scroll { overflow-x: auto; }
-.table-panel table { min-width: 1280px; }
+.table-panel table { min-width: 1120px; }
 table { width: 100%; border-collapse: collapse; font-size: 11px; }
 th { padding: 12px 15px; color: #7a8992; background: #f7f9fa; text-align: left; font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; }
 td { padding: 14px 15px; border-top: 1px solid #edf0f2; color: #5a6d78; white-space: nowrap; }
 td strong { color: #314956; }
 .note-cell { min-width: 190px; max-width: 280px; color: #687b85; line-height: 1.45; white-space: normal; }
-.status-pill { display: inline-block; padding: 5px 8px; border-radius: 999px; font-size: 9px; font-weight: 800; }
-.status-pill.planned { color: #57718a; background: #ebf1f6; }
-.status-pill.actual { color: #8b641e; background: #fff2d9; }
-.status-pill.confirmed { color: #2e745e; background: #e2f3ec; }
-.status-select { min-width: 112px; padding: 6px 8px; border: 0; border-radius: 999px; outline: none; font-size: 9px; font-weight: 800; }
-.status-select.planned { color: #57718a; background: #ebf1f6; }
-.status-select.actual { color: #8b641e; background: #fff2d9; }
-.status-select.confirmed { color: #2e745e; background: #e2f3ec; }
 .row-actions { display: flex; gap: 4px; }
 .row-actions button { padding: 5px 6px; border: 0; color: #28776f; background: transparent; font-size: 9px; font-weight: 800; }
 .row-actions button.delete { color: #ad4d4d; }
