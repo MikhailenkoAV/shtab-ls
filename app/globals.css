@@ -15,8 +15,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 246px 1fr; }
 .sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 26px 18px 20px; color: #eaf1f4; background: linear-gradient(180deg, #0e283a 0%, #102f43 58%, #0b2232 100%); }
 .brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 27px; border-bottom: 1px solid rgba(255,255,255,.1); }
-.brand-mark { width: 40px; height: 40px; display: grid; flex: none; place-items: center; overflow: hidden; border: 1px solid rgba(255,255,255,.34); border-radius: 12px; background: rgba(255,255,255,.14); box-shadow: 0 5px 14px rgba(0,0,0,.1); }
-.brand-mark svg { display: block; width: 27px; height: 27px; overflow: visible; }
+.brand-mark { width: 44px; height: 44px; display: grid; flex: none; place-items: center; overflow: hidden; border: 1px solid #b8ddd8; border-radius: 12px; background: #e8f6f4; box-shadow: 0 5px 14px rgba(0,0,0,.12); }
+.brand-mark img { display: block; width: 35px; height: 35px; object-fit: contain; }
 .brand strong, .brand span { display: block; }
 .brand strong { color: white; font-size: 17px; letter-spacing: .01em; }
 .brand span { margin-top: 3px; color: #91a7b4; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
@@ -40,18 +40,18 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .workspace { min-width: 0; min-height: 100vh; padding: 32px 38px 50px; background-position: center; background-size: cover; background-attachment: fixed; }
 .topbar { display: grid; grid-template-columns: minmax(255px, 1fr) auto minmax(110px, 1fr); align-items: center; gap: 24px; margin-bottom: 30px; }
 .eyebrow { margin: 0 0 6px; color: #71828c; font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
-.current-date { width: fit-content; margin-bottom: 8px; padding: 5px 9px; border-left: 3px solid #0d8d82; border-radius: 0 6px 6px 0; color: #116f69; background: rgba(232,246,244,.82); font-size: 12px; letter-spacing: .065em; text-transform: none; }
+.current-date { width: fit-content; margin-bottom: 9px; padding: 7px 12px; border-left: 4px solid #0d8d82; border-radius: 0 7px 7px 0; color: #116f69; background: #e8f6f4; font-size: 16px; font-weight: 800; letter-spacing: .035em; text-transform: none; }
 .topbar h1 { margin: 0; color: var(--ink); font-size: clamp(25px, 3vw, 36px); font-weight: 680; letter-spacing: -.035em; }
 .top-actions { display: flex; align-items: center; justify-self: end; gap: 10px; }
 .save-state { position: relative; margin-right: 7px; padding-left: 15px; color: #6f8089; font-size: 11px; }
 .save-state::before { content: ""; position: absolute; left: 0; top: 50%; width: 7px; height: 7px; border-radius: 50%; background: #65a990; transform: translateY(-50%); }
 .save-state.saving::before { background: #d5a34e; }
 .save-state.error::before { background: #c94c4c; }
-.world-clocks { display: grid; grid-template-columns: repeat(4, minmax(92px, 1fr)); justify-self: center; gap: 8px; }
-.clock-card { min-width: 92px; padding: 8px 12px 9px; border: 1px solid rgba(190,208,215,.96); border-radius: 10px; background: rgba(255,255,255,.9); box-shadow: 0 6px 18px rgba(24,52,67,.07); backdrop-filter: blur(5px); text-align: center; }
+.world-clocks { display: grid; grid-template-columns: repeat(4, minmax(112px, 1fr)); justify-self: center; gap: 9px; }
+.clock-card { min-width: 112px; padding: 10px 14px 11px; border: 1px solid rgba(190,208,215,.96); border-radius: 10px; background: rgba(255,255,255,.92); box-shadow: 0 6px 18px rgba(24,52,67,.07); backdrop-filter: blur(5px); text-align: center; }
 .clock-card span, .clock-card strong { display: block; }
-.clock-card span { margin-bottom: 3px; color: #647b87; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-.clock-card strong { color: #18384b; font-size: 15px; font-variant-numeric: tabular-nums; letter-spacing: .025em; }
+.clock-card span { margin-bottom: 4px; color: #647b87; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.clock-card strong { color: #18384b; font-size: 20px; font-variant-numeric: tabular-nums; letter-spacing: .025em; }
 .primary-button, .secondary-button { min-height: 40px; padding: 0 17px; border-radius: 9px; font-size: 12px; font-weight: 700; transition: .16s ease; }
 .primary-button { border: 1px solid #0d7f75; color: white; background: var(--teal); box-shadow: 0 6px 16px rgba(13,141,130,.16); }
 .primary-button:hover:not(:disabled) { background: #08776e; transform: translateY(-1px); }

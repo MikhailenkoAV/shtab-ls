@@ -688,10 +688,9 @@ export default function Home() {
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">
-        <svg viewBox="0 0 32 32" aria-hidden="true">
-          <defs><filter id="brand-icon-teal"><feColorMatrix type="matrix" values="0 0 0 0 0.067 0 0 0 0 0.435 0 0 0 0 0.412 -0.333 -0.333 -0.333 0 1" /></filter></defs>
-          <image href="favicon-32x32.png" width="32" height="32" filter="url(#brand-icon-teal)" />
-        </svg>
+        {/* The public asset must stay relative so it also works under the GitHub Pages repository path. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="sidebar-icon.png" alt="" />
       </div><div><strong>Штаб ЛС</strong><span>Рабочий контур</span></div></div>
       <nav className="main-nav" aria-label="Основная навигация">
         <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")} label="Главная" glyph="⌂" />
