@@ -497,7 +497,7 @@ export default function Home() {
     data.certifications.forEach((record) => {
       const state = getExpiryState(record); const person = data.people.find((item) => item.id === record.personId);
       if (state.level === "expired") result.push({ id: `cert-${record.id}`, severity: "danger", title: `${person?.name ?? "Сотрудник"}: ${record.certificationType || record.category} просрочено`, detail: `Срок закончился ${formatDate(record.endDate)} · ${state.label.toLocaleLowerCase("ru-RU")}` });
-      else if (state.level === "alert14" || state.level === "alert30") result.push({ id: `cert-${record.id}`, severity: state.level === "alert14" ? "danger" : "warning", title: `${person?.name ?? "Сотрудник"}: истекает ${record.certificationType || record.category}`, detail: `${formatDate(record.endDate)} · ${state.label.toLocaleLowerCase("ru-RU")}` });
+      else if (state.level === "alert14" || state.level === "alert45") result.push({ id: `cert-${record.id}`, severity: state.level === "alert14" ? "danger" : "warning", title: `${person?.name ?? "Сотрудник"}: истекает ${record.certificationType || record.category}`, detail: `${formatDate(record.endDate)} · ${state.label.toLocaleLowerCase("ru-RU")}` });
     });
     return result;
   }, [data, restIssues, monthKey]);

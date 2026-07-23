@@ -193,7 +193,7 @@ td strong { color: #314956; }
 .record-metric span { margin-top: 3px; color: #7f8f97; font-size: 9px; text-transform: uppercase; }
 .record-metric.danger { border-left-color: #bf4141; }
 .record-metric.alert14 { border-left-color: #e18442; }
-.record-metric.alert30 { border-left-color: #d9ae3c; }
+.record-metric.alert45 { border-left-color: #d9ae3c; }
 .records-panel { min-height: 420px; }
 .records-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 14px 18px; border-bottom: 1px solid #e7ecef; }
 .records-toolbar > input { width: min(330px, 45%); min-height: 37px; padding: 8px 11px; border: 1px solid #d8e1e4; border-radius: 8px; outline: none; color: #344d5a; background: #fafcfc; font-size: 11px; }
@@ -207,7 +207,7 @@ td strong { color: #314956; }
 .expiry-pill { display: inline-block; padding: 6px 8px; border-radius: 999px; font-size: 9px; font-weight: 800; white-space: nowrap; }
 .expiry-pill.expired { color: #a33838; background: #fde7e5; }
 .expiry-pill.alert14 { color: #9b511f; background: #fff0df; }
-.expiry-pill.alert30 { color: #85651e; background: #fff7d9; }
+.expiry-pill.alert45 { color: #85651e; background: #fff7d9; }
 .expiry-pill.valid { color: #2b725a; background: #e5f3ed; }
 .expiry-pill.undated { color: #58707c; background: #edf2f4; }
 .expiry-pill.incomplete { color: #724e77; background: #f3eaf4; }
