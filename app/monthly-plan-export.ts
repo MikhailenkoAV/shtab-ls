@@ -1,4 +1,3 @@
-import type { Content, TableCell, TDocumentDefinitions } from "pdfmake/interfaces";
 import { aircraftNumbersByType } from "./aircraft-rules";
 import {
   ActualBusyInput,
@@ -107,7 +106,7 @@ export async function downloadMonthlyPlanExcel(
   assignments: PlanAssignment[],
   busyEntries: PlanBusyEntry[],
 ) {
-  const XLSXModule = await import("xlsx");
+  const XLSXModule = await import("xlsx-js-style");
   const XLSX = XLSXModule.default ?? XLSXModule;
   const matrix = buildMonthlyPlanMatrix(month, people, shifts, assignments, busyEntries);
   const tableRows = matrix.rows.map((row) => [
@@ -122,6 +121,70 @@ export async function downloadMonthlyPlanExcel(
     ...tableRows,
   ];
   const sheet = XLSX.utils.aoa_to_sheet(data);
+  const lastColumn = matrix.dates.length + 1;
+  const lastRow = data.length - 1;
+  const thinBorder = {
+    top: { style: "thin", color: { rgb: "B8C5CB" } },
+    bottom: { style: "thin", color: { rgb: "B8C5CB" } },
+    left: { style: "thin", color: { rgb: "B8C5CB" } },
+    right: { style: "thin", color: { rgb: "B8C5CB" } },
+  };
+  const fill = (rgb: string) => ({ patternType: "solid", fgColor: { rgb } });
+  const baseStyle = {
+    font: { name: "Arial", sz: 9, color: { rgb: "263F4C" } },
+    alignment: { horizontal: "center", vertical: "center", wrapText: true },
+    border: thinBorder,
+  };
+  const setStyle = (row: number, column: number, style: Record<string, unknown>) => {
+    const address = XLSX.utils.encode_cell({ r: row, c: column });
+    if (!sheet[address]) sheet[address] = { t: "s", v: "" };
+    sheet[address].s = style;
+  };
+
+  for (let column = 0; column <= lastColumn; column += 1) {
+    setStyle(0, column, {
+      ...baseStyle,
+      fill: fill("17384C"),
+      font: { name: "Arial", sz: 16, bold: true, color: { rgb: "FFFFFF" } },
+      alignment: { horizontal: "left", vertical: "center", wrapText: true },
+    });
+    setStyle(1, column, {
+      ...baseStyle,
+      fill: fill("0D8D82"),
+      font: { name: "Arial", sz: 11, bold: true, color: { rgb: "FFFFFF" } },
+      alignment: { horizontal: "left", vertical: "center", wrapText: true },
+    });
+    setStyle(2, column, {
+      ...baseStyle,
+      fill: fill("DDE9EC"),
+      font: { name: "Arial", sz: 9, bold: true, color: { rgb: "294652" } },
+    });
+  }
+
+  matrix.rows.forEach((row, rowIndex) => {
+    const excelRow = rowIndex + 3;
+    const rowFill = row.kind === "assignment"
+      ? row.role === "primary" ? "E6F2DE" : "FBE9D9"
+      : busyFill[row.activity!];
+    for (let column = 0; column <= lastColumn; column += 1) {
+      setStyle(excelRow, column, {
+        ...baseStyle,
+        fill: fill(rowFill),
+        font: {
+          name: "Arial",
+          sz: column < 2 ? 9 : 8,
+          bold: column < 2,
+          color: { rgb: "263F4C" },
+        },
+        alignment: {
+          horizontal: column === 0 && row.kind === "busy" ? "left" : "center",
+          vertical: "center",
+          wrapText: true,
+        },
+      });
+    }
+  });
+
   sheet["!merges"] = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: matrix.dates.length + 1 } },
     { s: { r: 1, c: 0 }, e: { r: 1, c: matrix.dates.length + 1 } },
@@ -130,145 +193,32 @@ export async function downloadMonthlyPlanExcel(
       e: { r: 4 + index * 2, c: 0 },
     })),
   ];
-  sheet["!cols"] = [{ wch: 24 }, { wch: 13 }, ...matrix.dates.map(() => ({ wch: 14 }))];
+  sheet["!cols"] = [{ wch: 27 }, { wch: 14 }, ...matrix.dates.map(() => ({ wch: 16 }))];
+  sheet["!rows"] = [
+    { hpt: 28 },
+    { hpt: 21 },
+    { hpt: 32 },
+    ...matrix.rows.map((row) => {
+      const maximumLines = Math.max(1, ...row.cells.map((cell) => cell ? cell.split("\n").length : 1));
+      return { hpt: Math.min(84, Math.max(row.kind === "busy" ? 30 : 25, maximumLines * 17)) };
+    }),
+  ];
+  sheet["!autofilter"] = { ref: XLSX.utils.encode_range({ r: 2, c: 0 }, { r: lastRow, c: lastColumn }) };
+  sheet["!margins"] = { left: 0.2, right: 0.2, top: 0.35, bottom: 0.35, header: 0.1, footer: 0.1 };
+  sheet["!pageSetup"] = { orientation: "landscape", paperSize: 8, fitToWidth: 1, fitToHeight: 0 };
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, "Месячный план");
   XLSX.writeFile(workbook, `mesyachnyy-plan-${month}.xlsx`);
 }
 
 const busyFill: Record<PlanBusyActivity, string> = {
-  dayoff: "#55c6e9",
-  periodic_training: "#e5e7e8",
-  trip: "#d2cece",
-  ground_training: "#f8df91",
-  auc_work: "#f7e295",
-  auc_study: "#f4b480",
-  standby: "#cce1de",
-  office: "#a9daf3",
-  vacation: "#ffd8a5",
+  dayoff: "55C6E9",
+  periodic_training: "E5E7E8",
+  trip: "D2CECE",
+  ground_training: "F8DF91",
+  auc_work: "F7E295",
+  auc_study: "F4B480",
+  standby: "CCE1DE",
+  office: "A9DAF3",
+  vacation: "FFD8A5",
 };
-
-export function buildMonthlyPlanPdf(
-  month: string,
-  people: MonthlyPlanExportPerson[],
-  shifts: ActualBusyInput[],
-  assignments: PlanAssignment[],
-  busyEntries: PlanBusyEntry[],
-  logoDataUrl?: string,
-): TDocumentDefinitions {
-  const matrix = buildMonthlyPlanMatrix(month, people, shifts, assignments, busyEntries);
-  const body: TableCell[][] = [[
-    { text: "Борт / занятость", bold: true, fillColor: "#edf3f5" },
-    { text: "Экипаж", bold: true, fillColor: "#edf3f5" },
-    ...matrix.dates.map((date) => ({ text: dateLabel(date), bold: true, alignment: "center" as const, fillColor: "#edf3f5" })),
-  ]];
-  matrix.rows.forEach((row) => {
-    if (row.kind === "assignment") {
-      const isPrimary = row.role === "primary";
-      body.push([
-        isPrimary
-          ? { text: `${row.aircraft}\n${row.aircraftType}`, rowSpan: 2, bold: true, alignment: "center", margin: [0, 4, 0, 0], fillColor: "#f7fafb" }
-          : {},
-        { text: row.label, bold: true, fillColor: isPrimary ? "#edf7e7" : "#fff0e3" },
-        ...row.cells.map((cell) => ({ text: cell || " ", alignment: "center" as const, fillColor: isPrimary ? "#edf7e7" : "#fff0e3" })),
-      ]);
-    } else {
-      const fillColor = busyFill[row.activity!];
-      body.push([
-        { text: row.label, colSpan: 2, bold: true, fillColor },
-        {},
-        ...row.cells.map((cell) => ({ text: cell || " ", alignment: "center" as const, fillColor })),
-      ]);
-    }
-  });
-  const header: Content = logoDataUrl
-    ? {
-      columns: [
-        { stack: [{ text: "Месячный план лётного состава", style: "title" }, { text: monthDisplay(month), style: "period" }] },
-        { image: logoDataUrl, width: 135, alignment: "right" },
-      ],
-      margin: [0, 0, 0, 12],
-    }
-    : { stack: [{ text: "Месячный план лётного состава", style: "title" }, { text: monthDisplay(month), style: "period" }], margin: [0, 0, 0, 12] };
-  return {
-    pageSize: "A3",
-    pageOrientation: "landscape",
-    pageMargins: [24, 24, 24, 28],
-    info: {
-      title: `Месячный план лётного состава — ${monthDisplay(month)}`,
-      author: "Штаб ЛС — Центр авиации «Солярис»",
-    },
-    content: [
-      header,
-      {
-        table: {
-          headerRows: 1,
-          widths: [67, 48, ...matrix.dates.map(() => 29)],
-          body,
-        },
-        layout: {
-          hLineColor: () => "#aebbc1",
-          vLineColor: () => "#aebbc1",
-          paddingLeft: () => 2,
-          paddingRight: () => 2,
-          paddingTop: () => 3,
-          paddingBottom: () => 3,
-        },
-      },
-    ],
-    footer: (currentPage, pageCount) => ({
-      columns: [
-        { text: "Штаб ЛС · Центр авиации «Солярис»" },
-        { text: `${currentPage} / ${pageCount}`, alignment: "right" },
-      ],
-      margin: [24, 8, 24, 0],
-      color: "#7b8b93",
-      fontSize: 7,
-    }),
-    defaultStyle: { font: "Roboto", fontSize: 5.7, color: "#304955", lineHeight: 1.05 },
-    styles: {
-      title: { fontSize: 18, bold: true, color: "#17384c" },
-      period: { fontSize: 11, bold: true, color: "#0d8d82", margin: [0, 3, 0, 0] },
-    },
-  };
-}
-
-async function getPdfMake() {
-  const [pdfMakeModule, fontModule] = await Promise.all([
-    import("pdfmake/build/pdfmake"),
-    import("pdfmake/build/vfs_fonts"),
-  ]);
-  const pdfMakePackage = pdfMakeModule as unknown as { default?: typeof pdfMakeModule };
-  const fontPackage = fontModule as unknown as { default?: Record<string, string>; vfs?: Record<string, string> };
-  const pdfMake = (pdfMakePackage.default ?? pdfMakeModule) as typeof pdfMakeModule;
-  pdfMake.vfs = fontPackage.default ?? fontPackage.vfs ?? {};
-  return pdfMake;
-}
-
-async function getLogo(): Promise<string | undefined> {
-  try {
-    const response = await fetch(new URL("solaris-logo.png", window.location.href).toString());
-    if (!response.ok) return undefined;
-    const blob = await response.blob();
-    return await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return undefined;
-  }
-}
-
-export async function downloadMonthlyPlanPdf(
-  month: string,
-  people: MonthlyPlanExportPerson[],
-  shifts: ActualBusyInput[],
-  assignments: PlanAssignment[],
-  busyEntries: PlanBusyEntry[],
-) {
-  const [pdfMake, logoDataUrl] = await Promise.all([getPdfMake(), getLogo()]);
-  pdfMake.createPdf(buildMonthlyPlanPdf(month, people, shifts, assignments, busyEntries, logoDataUrl))
-    .download(`mesyachnyy-plan-${month}.pdf`);
-}

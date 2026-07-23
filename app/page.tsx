@@ -656,7 +656,11 @@ export default function Home() {
 
   return <div className="app-shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">ЛС</div><div><strong>Штаб ЛС</strong><span>Рабочий контур</span></div></div>
+      <div className="brand"><div className="brand-mark">
+        {/* The public asset must stay relative so it also works under the GitHub Pages repository path. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="favicon-32x32.png" alt="" />
+      </div><div><strong>Штаб ЛС</strong><span>Рабочий контур</span></div></div>
       <nav className="main-nav" aria-label="Основная навигация">
         <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")} label="Главная" glyph="⌂" />
         <NavButton active={view === "shifts"} onClick={() => setView("shifts")} label="Полётные смены" glyph="◷" />
@@ -673,8 +677,9 @@ export default function Home() {
       </div>
     </aside>
     <main className="workspace" style={{ backgroundImage: 'linear-gradient(180deg, rgba(242, 245, 246, .62), rgba(242, 245, 246, .82)), url("solaris-berassom-bg.jpeg")' }}>
-      <header className="topbar"><div><p className="eyebrow">{new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date())}</p><h1>{view === "dashboard" ? "Оперативная информация" : view === "shifts" ? "Полётные смены" : view === "people" ? "Личный состав" : view === "personal" ? "Личные дела" : "Месячный план"}</h1></div>
-        <div className="top-actions"><span className={`save-state ${saveState}`}>{saveState === "saved" ? "Сохранено" : saveState === "saving" ? "Сохраняю…" : "Ошибка сохранения"}</span><WorldClocks /></div>
+      <header className="topbar"><div className="topbar-title"><p className="eyebrow current-date">{new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date())}</p><h1>{view === "dashboard" ? "Оперативная информация" : view === "shifts" ? "Полётные смены" : view === "people" ? "Личный состав" : view === "personal" ? "Личные дела" : "Месячный план"}</h1></div>
+        <WorldClocks />
+        <div className="top-actions"><span className={`save-state ${saveState}`}>{saveState === "saved" ? "Сохранено" : saveState === "saving" ? "Сохраняю…" : "Ошибка сохранения"}</span></div>
       </header>
       {!hydrated ? <Loading /> : view === "dashboard"
         ? <Dashboard people={data.people} shifts={monthSortedShifts} alerts={alerts} totalWork={totalWork} totalFlight={totalFlight} restMap={restMap} assumedCompliantRestIds={assumedCompliantRestIds} onAddPerson={() => setPersonModal("new")} onAddShift={() => setShiftModal("new")} />

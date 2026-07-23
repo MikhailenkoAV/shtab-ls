@@ -17,7 +17,7 @@ import {
   PlanBusyEntry,
   PlanRole,
 } from "./monthly-plan-rules";
-import { downloadMonthlyPlanExcel, downloadMonthlyPlanPdf } from "./monthly-plan-export";
+import { downloadMonthlyPlanExcel } from "./monthly-plan-export";
 
 type PlanPerson = {
   id: string;
@@ -82,7 +82,7 @@ export function MonthlyPlanView({
   const [month, setMonth] = useState(localMonth);
   const [assignmentCell, setAssignmentCell] = useState<{ date: string; aircraft: string; role: PlanRole } | null>(null);
   const [busyModal, setBusyModal] = useState<PlanBusyEntry | "new" | null>(null);
-  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
+  const [exporting, setExporting] = useState(false);
   const dates = useMemo(() => monthDates(month), [month]);
   const actualBusy = useMemo(() => shifts.filter((shift) => shift.activity !== "flight"), [shifts]);
   const monthAssignments = assignments.filter((assignment) => assignment.date.startsWith(month));
@@ -96,16 +96,15 @@ export function MonthlyPlanView({
     ...monthBusyEntries.map((entry) => entry.personId),
     ...actualBusy.filter((entry) => entry.date.startsWith(month)).map((entry) => entry.personId),
   ]).size;
-  async function exportPlan(format: "excel" | "pdf") {
-    setExporting(format);
+  async function exportPlan() {
+    setExporting(true);
     try {
-      if (format === "excel") await downloadMonthlyPlanExcel(month, people, shifts, assignments, busyEntries);
-      else await downloadMonthlyPlanPdf(month, people, shifts, assignments, busyEntries);
-      onNotify(`Месячный план сохранён в ${format === "excel" ? "Excel" : "PDF"}`);
+      await downloadMonthlyPlanExcel(month, people, shifts, assignments, busyEntries);
+      onNotify("Месячный план сохранён в Excel");
     } catch {
-      onNotify(`Не удалось сформировать ${format === "excel" ? "Excel" : "PDF"}`);
+      onNotify("Не удалось сформировать Excel");
     } finally {
-      setExporting(null);
+      setExporting(false);
     }
   }
 
@@ -118,8 +117,7 @@ export function MonthlyPlanView({
           <label className="plan-month-picker"><span>Месяц</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value || localMonth())} /></label>
           <button type="button" className="secondary-button" onClick={() => setMonth(shiftMonth(month, 1))}>→</button>
           <button type="button" className="secondary-button" onClick={() => setMonth(localMonth())}>Текущий месяц</button>
-          <button type="button" className="secondary-button plan-export-button" disabled={Boolean(exporting)} onClick={() => exportPlan("excel")}>{exporting === "excel" ? "Excel…" : "Excel"}</button>
-          <button type="button" className="secondary-button plan-export-button" disabled={Boolean(exporting)} onClick={() => exportPlan("pdf")}>{exporting === "pdf" ? "PDF…" : "PDF"}</button>
+          <button type="button" className="secondary-button plan-export-button" disabled={exporting} onClick={exportPlan}>{exporting ? "Excel…" : "Выгрузить в Excel"}</button>
           <button type="button" className="primary-button" onClick={() => setBusyModal("new")}>+ Добавить занятость</button>
         </div>
       </div>
