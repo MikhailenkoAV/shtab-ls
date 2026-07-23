@@ -2,6 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { activityUsesTime as usesTime, isRestNeutralActivity, normalizeActivityTiming } from "./activity-rules";
+import { aircraftNumbersForType, isAircraftNumberAllowed } from "./aircraft-rules";
 import { downloadEmploymentReport, downloadFlightReport } from "./monthly-report";
 import { CertificationRecord, getExpiryState, ImportAviabitModal, ImportPayload, PersonalFilesView } from "./personal-files";
 import {
@@ -756,7 +757,7 @@ function PersonModal({ person, onClose, onSubmit, onDelete }: { person: Person |
 
 function ShiftModal({ people, shift, onClose, onSubmit, onDelete }: { people: Person[]; shift: Shift | null; onClose: () => void; onSubmit: (shift: ShiftDraft) => void; onDelete?: () => void }) {
   const initialDate = shift?.periodStart ?? shift?.date ?? localIsoDate(new Date());
-  const [personId, setPersonId] = useState(shift?.personId ?? people[0]?.id ?? "");
+  const [personId, setPersonId] = useState(shift?.personId ?? "");
   const [date, setDate] = useState(initialDate);
   const [dateTo, setDateTo] = useState(shift?.periodEnd ?? initialDate);
   const [activity, setActivity] = useState<Activity>(shift?.periodActivity ?? shift?.activity ?? "flight");
@@ -784,19 +785,20 @@ function ShiftModal({ people, shift, onClose, onSubmit, onDelete }: { people: Pe
     const availableTypes = people.find((person) => person.id === nextPersonId)?.aircraftTypes ?? [];
     const nextAircraftType = availableTypes.length === 1 ? availableTypes[0] : "";
     setPersonId(nextPersonId);
-    setSegments((current) => current.map((item) => ({ ...item, aircraftType: nextAircraftType })));
+    setSegments((current) => current.map((item) => ({ ...item, aircraftType: nextAircraftType, aircraft: "" })));
     setError("");
   }
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (!personId) return;
+    if (!personId) { setError("Выберите сотрудника."); return; }
     if (supportsPeriod && (!dateTo || dateTo < date)) { setError("Дата окончания периода не может быть раньше даты начала."); return; }
     const safeStart = usesTime(activity) && activity !== "flight" ? normalizeTime(start, true) : "";
     const safeWork = usesTime(activity) && activity !== "flight" ? normalizeTime(work) : "";
     if (usesTime(activity) && activity !== "flight" && (!safeStart || !safeWork)) { setError("Проверьте время: минуты должны быть от 00 до 59."); return; }
     if (activity === "flight" && !selectedAircraftTypes.length) { setError("Сначала укажите типы ВС в карточке выбранного сотрудника."); return; }
     if (activity === "flight" && segments.some((item) => !item.aircraftType || !selectedAircraftTypes.includes(item.aircraftType))) { setError("Выберите тип ВС из допусков выбранного сотрудника."); return; }
+    if (activity === "flight" && segments.some((item) => aircraftNumbersForType(item.aircraftType).length > 0 && !isAircraftNumberAllowed(item.aircraftType, item.aircraft))) { setError("Выберите бортовой номер из списка для указанного типа ВС."); return; }
     if (activity === "flight" && segments.some((item) => {
       const dutyStart = normalizeTime(item.dutyStart, true); const dutyEnd = normalizeTime(item.dutyEnd, true);
       return !dutyStart || !dutyEnd || dutyStart === dutyEnd;
@@ -828,7 +830,7 @@ function ShiftModal({ people, shift, onClose, onSubmit, onDelete }: { people: Pe
 
   return <Modal title={shift ? "Редактирование записи" : "Новая запись"} subtitle={shift?.periodId ? "Изменения применятся ко всему связанному периоду" : "Данные о выполненной занятости"} onClose={onClose} wide>
     <form onSubmit={submit} className="form-stack">
-      <Field label="Сотрудник"><select value={personId} onChange={(event) => changePerson(event.target.value)}>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field>
+      <Field label="Сотрудник"><select required value={personId} onChange={(event) => changePerson(event.target.value)}><option value="">Выберите сотрудника</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field>
       <Field label="Вид занятости"><div className="activity-grid">{Object.entries(activityLabels).map(([key, label]) => <button type="button" key={key} className={activity === key ? "selected" : ""} onClick={() => { setActivity(key as Activity); setError(""); }}>{label}</button>)}</div></Field>
       {supportsPeriod ? <div className="form-grid two"><Field label="Период с"><input required type="date" value={date} onChange={(event) => { setDate(event.target.value); if (dateTo < event.target.value) setDateTo(event.target.value); }} /></Field><Field label="Период по" hint="Каждый календарный день"><input required type="date" min={date} value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field></div> : <Field label="Дата"><input required type="date" value={date} onChange={(event) => { setDate(event.target.value); setDateTo(event.target.value); }} /></Field>}
       {usesTime(activity) && activity !== "flight" && <div className="form-grid two"><Field label="Начало" hint="Например, 0830 → 08:30"><TimeEntry required clock value={start} onChange={setStart} /></Field><Field label="Рабочее время" hint="Например, 800 → 08:00"><TimeEntry required value={work} onChange={setWork} /></Field></div>}
@@ -839,8 +841,8 @@ function ShiftModal({ people, shift, onClose, onSubmit, onDelete }: { people: Pe
             <Field label="Начало смены" hint="0830 → 08:30"><TimeEntry required clock value={segment.dutyStart} onChange={(value) => setSegments((current) => current.map((item) => item.id === segment.id ? { ...item, dutyStart: value } : item))} /></Field>
             <Field label="Конец смены" hint="1630 → 16:30"><TimeEntry required clock value={segment.dutyEnd} onChange={(value) => setSegments((current) => current.map((item) => item.id === segment.id ? { ...item, dutyEnd: value } : item))} /></Field>
             <Field label="Кресло"><select value={segment.seat} onChange={(event) => setSegments((current) => current.map((item) => item.id === segment.id ? { ...item, seat: event.target.value as Seat } : item))}>{seatOptions.map((seat) => <option key={seat}>{seat}</option>)}</select></Field>
-            <Field label="Тип ВС"><select required disabled={!selectedAircraftTypes.length} value={segment.aircraftType} onChange={(event) => setSegments((current) => current.map((item) => item.id === segment.id ? { ...item, aircraftType: event.target.value } : item))}><option value="">{selectedAircraftTypes.length ? "Выберите тип ВС" : "Нет указанных типов ВС"}</option>{selectedAircraftTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></Field>
-            <Field label="Бортовой №"><input value={segment.aircraft} onChange={(event) => setSegments((current) => current.map((item) => item.id === segment.id ? { ...item, aircraft: event.target.value } : item))} placeholder="RA-00000" /></Field>
+            <Field label="Тип ВС"><select required disabled={!personId || !selectedAircraftTypes.length} value={segment.aircraftType} onChange={(event) => setSegments((current) => current.map((item) => item.id === segment.id ? { ...item, aircraftType: event.target.value, aircraft: "" } : item))}><option value="">{!personId ? "Сначала выберите сотрудника" : selectedAircraftTypes.length ? "Выберите тип ВС" : "Нет указанных типов ВС"}</option>{selectedAircraftTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></Field>
+            <Field label="Бортовой №"><AircraftNumberSelect aircraftType={segment.aircraftType} value={segment.aircraft} onChange={(value) => setSegments((current) => current.map((item) => item.id === segment.id ? { ...item, aircraft: value } : item))} /></Field>
             <Field label="Цель"><select value={segment.purpose} onChange={(event) => setSegments((current) => current.map((item) => item.id === segment.id ? { ...item, purpose: event.target.value } : item))}>{flightPurposes.map((purpose) => <option key={purpose}>{purpose}</option>)}</select></Field>
             <Field label="Полётное" hint="0130 → 01:30"><TimeEntry value={segment.flight} onChange={(value) => setSegments((current) => current.map((item) => item.id === segment.id ? { ...item, flight: value } : item))} /></Field>
             <Field label="Ночь" hint="0045 → 00:45"><TimeEntry value={segment.night} onChange={(value) => setSegments((current) => current.map((item) => item.id === segment.id ? { ...item, night: value } : item))} /></Field>
@@ -859,6 +861,22 @@ function ShiftModal({ people, shift, onClose, onSubmit, onDelete }: { people: Pe
 
 function TimeEntry({ value, onChange, clock, required }: { value: string; onChange: (value: string) => void; clock?: boolean; required?: boolean }) {
   return <input type="text" inputMode="numeric" required={required} value={value} placeholder="0000" onChange={(event) => onChange(compactTime(event.target.value))} onBlur={() => { const normalized = normalizeTime(value, clock); if (normalized) onChange(normalized); }} />;
+}
+
+function AircraftNumberSelect({ aircraftType, value, onChange }: { aircraftType: string; value: string; onChange: (value: string) => void }) {
+  const availableNumbers = aircraftNumbersForType(aircraftType);
+  const legacyNumber = value && !availableNumbers.length ? value : "";
+  const options = legacyNumber ? [legacyNumber] : [...availableNumbers];
+  const displayedValue = options.includes(value) ? value : "";
+  const placeholder = !aircraftType
+    ? "Сначала выберите тип ВС"
+    : options.length
+      ? "Выберите бортовой №"
+      : "Для типа ВС борта не указаны";
+  return <select required={availableNumbers.length > 0} disabled={!aircraftType || !options.length} value={displayedValue} onChange={(event) => onChange(event.target.value)}>
+    <option value="">{placeholder}</option>
+    {options.map((aircraftNumber) => <option key={aircraftNumber} value={aircraftNumber}>{aircraftNumber}</option>)}
+  </select>;
 }
 
 function CheckboxGroup({ label, options, values, onChange, columns = 3 }: { label: string; options: string[]; values: string[]; onChange: (values: string[]) => void; columns?: 3 | 4 }) {
