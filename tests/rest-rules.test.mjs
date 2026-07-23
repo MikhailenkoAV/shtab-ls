@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  activityUsesTime,
+  isRestNeutralActivity,
+  normalizeActivityTiming,
+} from "../app/activity-rules.ts";
+import {
   calculateRestIssues,
   DAILY_REST_MINUTES,
   isSundayDate,
@@ -9,6 +14,13 @@ import {
 } from "../app/rest-rules.ts";
 
 const time = (value) => new Date(value).getTime();
+
+test("periodic training has no entered time and is neutral for rest control", () => {
+  assert.equal(activityUsesTime("periodic_training"), false);
+  assert.equal(isRestNeutralActivity("periodic_training"), true);
+  assert.deepEqual(normalizeActivityTiming("periodic_training", "08:00", 480), { start: "", workMinutes: 0 });
+  assert.deepEqual(normalizeActivityTiming("office", "08:00", 480), { start: "08:00", workMinutes: 480 });
+});
 
 test("periodic-training calendar recognizes Sunday", () => {
   assert.equal(isSundayDate("2026-07-26"), true);
@@ -56,6 +68,48 @@ test("48 hours are required after two consecutive split shifts", () => {
   assert.equal(issues[0].shiftId, "next");
   assert.equal(issues[0].requiredMinutes, SPLIT_REST_MINUTES);
   assert.equal(issues[0].actualMinutes, 20 * 60);
+});
+
+test("periodic training confirms the rest boundary and resets weekly control", () => {
+  const workDays = Array.from({ length: 6 }, (_, index) => {
+    const day = String(index + 1).padStart(2, "0");
+    return {
+      shiftId: `day-${day}`,
+      personId: "pilot",
+      date: `2026-07-${day}`,
+      start: time(`2026-07-${day}T08:00:00`),
+      end: time(`2026-07-${day}T17:00:00`),
+    };
+  });
+  const issues = calculateRestIssues([
+    ...workDays,
+    {
+      shiftId: "training",
+      personId: "pilot",
+      date: "2026-07-07",
+      start: time("2026-07-07T00:00:00"),
+      end: time("2026-07-07T00:00:00"),
+      assumedCompliant: true,
+    },
+    {
+      shiftId: "next-flight",
+      personId: "pilot",
+      date: "2026-07-08",
+      start: time("2026-07-08T08:00:00"),
+      end: time("2026-07-08T16:00:00"),
+    },
+  ], []);
+  assert.deepEqual(issues, []);
+});
+
+test("periodic training resets the 48-hour split-shift sequence", () => {
+  const issues = calculateRestIssues([], [
+    { shiftId: "split-one", personId: "pilot", date: "2026-07-01", start: time("2026-07-01T08:00:00"), end: time("2026-07-01T12:00:00"), split: true },
+    { shiftId: "split-two", personId: "pilot", date: "2026-07-02", start: time("2026-07-02T08:00:00"), end: time("2026-07-02T12:00:00"), split: true },
+    { shiftId: "training", personId: "pilot", date: "2026-07-03", start: time("2026-07-03T00:00:00"), end: time("2026-07-03T00:00:00"), split: false, assumedCompliant: true },
+    { shiftId: "next-flight", personId: "pilot", date: "2026-07-03", start: time("2026-07-03T08:00:00"), end: time("2026-07-03T16:00:00"), split: false },
+  ]);
+  assert.deepEqual(issues, []);
 });
 
 test("overlapping work intervals are not shown as rest violations", () => {

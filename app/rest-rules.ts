@@ -8,6 +8,7 @@ export type RestDayInput = {
   date: string;
   start: number;
   end: number;
+  assumedCompliant?: boolean;
 };
 
 export type RestIntervalInput = {
@@ -17,6 +18,7 @@ export type RestIntervalInput = {
   start: number;
   end: number;
   split: boolean;
+  assumedCompliant?: boolean;
 };
 
 export type RestIssue = {
@@ -46,10 +48,19 @@ export function calculateRestIssues(daysInput: RestDayInput[], intervalsInput: R
   daysInput.forEach((day) => daysByPerson.set(day.personId, [...(daysByPerson.get(day.personId) ?? []), day]));
   daysByPerson.forEach((unsortedDays, personId) => {
     const days = [...unsortedDays].sort((left, right) => left.start - right.start);
-    let consecutiveWorkDays = 1;
-    days.forEach((day, index) => {
-      if (!index) return;
-      const previous = days[index - 1];
+    let consecutiveWorkDays = 0;
+    let previous: RestDayInput | null = null;
+    days.forEach((day) => {
+      if (day.assumedCompliant) {
+        consecutiveWorkDays = 0;
+        previous = null;
+        return;
+      }
+      if (!previous) {
+        consecutiveWorkDays = 1;
+        previous = day;
+        return;
+      }
       const rest = (day.start - previous.end) / 60_000;
       const weeklyRestRequired = consecutiveWorkDays >= 6;
 
@@ -82,6 +93,7 @@ export function calculateRestIssues(daysInput: RestDayInput[], intervalsInput: R
       const hasFullWeeklyRest = rest >= WEEKLY_REST_MINUTES;
       const interruptedBeforeSixDays = consecutiveWorkDays < 6 && calendarDayDifference(day.date, previous.date) > 1;
       consecutiveWorkDays = hasFullWeeklyRest || interruptedBeforeSixDays ? 1 : consecutiveWorkDays + 1;
+      previous = day;
     });
   });
 
@@ -91,6 +103,10 @@ export function calculateRestIssues(daysInput: RestDayInput[], intervalsInput: R
     const intervals = [...unsortedIntervals].sort((left, right) => left.start - right.start || left.end - right.end);
     let splitRun = 0;
     intervals.forEach((interval, index) => {
+      if (interval.assumedCompliant) {
+        splitRun = 0;
+        return;
+      }
       const previous = intervals[index - 1];
       if (previous && splitRun >= 2) {
         const rest = (interval.start - previous.end) / 60_000;
