@@ -97,7 +97,7 @@ function collectPersonTotals(person: FlightReportPerson, shifts: FlightReportShi
     night += segmentNight;
     addDetail(details, { seat, aircraftType, purpose, flight: segmentFlight, night: segmentNight });
   }));
-  return { flight, night, shiftCount: shifts.length, details };
+  return { flight, night, shiftCount: shifts.reduce((sum, shift) => sum + Math.max(1, shift.segments?.length ?? 0), 0), details };
 }
 
 function flightDetailsTable(title: string, details: Map<string, FlightDetail>): Content {
@@ -292,6 +292,24 @@ export function buildFlightReport(
 }
 
 function employmentPersonSection(person: FlightReportPerson, dates: string[], shifts: FlightReportShift[], pageBreak: boolean): Content {
+  const activityLabel = (shift: FlightReportShift): string => {
+    const label = activityLabels[shift.activity] ?? shift.activity;
+    if (shift.activity !== "flight") return label;
+    const aircraftTypes = [...new Set((shift.segments ?? [])
+      .map((segment) => segment.aircraftType?.trim())
+      .filter((value): value is string => Boolean(value)))];
+    if (!aircraftTypes.length && person.aircraftTypes.length === 1) aircraftTypes.push(person.aircraftTypes[0]);
+    return aircraftTypes.length ? `${label} (${aircraftTypes.join(", ")})` : label;
+  };
+  const flightTime = (shift: FlightReportShift, kind: "total" | "instructor" | "night"): string => {
+    if (shift.activity !== "flight") return "—";
+    const minutes = (shift.segments ?? []).reduce((sum, segment) => {
+      if (kind === "night") return sum + Math.max(0, segment.nightMinutes || 0);
+      if (kind === "instructor" && !segment.seat?.toLocaleLowerCase("ru-RU").includes("инструктор")) return sum;
+      return sum + Math.max(0, segment.flightMinutes || 0);
+    }, 0);
+    return minutes ? formatMinutes(minutes) : "—";
+  };
   const rows = dates.map((date) => {
     const dayShifts = shifts.filter((shift) => shift.personId === person.id && shift.date === date)
       .sort((left, right) => (left.start ?? "").localeCompare(right.start ?? ""));
@@ -301,13 +319,19 @@ function employmentPersonSection(person: FlightReportPerson, dates: string[], sh
       { text: weekday },
       { text: "Нет записи", color: "#89979e", italics: true },
       { text: "—", alignment: "right" as const },
+      { text: "—", alignment: "right" as const },
+      { text: "—", alignment: "right" as const },
+      { text: "—", alignment: "right" as const },
       { text: "—" },
     ];
     return [
       { text: displayDate(date) },
       { text: weekday },
-      { text: dayShifts.map((shift) => activityLabels[shift.activity] ?? shift.activity).join("\n") },
+      { text: dayShifts.map(activityLabel).join("\n") },
       { text: dayShifts.map((shift) => shift.workMinutes ? formatMinutes(shift.workMinutes) : "—").join("\n"), alignment: "right" as const },
+      { text: dayShifts.map((shift) => flightTime(shift, "total")).join("\n"), alignment: "right" as const },
+      { text: dayShifts.map((shift) => flightTime(shift, "instructor")).join("\n"), alignment: "right" as const },
+      { text: dayShifts.map((shift) => flightTime(shift, "night")).join("\n"), alignment: "right" as const },
       { text: dayShifts.map((shift) => shift.note?.trim() || "—").join("\n") },
     ];
   });
@@ -318,13 +342,16 @@ function employmentPersonSection(person: FlightReportPerson, dates: string[], sh
       {
         table: {
           headerRows: 1,
-          widths: [70, 42, 190, 72, "*"],
+          widths: [58, 34, 150, 56, 58, 68, 52, "*"],
           body: [
             [
               { text: "Дата", style: "tableHeader" },
               { text: "День", style: "tableHeader" },
               { text: "Вид занятости", style: "tableHeader" },
               { text: "Рабочее", style: "tableHeader", alignment: "right" },
+              { text: "Полётное время", style: "tableHeader", alignment: "right" },
+              { text: "Из них инструктором", style: "tableHeader", alignment: "right" },
+              { text: "Из них ночь", style: "tableHeader", alignment: "right" },
               { text: "Примечание", style: "tableHeader" },
             ],
             ...rows,
@@ -352,7 +379,7 @@ export function buildEmploymentReport(
     .filter((person) => personId ? person.id === personId : person.active || peopleWithEntries.has(person.id))
     .sort((left, right) => left.name.localeCompare(right.name, "ru-RU"));
   const dates = datesBetween(dateFrom, dateTo);
-  const content: Content[] = reportHeader("Ежедневная занятость сотрудников", dateFrom, dateTo, logoDataUrl);
+  const content: Content[] = reportHeader("Месячный отчёт", dateFrom, dateTo, logoDataUrl);
   if (!includedPeople.length) content.push({ text: "В составе нет сотрудников для формирования отчёта.", style: "empty" });
   includedPeople.forEach((person, index) => content.push(employmentPersonSection(person, dates, periodShifts, index > 0)));
 
@@ -361,9 +388,9 @@ export function buildEmploymentReport(
     pageOrientation: "landscape",
     pageMargins: [36, 42, 36, 38],
     info: {
-      title: `Ежедневная занятость за ${periodLabel(dateFrom, dateTo)}`,
+      title: `Месячный отчёт за ${periodLabel(dateFrom, dateTo)}`,
       author: "Штаб ЛС - Центр авиации «Солярис»",
-      subject: personId ? "Ежедневная занятость сотрудника" : "Ежедневная занятость всего состава",
+      subject: personId ? "Месячный отчёт сотрудника" : "Месячный отчёт по всему составу",
     },
     content,
     footer: reportFooter,
@@ -421,5 +448,5 @@ export async function downloadEmploymentReport(
 ) {
   const [pdfMake, logoDataUrl] = await Promise.all([getPdfMake(), getReportLogo()]);
   const scope = personId ? "pilot" : "all";
-  pdfMake.createPdf(buildEmploymentReport(dateFrom, dateTo, people, shifts, personId, logoDataUrl)).download(`zanyatost-${dateFrom}-${dateTo}-${scope}.pdf`);
+  pdfMake.createPdf(buildEmploymentReport(dateFrom, dateTo, people, shifts, personId, logoDataUrl)).download(`mesyachnyy-otchet-${dateFrom}-${dateTo}-${scope}.pdf`);
 }

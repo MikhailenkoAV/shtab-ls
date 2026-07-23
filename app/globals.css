@@ -73,6 +73,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .panel { overflow: hidden; border: 1px solid rgba(210,221,226,.92); border-radius: 15px; background: rgba(255,255,255,.95); box-shadow: var(--shadow); backdrop-filter: blur(5px); }
 .panel-heading { min-height: 78px; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 21px; border-bottom: 1px solid #e7ecef; }
 .panel-heading h2 { margin: 0; color: #183245; font-size: 17px; letter-spacing: -.015em; }
+.control-rules { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; padding: 9px 21px; border-bottom: 1px solid #e7ecef; color: #637986; background: #f7fafb; font-size: 10px; }
+.control-rules strong { flex: none; color: #31546a; }
 .count-badge { display: grid; width: 29px; height: 29px; place-items: center; border-radius: 50%; color: #9e4b47; background: #fce9e7; font-size: 11px; font-weight: 800; }
 .good-state { display: flex; gap: 13px; padding: 25px 22px; }
 .good-state > span { display: grid; width: 32px; height: 32px; flex: none; place-items: center; border-radius: 50%; color: #25735b; background: #def2ea; font-weight: 900; }
@@ -119,7 +121,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .journal-summary { padding: 9px 18px; color: #7b8b93; background: #f5f8f9; font-size: 10px; }
 .journal-summary strong { color: #334e5c; }
 .table-scroll { overflow-x: auto; }
-.table-panel table { min-width: 1120px; }
+.table-panel table { min-width: 1260px; }
 table { width: 100%; border-collapse: collapse; font-size: 11px; }
 th { padding: 12px 15px; color: #7a8992; background: #f7f9fa; text-align: left; font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; }
 td { padding: 14px 15px; border-top: 1px solid #edf0f2; color: #5a6d78; white-space: nowrap; }
@@ -172,7 +174,12 @@ td strong { color: #314956; }
 .records-main { min-width: 0; display: grid; gap: 14px; }
 .record-hero { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 21px 23px; }
 .record-hero h2 { margin: 0; color: #173448; font-size: 22px; }
-.record-hero > div > span { display: block; margin-top: 5px; color: #7c8d95; font-size: 11px; }
+.record-person > span { display: block; margin-top: 5px; color: #7c8d95; font-size: 11px; }
+.record-hero-side { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.monthly-flight-card { min-width: 170px; padding: 11px 14px; border: 1px solid #cfe2e1; border-left: 4px solid var(--teal); border-radius: 10px; background: #f2f8f7; }
+.monthly-flight-card span, .monthly-flight-card strong { display: block; }
+.monthly-flight-card span { color: #687f87; font-size: 8px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.monthly-flight-card strong { margin-top: 5px; color: #17675f; font-size: 17px; }
 .hero-actions { display: flex; gap: 9px; }
 .record-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .record-metric { padding: 14px 16px; border: 1px solid #e0e7ea; border-left: 4px solid #aab8bf; border-radius: 11px; background: white; }
@@ -264,9 +271,19 @@ td strong { color: #314956; }
 .segments { display: grid; gap: 10px; padding: 15px; border: 1px solid #dfe7e9; border-radius: 11px; background: #f8fafb; }
 .section-label { display: flex; align-items: center; justify-content: space-between; }
 .section-label strong { color: #425c69; font-size: 11px; }
-.segment-row { display: grid; grid-template-columns: 25px .82fr .65fr .82fr .62fr .62fr .62fr 26px; gap: 8px; align-items: end; padding: 11px; border: 1px solid #e1e7e9; border-radius: 9px; background: white; }
+.segment-row { display: grid; grid-template-columns: 25px minmax(0, 1fr) 26px; gap: 10px; align-items: start; padding: 11px; border: 1px solid #e1e7e9; border-radius: 9px; background: white; }
 .segment-number { align-self: center; display: grid; width: 23px; height: 23px; place-items: center; border-radius: 50%; color: #4f7c82; background: #eaf2f3; font-size: 9px; font-weight: 800; }
+.segment-content { min-width: 0; display: grid; gap: 10px; }
+.segment-field-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; }
+.split-shift-checkbox { display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 7px 10px; border: 1px solid #dce5e7; border-radius: 8px; color: #526b77; background: #f8fbfb; font-size: 10px; font-weight: 700; cursor: pointer; }
+.split-shift-checkbox input { accent-color: var(--teal); }
 .remove-segment { width: 26px; height: 41px; border: 0; color: #a55e5e; background: transparent; font-size: 20px; }
+.split-pill { display: inline-block; min-width: 32px; padding: 4px 7px; border-radius: 999px; color: #76868e; background: #eef2f3; text-align: center; font-size: 9px; font-weight: 800; }
+.split-pill.active { color: #81571f; background: #fff0cf; }
+.journal-activity, .aircraft-cell, .flight-cell { display: grid; gap: 4px; }
+.journal-activity { justify-items: start; }
+.aircraft-cell strong, .flight-cell strong { color: #314956; font-size: 10px; }
+.aircraft-cell small, .flight-cell small { color: #82919a; font-size: 9px; }
 .form-actions { display: flex; justify-content: flex-end; gap: 9px; padding-top: 5px; }
 .form-error { padding: 10px 12px; border-radius: 8px; color: #9f3f3f; background: #fff0ee; font-size: 10px; }
 .report-scope-note { padding: 11px 13px; border: 1px solid #dce8e8; border-radius: 9px; color: #5f747e; background: #f3f8f8; font-size: 10px; line-height: 1.5; }
@@ -299,9 +316,8 @@ td strong { color: #314956; }
   .people-grid { padding: 12px; }
   .form-grid.two, .form-grid.three { grid-template-columns: 1fr; }
   .activity-grid { grid-template-columns: repeat(2, 1fr); }
-  .segment-row { grid-template-columns: 1fr 1fr; }
-  .segment-number { grid-column: 1; grid-row: 1; justify-self: start; }
-  .remove-segment { grid-column: 2; grid-row: 1; justify-self: end; }
+  .segment-row { grid-template-columns: 25px minmax(0, 1fr) 26px; }
+  .segment-field-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .journal-filters { grid-template-columns: 1fr; }
   .journal-heading-actions { width: 100%; justify-content: stretch; }
   .journal-heading-actions .secondary-button, .journal-heading-actions .primary-button { flex: 1; }
@@ -309,6 +325,8 @@ td strong { color: #314956; }
   .pilot-list { position: static; min-height: 0; }
   .pilot-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .record-hero { align-items: flex-start; flex-direction: column; }
+  .record-hero-side { width: 100%; align-items: stretch; flex-direction: column; }
+  .monthly-flight-card { width: 100%; }
   .record-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .records-toolbar { align-items: stretch; flex-direction: column; }
   .records-toolbar > input { width: 100%; }
@@ -330,4 +348,5 @@ td strong { color: #314956; }
   .qualification-list article { grid-template-columns: 28px 1fr; }
   .qualification-list article > div:not(.qualification-index):not(.qualification-actions) { grid-column: 2; }
   .qualification-actions { grid-column: 2; }
+  .segment-field-grid { grid-template-columns: 1fr; }
 }

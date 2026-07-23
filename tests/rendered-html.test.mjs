@@ -47,23 +47,43 @@ test("period report aggregates chair, aircraft type, purpose, total and night fl
   assert.doesNotMatch(serialized, /10:00/);
 });
 
-test("daily employment report contains every calendar day and all activity details", () => {
+test("monthly report contains every calendar day, aircraft types and flight-time columns", () => {
   const report = buildEmploymentReport(
     "2026-07-10",
-    "2026-07-12",
-    [{ id: "pilot", name: "Иванов Иван Иванович", position: "Командир ВС", aircraftTypes: ["Ми-8"], active: true }],
+    "2026-07-13",
+    [{ id: "pilot", name: "Иванов Иван Иванович", position: "Командир ВС", aircraftTypes: ["AW139", "AS350"], active: true }],
     [
       { personId: "pilot", date: "2026-07-10", activity: "trip", workMinutes: 0, note: "Москва", segments: [] },
+      {
+        personId: "pilot",
+        date: "2026-07-11",
+        activity: "flight",
+        workMinutes: 480,
+        note: "Два полёта",
+        segments: [
+          { aircraft: "RA-00001", aircraftType: "AW139", seat: "КВС", purpose: "АОН", flightMinutes: 120, nightMinutes: 30 },
+          { aircraft: "RA-00002", aircraftType: "AS350", seat: "Пилот-инструктор", purpose: "КВП", flightMinutes: 90, nightMinutes: 15 },
+        ],
+      },
       { personId: "pilot", date: "2026-07-12", activity: "periodic_training", workMinutes: 480, note: "АУЦ", segments: [] },
     ],
     "pilot",
   );
   const serialized = JSON.stringify(report);
+  assert.match(serialized, /Месячный отчёт/);
   assert.match(serialized, /10\.07\.2026/);
   assert.match(serialized, /11\.07\.2026/);
   assert.match(serialized, /12\.07\.2026/);
+  assert.match(serialized, /13\.07\.2026/);
   assert.match(serialized, /Командировка/);
   assert.match(serialized, /Периодическая подготовка/);
+  assert.match(serialized, /Полётная смена \(AW139, AS350\)/);
+  assert.match(serialized, /Полётное время/);
+  assert.match(serialized, /Из них инструктором/);
+  assert.match(serialized, /Из них ночь/);
+  assert.match(serialized, /3:30/);
+  assert.match(serialized, /1:30/);
+  assert.match(serialized, /0:45/);
   assert.match(serialized, /Нет записи/);
   assert.match(serialized, /8:00/);
   assert.match(serialized, /Москва/);
