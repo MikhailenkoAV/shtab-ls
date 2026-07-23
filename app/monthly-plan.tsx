@@ -8,11 +8,16 @@ import {
   availablePeopleForAssignment,
   dateInPlanEntry,
   monthDates,
+  planBusyActivities,
+  planBusyLabels,
+  planPersonShortName,
+  planRoleLabels,
   PlanAssignment,
   PlanBusyActivity,
   PlanBusyEntry,
   PlanRole,
 } from "./monthly-plan-rules";
+import { downloadMonthlyPlanExcel, downloadMonthlyPlanPdf } from "./monthly-plan-export";
 
 type PlanPerson = {
   id: string;
@@ -23,24 +28,6 @@ type PlanPerson = {
 
 type PlanShift = ActualBusyInput;
 
-const roleLabels: Record<PlanRole, string> = {
-  primary: "Основной",
-  reserve: "Резерв",
-};
-
-const busyLabels: Record<PlanBusyActivity, string> = {
-  dayoff: "Выходной",
-  periodic_training: "Периодическая подготовка",
-  trip: "Командировка",
-  ground_training: "Наземная подготовка",
-  auc_work: "Работа в АУЦ",
-  auc_study: "Учёба в АУЦ",
-  standby: "Ожидание полёта",
-  office: "Работа в офисе",
-  vacation: "Отпуск",
-};
-
-const busyActivities = Object.keys(busyLabels) as PlanBusyActivity[];
 const aircraftNumbers = Object.values(aircraftNumbersByType).flat();
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -54,12 +41,6 @@ function monthLabel(month: string): string {
   return new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric" })
     .format(new Date(`${month}-01T12:00:00`))
     .replace(" г.", "");
-}
-
-function personShortName(name: string): string {
-  const [surname = "", first = "", middle = ""] = name.trim().split(/\s+/);
-  const initials = [first, middle].filter(Boolean).map((part) => `${part[0]}.`).join("");
-  return initials ? `${surname} ${initials}` : surname;
 }
 
 function shiftMonth(month: string, offset: number): string {
@@ -101,6 +82,7 @@ export function MonthlyPlanView({
   const [month, setMonth] = useState(localMonth);
   const [assignmentCell, setAssignmentCell] = useState<{ date: string; aircraft: string; role: PlanRole } | null>(null);
   const [busyModal, setBusyModal] = useState<PlanBusyEntry | "new" | null>(null);
+  const [exporting, setExporting] = useState<"excel" | "pdf" | null>(null);
   const dates = useMemo(() => monthDates(month), [month]);
   const actualBusy = useMemo(() => shifts.filter((shift) => shift.activity !== "flight"), [shifts]);
   const monthAssignments = assignments.filter((assignment) => assignment.date.startsWith(month));
@@ -114,6 +96,18 @@ export function MonthlyPlanView({
     ...monthBusyEntries.map((entry) => entry.personId),
     ...actualBusy.filter((entry) => entry.date.startsWith(month)).map((entry) => entry.personId),
   ]).size;
+  async function exportPlan(format: "excel" | "pdf") {
+    setExporting(format);
+    try {
+      if (format === "excel") await downloadMonthlyPlanExcel(month, people, shifts, assignments, busyEntries);
+      else await downloadMonthlyPlanPdf(month, people, shifts, assignments, busyEntries);
+      onNotify(`Месячный план сохранён в ${format === "excel" ? "Excel" : "PDF"}`);
+    } catch {
+      onNotify(`Не удалось сформировать ${format === "excel" ? "Excel" : "PDF"}`);
+    } finally {
+      setExporting(null);
+    }
+  }
 
   return <>
     <section className="panel plan-panel">
@@ -124,6 +118,8 @@ export function MonthlyPlanView({
           <label className="plan-month-picker"><span>Месяц</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value || localMonth())} /></label>
           <button type="button" className="secondary-button" onClick={() => setMonth(shiftMonth(month, 1))}>→</button>
           <button type="button" className="secondary-button" onClick={() => setMonth(localMonth())}>Текущий месяц</button>
+          <button type="button" className="secondary-button plan-export-button" disabled={Boolean(exporting)} onClick={() => exportPlan("excel")}>{exporting === "excel" ? "Excel…" : "Excel"}</button>
+          <button type="button" className="secondary-button plan-export-button" disabled={Boolean(exporting)} onClick={() => exportPlan("pdf")}>{exporting === "pdf" ? "PDF…" : "PDF"}</button>
           <button type="button" className="primary-button" onClick={() => setBusyModal("new")}>+ Добавить занятость</button>
         </div>
       </div>
@@ -144,18 +140,18 @@ export function MonthlyPlanView({
               const aircraftType = aircraftTypeForNumber(aircraft, aircraftNumbersByType);
               return <tr className={`plan-aircraft-row ${role}`} key={`${aircraft}-${role}`}>
                 {roleIndex === 0 && <th className="plan-aircraft-name" rowSpan={2}><strong>{aircraft}</strong><span>{aircraftType}</span></th>}
-                <th className="plan-role-name">{roleLabels[role]}</th>
+                <th className="plan-role-name">{planRoleLabels[role]}</th>
                 {dates.map((date) => {
                   const current = assignments.find((item) => item.date === date && item.aircraft === aircraft && item.role === role);
                   const person = people.find((item) => item.id === current?.personId);
                   const weekend = dayMeta(date).weekend;
-                  return <td className={weekend ? "weekend" : ""} key={date}><button type="button" className={current ? "filled" : ""} onClick={() => setAssignmentCell({ date, aircraft, role })}>{person ? personShortName(person.name) : "+"}</button></td>;
+                  return <td className={weekend ? "weekend" : ""} key={date}><button type="button" className={current ? "filled" : ""} onClick={() => setAssignmentCell({ date, aircraft, role })}>{person ? planPersonShortName(person.name) : "+"}</button></td>;
                 })}
               </tr>;
             }))}
             <tr className="plan-divider"><td colSpan={dates.length + 2}>Занятость вне полётного плана</td></tr>
-            {busyActivities.map((activity) => <tr className={`plan-busy-row ${activity}`} key={activity}>
-              <th className="plan-busy-name" colSpan={2}>{busyLabels[activity]}</th>
+            {planBusyActivities.map((activity) => <tr className={`plan-busy-row ${activity}`} key={activity}>
+              <th className="plan-busy-name" colSpan={2}>{planBusyLabels[activity]}</th>
               {dates.map((date) => {
                 const planned = busyEntries.filter((entry) => entry.activity === activity && dateInPlanEntry(date, entry));
                 const actual = actualBusy.filter((entry) => entry.activity === activity && entry.date === date);
@@ -164,7 +160,7 @@ export function MonthlyPlanView({
                   <div className="plan-busy-cell">{uniquePeople.map((personId) => {
                     const person = people.find((item) => item.id === personId);
                     const editable = planned.find((entry) => entry.personId === personId);
-                    return person ? <button type="button" title={editable ? "Изменить плановую занятость" : "Запись из журнала смен"} onClick={() => editable && setBusyModal(editable)} className={editable ? "editable" : "actual"} key={personId}>{personShortName(person.name)}</button> : null;
+                    return person ? <button type="button" title={editable ? "Изменить плановую занятость" : "Запись из журнала смен"} onClick={() => editable && setBusyModal(editable)} className={editable ? "editable" : "actual"} key={personId}>{planPersonShortName(person.name)}</button> : null;
                   })}</div>
                 </td>;
               })}
@@ -223,14 +219,14 @@ function AssignmentModal({
   onDelete?: () => void;
 }) {
   const aircraftType = aircraftTypeForNumber(cell.aircraft, aircraftNumbersByType);
-  const availablePeople = availablePeopleForAssignment(people, assignments, busyEntries, actualBusy, cell.date, aircraftType, assignment?.id);
+  const availablePeople = availablePeopleForAssignment(people, assignments, busyEntries, actualBusy, cell.date, aircraftType, cell.aircraft, assignment?.id);
   const [personId, setPersonId] = useState(assignment?.personId ?? "");
   const selectedPersonId = availablePeople.some((person) => person.id === personId) ? personId : "";
 
-  return <PlanModal title="Назначение на борт" subtitle={`${cell.aircraft} · ${aircraftType} · ${roleLabels[cell.role]} · ${new Intl.DateTimeFormat("ru-RU").format(new Date(`${cell.date}T12:00:00`))}`} onClose={onClose}>
+  return <PlanModal title="Назначение на борт" subtitle={`${cell.aircraft} · ${aircraftType} · ${planRoleLabels[cell.role]} · ${new Intl.DateTimeFormat("ru-RU").format(new Date(`${cell.date}T12:00:00`))}`} onClose={onClose}>
     <form className="form-stack" onSubmit={(event) => { event.preventDefault(); if (selectedPersonId) onSave(selectedPersonId); }}>
       <label className="field"><span>Сотрудник</span><select required autoFocus value={selectedPersonId} onChange={(event) => setPersonId(event.target.value)}><option value="">Выберите доступного сотрудника</option>{availablePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
-      {!availablePeople.length && <div className="form-error">Нет свободных сотрудников с допуском на {aircraftType}. Проверьте занятость и назначения на эту дату.</div>}
+      {!availablePeople.length && <div className="form-error">Нет доступных сотрудников с допуском на {aircraftType}. Проверьте занятость и назначение на этот борт.</div>}
       <div className="form-actions split">{onDelete && <button type="button" className="danger-button" onClick={onDelete}>Очистить ячейку</button>}<span /><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button" disabled={!selectedPersonId}>Сохранить</button></div>
     </form>
   </PlanModal>;
@@ -275,7 +271,7 @@ function BusyModal({
   return <PlanModal title={entry ? "Изменение занятости" : "Новая занятость"} subtitle="Занятость исключает сотрудника из назначения на полёты" onClose={onClose}>
     <form className="form-stack" onSubmit={submit}>
       <label className="field"><span>Сотрудник</span><select required autoFocus value={personId} onChange={(event) => setPersonId(event.target.value)}><option value="">Выберите сотрудника</option>{people.filter((person) => person.active).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
-      <label className="field"><span>Вид занятости</span><select value={activity} onChange={(event) => setActivity(event.target.value as PlanBusyActivity)}>{busyActivities.map((item) => <option key={item} value={item}>{busyLabels[item]}</option>)}</select></label>
+      <label className="field"><span>Вид занятости</span><select value={activity} onChange={(event) => setActivity(event.target.value as PlanBusyActivity)}>{planBusyActivities.map((item) => <option key={item} value={item}>{planBusyLabels[item]}</option>)}</select></label>
       <div className="form-grid two"><label className="field"><span>Период с</span><input required type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); if (dateTo < event.target.value) setDateTo(event.target.value); }} /></label><label className="field"><span>Период по</span><input required type="date" min={dateFrom} value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label></div>
       <label className="field"><span>Примечание</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Подразделение, программа подготовки, место командировки…" /></label>
       <div className="form-actions split">{onDelete && <button type="button" className="danger-button" onClick={onDelete}>Удалить занятость</button>}<span /><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button">Сохранить</button></div>

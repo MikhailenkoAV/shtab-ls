@@ -8,9 +8,8 @@ import {
 import {
   calculateRestIssues,
   DAILY_REST_MINUTES,
-  DAY_OFF_REST_MINUTES,
-  fixedRestMinutesForActivity,
   isSundayDate,
+  restMinutesAroundDate,
   SPLIT_REST_MINUTES,
   WEEKLY_REST_MINUTES,
 } from "../app/rest-rules.ts";
@@ -30,10 +29,13 @@ test("standby is saved without start and work time", () => {
   assert.deepEqual(normalizeActivityTiming("standby", "08:00", 480), { start: "", workMinutes: 0 });
 });
 
-test("a recorded day off equals 24 hours of rest", () => {
-  assert.equal(DAY_OFF_REST_MINUTES, 24 * 60);
-  assert.equal(fixedRestMinutesForActivity("dayoff"), 24 * 60);
-  assert.equal(fixedRestMinutesForActivity("vacation"), undefined);
+test("a day off shows the full rest between adjacent work periods", () => {
+  const workDays = [
+    { date: "2026-07-01", start: time("2026-07-01T08:00:00"), end: time("2026-07-01T20:00:00") },
+    { date: "2026-07-03", start: time("2026-07-03T08:00:00"), end: time("2026-07-03T16:00:00") },
+  ];
+  assert.equal(restMinutesAroundDate("2026-07-02", workDays), 36 * 60);
+  assert.equal(restMinutesAroundDate("2026-07-04", workDays), undefined);
 });
 
 test("periodic-training calendar recognizes Sunday", () => {

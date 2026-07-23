@@ -44,6 +44,27 @@ test("assignment list keeps only free pilots with the required aircraft type", (
     [],
     "2026-07-15",
     "AW109",
+    "RA-07701",
   );
   assert.deepEqual(available.map((person) => person.id), ["two"]);
+});
+
+test("a qualified pilot may be assigned to another aircraft on the same date", () => {
+  const people = [
+    { id: "one", aircraftTypes: ["AW109"], active: true },
+    { id: "two", aircraftTypes: ["AW109"], active: true },
+  ];
+  const assignments = [
+    { id: "existing", personId: "one", date: "2026-07-15", aircraft: "RA-01902", role: "primary" },
+  ];
+  const available = availablePeopleForAssignment(
+    people,
+    assignments,
+    [],
+    [],
+    "2026-07-15",
+    "AW109",
+    "RA-OTHER",
+  );
+  assert.deepEqual(available.map((person) => person.id), ["one", "two"]);
 });

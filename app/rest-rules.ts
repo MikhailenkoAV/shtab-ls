@@ -1,10 +1,19 @@
 export const DAILY_REST_MINUTES = 12 * 60;
 export const WEEKLY_REST_MINUTES = 42 * 60;
 export const SPLIT_REST_MINUTES = 48 * 60;
-export const DAY_OFF_REST_MINUTES = 24 * 60;
 
-export function fixedRestMinutesForActivity(activity: string): number | undefined {
-  return activity === "dayoff" ? DAY_OFF_REST_MINUTES : undefined;
+export type RestBoundaryInput = {
+  date: string;
+  start: number;
+  end: number;
+};
+
+export function restMinutesAroundDate(date: string, workDays: RestBoundaryInput[]): number | undefined {
+  const sortedDays = [...workDays].sort((left, right) => left.start - right.start);
+  const previous = sortedDays.filter((day) => day.date < date).at(-1);
+  const next = sortedDays.find((day) => day.date > date);
+  if (!previous || !next) return undefined;
+  return (next.start - previous.end) / 60_000;
 }
 
 export type RestDayInput = {
