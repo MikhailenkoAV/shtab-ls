@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Штаб ЛС - рабочий контур",
+  title: "ШТАБ ЛС - рабочий контур",
   description: "Локальный рабочий инструмент начальника штаба лётной службы.",
   manifest: "manifest.webmanifest",
   icons: {

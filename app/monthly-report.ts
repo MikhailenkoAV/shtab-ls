@@ -192,7 +192,7 @@ function commonStyles(): StyleDictionary {
 function reportFooter(currentPage: number, pageCount: number): Content {
   return {
     columns: [
-      { text: "Штаб ЛС", color: "#80909a" },
+      { text: "ШТАБ ЛС", color: "#80909a" },
       { text: `${currentPage} / ${pageCount}`, alignment: "right", color: "#80909a" },
     ],
     margin: [42, 12, 42, 0],
@@ -231,7 +231,7 @@ export function buildFlightReport(
     const personShifts = periodShifts.filter((shift) => shift.personId === person.id);
     return [person.id, collectPersonTotals(person, personShifts)];
   }));
-  const content: Content[] = reportHeader("Отчёт о налёте лётного состава", dateFrom, dateTo, logoDataUrl);
+  const content: Content[] = reportHeader("Справка о налёте лётного состава", dateFrom, dateTo, logoDataUrl);
 
   if (!includedPeople.length) {
     content.push({ text: "В составе нет сотрудников для формирования отчёта.", style: "empty" });
@@ -290,9 +290,9 @@ export function buildFlightReport(
     pageSize: "A4",
     pageMargins: [42, 48, 42, 42],
     info: {
-      title: `Отчёт о налёте за ${periodLabel(dateFrom, dateTo)}`,
-      author: "Штаб ЛС - Центр авиации «Солярис»",
-      subject: personId ? "Отчёт о налёте сотрудника" : "Общий отчёт о налёте лётного состава",
+      title: `Справка о налёте за ${periodLabel(dateFrom, dateTo)}`,
+      author: "ШТАБ ЛС - Центр авиации «Солярис»",
+      subject: personId ? "Справка о налёте сотрудника" : "Общая справка о налёте лётного состава",
     },
     content,
     footer: reportFooter,
@@ -389,7 +389,7 @@ export function buildEmploymentReport(
     .filter((person) => personId ? person.id === personId : person.active || peopleWithEntries.has(person.id))
     .sort((left, right) => left.name.localeCompare(right.name, "ru-RU"));
   const dates = datesBetween(dateFrom, dateTo);
-  const content: Content[] = reportHeader("Месячный отчёт", dateFrom, dateTo, logoDataUrl);
+  const content: Content[] = reportHeader("Отчёт о занятости", dateFrom, dateTo, logoDataUrl);
   if (!includedPeople.length) content.push({ text: "В составе нет сотрудников для формирования отчёта.", style: "empty" });
   includedPeople.forEach((person, index) => content.push(employmentPersonSection(person, dates, periodShifts, index > 0)));
 
@@ -398,9 +398,9 @@ export function buildEmploymentReport(
     pageOrientation: "landscape",
     pageMargins: [36, 42, 36, 38],
     info: {
-      title: `Месячный отчёт за ${periodLabel(dateFrom, dateTo)}`,
-      author: "Штаб ЛС - Центр авиации «Солярис»",
-      subject: personId ? "Месячный отчёт сотрудника" : "Месячный отчёт по всему составу",
+      title: `Отчёт о занятости за ${periodLabel(dateFrom, dateTo)}`,
+      author: "ШТАБ ЛС - Центр авиации «Солярис»",
+      subject: personId ? "Отчёт о занятости сотрудника" : "Отчёт о занятости всего состава",
     },
     content,
     footer: reportFooter,

@@ -1,6 +1,6 @@
 {
-  "name": "Штаб ЛС",
-  "short_name": "Штаб ЛС",
+  "name": "ШТАБ ЛС",
+  "short_name": "ШТАБ ЛС",
   "description": "Локальный контроль полётных смен, рабочего времени и отдыха.",
   "start_url": "./",
   "display": "standalone",

@@ -1,4 +1,4 @@
-const CACHE = "shtab-ls-v13";
+const CACHE = "shtab-ls-v15";
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(
   caches.keys()

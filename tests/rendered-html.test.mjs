@@ -5,7 +5,7 @@ import { buildEmploymentReport, buildFlightReport } from "../app/monthly-report.
 
 test("GitHub Pages export contains the main application sections", async () => {
   const html = await readFile(new URL("../out/index.html", import.meta.url), "utf8");
-  assert.match(html, /Штаб ЛС/);
+  assert.match(html, /ШТАБ ЛС/);
   assert.match(html, /Полётные смены/);
   assert.match(html, /Личные дела/);
   assert.match(html, /Месячный план/);
@@ -72,7 +72,7 @@ test("monthly report contains every calendar day, aircraft types and flight-time
     "pilot",
   );
   const serialized = JSON.stringify(report);
-  assert.match(serialized, /Месячный отчёт/);
+  assert.match(serialized, /Отчёт о занятости/);
   assert.match(serialized, /10\.07\.2026/);
   assert.match(serialized, /11\.07\.2026/);
   assert.match(serialized, /12\.07\.2026/);
