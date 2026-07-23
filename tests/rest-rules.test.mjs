@@ -8,6 +8,8 @@ import {
 import {
   calculateRestIssues,
   DAILY_REST_MINUTES,
+  DAY_OFF_REST_MINUTES,
+  fixedRestMinutesForActivity,
   isSundayDate,
   SPLIT_REST_MINUTES,
   WEEKLY_REST_MINUTES,
@@ -20,6 +22,18 @@ test("periodic training has no entered time and is neutral for rest control", ()
   assert.equal(isRestNeutralActivity("periodic_training"), true);
   assert.deepEqual(normalizeActivityTiming("periodic_training", "08:00", 480), { start: "", workMinutes: 0 });
   assert.deepEqual(normalizeActivityTiming("office", "08:00", 480), { start: "08:00", workMinutes: 480 });
+});
+
+test("standby is saved without start and work time", () => {
+  assert.equal(activityUsesTime("standby"), false);
+  assert.equal(isRestNeutralActivity("standby"), false);
+  assert.deepEqual(normalizeActivityTiming("standby", "08:00", 480), { start: "", workMinutes: 0 });
+});
+
+test("a recorded day off equals 24 hours of rest", () => {
+  assert.equal(DAY_OFF_REST_MINUTES, 24 * 60);
+  assert.equal(fixedRestMinutesForActivity("dayoff"), 24 * 60);
+  assert.equal(fixedRestMinutesForActivity("vacation"), undefined);
 });
 
 test("periodic-training calendar recognizes Sunday", () => {

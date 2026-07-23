@@ -8,6 +8,7 @@ test("GitHub Pages export contains the main application sections", async () => {
   assert.match(html, /Штаб ЛС/);
   assert.match(html, /Полётные смены/);
   assert.match(html, /Личные дела/);
+  assert.match(html, /Месячный план/);
   assert.match(html, /solaris-berassom-bg\.jpeg/);
   assert.match(html, /UTC/);
   assert.match(html, /Сочи/);

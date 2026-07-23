@@ -1,6 +1,11 @@
 export const DAILY_REST_MINUTES = 12 * 60;
 export const WEEKLY_REST_MINUTES = 42 * 60;
 export const SPLIT_REST_MINUTES = 48 * 60;
+export const DAY_OFF_REST_MINUTES = 24 * 60;
+
+export function fixedRestMinutesForActivity(activity: string): number | undefined {
+  return activity === "dayoff" ? DAY_OFF_REST_MINUTES : undefined;
+}
 
 export type RestDayInput = {
   shiftId: string;

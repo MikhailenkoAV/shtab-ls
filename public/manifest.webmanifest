@@ -6,5 +6,8 @@
   "display": "standalone",
   "background_color": "#f2f5f6",
   "theme_color": "#102c40",
-  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+  "icons": [
+    { "src": "android-chrome-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "android-chrome-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
 }

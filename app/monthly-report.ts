@@ -9,12 +9,15 @@ export type FlightReportPerson = {
 };
 
 export type FlightReportSegment = {
+  id?: string;
   aircraft: string;
   aircraftType?: string;
   seat?: string;
   purpose: string;
   flightMinutes: number;
   nightMinutes: number;
+  splitShift?: boolean;
+  splitGroupId?: string;
 };
 
 export type FlightReportShift = {
@@ -97,7 +100,14 @@ function collectPersonTotals(person: FlightReportPerson, shifts: FlightReportShi
     night += segmentNight;
     addDetail(details, { seat, aircraftType, purpose, flight: segmentFlight, night: segmentNight });
   }));
-  return { flight, night, shiftCount: shifts.reduce((sum, shift) => sum + Math.max(1, shift.segments?.length ?? 0), 0), details };
+  const shiftCount = shifts.reduce((sum, shift) => {
+    const segments = shift.segments ?? [];
+    if (!segments.length) return sum + 1;
+    const entries = new Set(segments.map((segment, index) =>
+      segment.splitShift && segment.splitGroupId ? `split:${segment.splitGroupId}` : `segment:${segment.id ?? index}`));
+    return sum + entries.size;
+  }, 0);
+  return { flight, night, shiftCount, details };
 }
 
 function flightDetailsTable(title: string, details: Map<string, FlightDetail>): Content {
