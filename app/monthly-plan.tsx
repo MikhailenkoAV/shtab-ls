@@ -1,12 +1,15 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { aircraftNumbersByType } from "./aircraft-rules";
 import {
   ActualBusyInput,
+  assignmentBlockReason,
   aircraftTypeForNumber,
   availablePeopleForAssignment,
+  busyBlockReason,
   dateInPlanEntry,
+  datesInRange,
   monthDates,
   planBusyActivities,
   planBusyLabels,
@@ -27,6 +30,10 @@ type PlanPerson = {
 };
 
 type PlanShift = ActualBusyInput;
+
+export type PlanEditRequest =
+  | { kind: "assignment"; id: string }
+  | { kind: "busy"; id: string };
 
 const aircraftNumbers = Object.values(aircraftNumbersByType).flat();
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -64,24 +71,43 @@ export function MonthlyPlanView({
   assignments,
   busyEntries,
   onSaveAssignment,
+  onSaveAssignments,
   onDeleteAssignment,
   onSaveBusy,
+  onSaveBusyEntries,
   onDeleteBusy,
   onNotify,
+  editRequest,
+  onEditRequestHandled,
 }: {
   people: PlanPerson[];
   shifts: PlanShift[];
   assignments: PlanAssignment[];
   busyEntries: PlanBusyEntry[];
   onSaveAssignment: (assignment: PlanAssignment) => void;
+  onSaveAssignments: (assignments: PlanAssignment[]) => void;
   onDeleteAssignment: (assignmentId: string) => void;
   onSaveBusy: (entry: PlanBusyEntry) => void;
+  onSaveBusyEntries: (entries: PlanBusyEntry[]) => void;
   onDeleteBusy: (entryId: string) => void;
   onNotify: (message: string) => void;
+  editRequest?: PlanEditRequest | null;
+  onEditRequestHandled?: () => void;
 }) {
-  const [month, setMonth] = useState(localMonth);
-  const [assignmentCell, setAssignmentCell] = useState<{ date: string; aircraft: string; role: PlanRole } | null>(null);
-  const [busyModal, setBusyModal] = useState<PlanBusyEntry | "new" | null>(null);
+  const requestedAssignment = editRequest?.kind === "assignment"
+    ? assignments.find((item) => item.id === editRequest.id)
+    : undefined;
+  const requestedBusy = editRequest?.kind === "busy"
+    ? busyEntries.find((item) => item.id === editRequest.id)
+    : undefined;
+  const [month, setMonth] = useState(requestedAssignment?.date.slice(0, 7) ?? requestedBusy?.dateFrom.slice(0, 7) ?? localMonth);
+  const [assignmentCell, setAssignmentCell] = useState<{ date: string; aircraft: string; role: PlanRole } | null>(
+    requestedAssignment
+      ? { date: requestedAssignment.date, aircraft: requestedAssignment.aircraft, role: requestedAssignment.role }
+      : null,
+  );
+  const [busyModal, setBusyModal] = useState<PlanBusyEntry | "new" | null>(requestedBusy ?? null);
+  const [employmentModal, setEmploymentModal] = useState(false);
   const [exporting, setExporting] = useState(false);
   const dates = useMemo(() => monthDates(month), [month]);
   const actualBusy = useMemo(() => shifts.filter((shift) => shift.activity !== "flight"), [shifts]);
@@ -96,6 +122,10 @@ export function MonthlyPlanView({
     ...monthBusyEntries.map((entry) => entry.personId),
     ...actualBusy.filter((entry) => entry.date.startsWith(month)).map((entry) => entry.personId),
   ]).size;
+  useEffect(() => {
+    if (!editRequest) return;
+    onEditRequestHandled?.();
+  }, [editRequest, onEditRequestHandled]);
   async function exportPlan() {
     setExporting(true);
     try {
@@ -118,7 +148,7 @@ export function MonthlyPlanView({
           <button type="button" className="secondary-button" onClick={() => setMonth(shiftMonth(month, 1))}>→</button>
           <button type="button" className="secondary-button" onClick={() => setMonth(localMonth())}>Текущий месяц</button>
           <button type="button" className="secondary-button plan-export-button" disabled={exporting} onClick={exportPlan}>{exporting ? "Excel…" : "Выгрузить в Excel"}</button>
-          <button type="button" className="primary-button" onClick={() => setBusyModal("new")}>+ Добавить занятость</button>
+          <button type="button" className="primary-button" onClick={() => setEmploymentModal(true)}>+ Запись занятости</button>
         </div>
       </div>
       <div className="plan-summary">
@@ -174,7 +204,7 @@ export function MonthlyPlanView({
       people={people}
       assignments={assignments}
       busyEntries={busyEntries}
-      actualBusy={actualBusy}
+      actualBusy={shifts}
       onClose={() => setAssignmentCell(null)}
       onSave={(personId) => {
         onSaveAssignment({ id: assignment?.id ?? uid(), ...assignmentCell, personId });
@@ -187,10 +217,27 @@ export function MonthlyPlanView({
       entry={busyModal === "new" ? null : busyModal}
       month={month}
       assignments={assignments}
+      busyEntries={busyEntries}
+      actualBusy={shifts}
       onClose={() => setBusyModal(null)}
       onSave={(entry) => { onSaveBusy(entry); setBusyModal(null); }}
       onDelete={busyModal === "new" ? undefined : () => { onDeleteBusy(busyModal.id); setBusyModal(null); }}
-      onNotify={onNotify}
+    />}
+    {employmentModal && <EmploymentPlannerModal
+      people={people}
+      month={month}
+      assignments={assignments}
+      busyEntries={busyEntries}
+      actualBusy={shifts}
+      onClose={() => setEmploymentModal(false)}
+      onSaveAssignments={(items) => {
+        onSaveAssignments(items);
+        setEmploymentModal(false);
+      }}
+      onSaveBusyEntries={(items) => {
+        onSaveBusyEntries(items);
+        setEmploymentModal(false);
+      }}
     />}
   </>;
 }
@@ -235,19 +282,21 @@ function BusyModal({
   entry,
   month,
   assignments,
+  busyEntries,
+  actualBusy,
   onClose,
   onSave,
   onDelete,
-  onNotify,
 }: {
   people: PlanPerson[];
   entry: PlanBusyEntry | null;
   month: string;
   assignments: PlanAssignment[];
+  busyEntries: PlanBusyEntry[];
+  actualBusy: ActualBusyInput[];
   onClose: () => void;
   onSave: (entry: PlanBusyEntry) => void;
   onDelete?: () => void;
-  onNotify: (message: string) => void;
 }) {
   const firstDate = `${month}-01`;
   const [personId, setPersonId] = useState(entry?.personId ?? "");
@@ -255,14 +304,18 @@ function BusyModal({
   const [dateFrom, setDateFrom] = useState(entry?.dateFrom ?? firstDate);
   const [dateTo, setDateTo] = useState(entry?.dateTo ?? firstDate);
   const [note, setNote] = useState(entry?.note ?? "");
+  const [error, setError] = useState("");
 
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!personId || !dateFrom || !dateTo || dateTo < dateFrom) return;
-    const conflicts = assignments.filter((assignment) =>
-      assignment.personId === personId && assignment.date >= dateFrom && assignment.date <= dateTo);
-    if (conflicts.length && !window.confirm(`У сотрудника есть ${conflicts.length} назначений на борта в выбранном периоде. Сохранить занятость и удалить эти назначения?`)) return;
-    if (conflicts.length) onNotify(`Удалено назначений на полёт: ${conflicts.length}`);
+    const conflict = datesInRange(dateFrom, dateTo)
+      .map((date) => ({ date, reason: busyBlockReason(personId, date, assignments, busyEntries, actualBusy, entry?.id) }))
+      .find((item) => item.reason);
+    if (conflict) {
+      setError(`${new Intl.DateTimeFormat("ru-RU").format(new Date(`${conflict.date}T12:00:00`))}: ${conflict.reason}`);
+      return;
+    }
     onSave({ id: entry?.id ?? uid(), personId, activity, dateFrom, dateTo, note: note.trim() });
   }
 
@@ -272,11 +325,174 @@ function BusyModal({
       <label className="field"><span>Вид занятости</span><select value={activity} onChange={(event) => setActivity(event.target.value as PlanBusyActivity)}>{planBusyActivities.map((item) => <option key={item} value={item}>{planBusyLabels[item]}</option>)}</select></label>
       <div className="form-grid two"><label className="field"><span>Период с</span><input required type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); if (dateTo < event.target.value) setDateTo(event.target.value); }} /></label><label className="field"><span>Период по</span><input required type="date" min={dateFrom} value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label></div>
       <label className="field"><span>Примечание</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Подразделение, программа подготовки, место командировки…" /></label>
+      {error && <div className="form-error">{error}</div>}
       <div className="form-actions split">{onDelete && <button type="button" className="danger-button" onClick={onDelete}>Удалить занятость</button>}<span /><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button">Сохранить</button></div>
     </form>
   </PlanModal>;
 }
 
-function PlanModal({ title, subtitle, onClose, children }: { title: string; subtitle: string; onClose: () => void; children: React.ReactNode }) {
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal" role="dialog" aria-modal="true"><header><div><p className="eyebrow">Месячный план</p><h2>{title}</h2><span>{subtitle}</span></div><button type="button" className="modal-close" aria-label="Закрыть" onClick={onClose}>×</button></header>{children}</section></div>;
+type EmploymentActivity = "flight" | PlanBusyActivity;
+
+function EmploymentPlannerModal({
+  people,
+  month,
+  assignments,
+  busyEntries,
+  actualBusy,
+  onClose,
+  onSaveAssignments,
+  onSaveBusyEntries,
+}: {
+  people: PlanPerson[];
+  month: string;
+  assignments: PlanAssignment[];
+  busyEntries: PlanBusyEntry[];
+  actualBusy: ActualBusyInput[];
+  onClose: () => void;
+  onSaveAssignments: (assignments: PlanAssignment[]) => void;
+  onSaveBusyEntries: (entries: PlanBusyEntry[]) => void;
+}) {
+  const firstDate = `${month}-01`;
+  const [personId, setPersonId] = useState("");
+  const [activity, setActivity] = useState<EmploymentActivity>("flight");
+  const [dateFrom, setDateFrom] = useState(firstDate);
+  const [dateTo, setDateTo] = useState(firstDate);
+  const [selectedDates, setSelectedDates] = useState<string[]>([firstDate]);
+  const [selectedAircraft, setSelectedAircraft] = useState<string[]>([]);
+  const [role, setRole] = useState<PlanRole>("primary");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const person = people.find((item) => item.id === personId);
+  const dates = datesInRange(dateFrom, dateTo);
+  const allowedAircraft = aircraftNumbers.filter((aircraft) =>
+    person?.aircraftTypes.includes(aircraftTypeForNumber(aircraft, aircraftNumbersByType)));
+
+  function setRange(dateFromValue: string, dateToValue: string) {
+    setDateFrom(dateFromValue);
+    setDateTo(dateToValue);
+    setSelectedDates(datesInRange(dateFromValue, dateToValue));
+    setError("");
+  }
+
+  function dateBlockReason(date: string): string | null {
+    if (!person) return "Сначала выберите сотрудника.";
+    if (activity !== "flight") {
+      return busyBlockReason(person.id, date, assignments, busyEntries, actualBusy);
+    }
+    if (!selectedAircraft.length) return "Выберите хотя бы один борт.";
+    for (const aircraft of selectedAircraft) {
+      const occupied = assignments.find((item) =>
+        item.date === date && item.aircraft === aircraft && item.role === role && item.personId !== person.id);
+      if (occupied) return `${aircraft}: место «${planRoleLabels[role]}» уже занято.`;
+      const reason = assignmentBlockReason({
+        person,
+        assignments,
+        busyEntries,
+        actualBusy,
+        date,
+        aircraftType: aircraftTypeForNumber(aircraft, aircraftNumbersByType),
+        aircraft,
+      });
+      if (reason) return reason;
+    }
+    return null;
+  }
+
+  const readyDates = selectedDates.filter((date) => dates.includes(date) && !dateBlockReason(date));
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    if (!person) {
+      setError("Выберите сотрудника.");
+      return;
+    }
+    if (!dates.length || dateTo < dateFrom) {
+      setError("Проверьте выбранный период.");
+      return;
+    }
+    if (!readyDates.length) {
+      const firstBlocked = dates.map((date) => ({ date, reason: dateBlockReason(date) })).find((item) => item.reason);
+      setError(firstBlocked
+        ? `${new Intl.DateTimeFormat("ru-RU").format(new Date(`${firstBlocked.date}T12:00:00`))}: ${firstBlocked.reason}`
+        : "Выберите хотя бы один доступный день.");
+      return;
+    }
+    if (activity === "flight") {
+      onSaveAssignments(readyDates.flatMap((date) => selectedAircraft.map((aircraft) => ({
+        id: uid(),
+        personId: person.id,
+        date,
+        aircraft,
+        role,
+      }))));
+      return;
+    }
+    onSaveBusyEntries(readyDates.map((date) => ({
+      id: uid(),
+      personId: person.id,
+      activity,
+      dateFrom: date,
+      dateTo: date,
+      note: note.trim(),
+    })));
+  }
+
+  return <PlanModal title="Запись занятости сотрудника" subtitle="Один сотрудник · один день, несколько дат или период" onClose={onClose} wide>
+    <form className="form-stack employment-planner" onSubmit={submit}>
+      <div className="form-grid two">
+        <label className="field"><span>Сотрудник</span><select required autoFocus value={personId} onChange={(event) => {
+          setPersonId(event.target.value);
+          setSelectedAircraft([]);
+          setError("");
+        }}><option value="">Выберите сотрудника</option>{people.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label className="field"><span>Вид занятости</span><select value={activity} onChange={(event) => {
+          setActivity(event.target.value as EmploymentActivity);
+          setError("");
+        }}><option value="flight">Полётная смена</option>{planBusyActivities.map((item) => <option key={item} value={item}>{planBusyLabels[item]}</option>)}</select></label>
+      </div>
+      <div className="form-grid two">
+        <label className="field"><span>Период с</span><input required type="date" value={dateFrom} onChange={(event) => {
+          const nextFrom = event.target.value;
+          setRange(nextFrom, dateTo < nextFrom ? nextFrom : dateTo);
+        }} /></label>
+        <label className="field"><span>Период по</span><input required type="date" min={dateFrom} value={dateTo} onChange={(event) => setRange(dateFrom, event.target.value)} /></label>
+      </div>
+      {activity === "flight" && <section className="employment-aircraft">
+        <div className="section-label"><strong>Борта из допусков сотрудника</strong><span>{selectedAircraft.length}</span></div>
+        {!person ? <div className="planner-hint">Сначала выберите сотрудника.</div> : !allowedAircraft.length ? <div className="form-error">Для типов ВС сотрудника нет настроенных бортовых номеров.</div> : <div className="aircraft-choice-grid">{allowedAircraft.map((aircraft) => {
+          const aircraftType = aircraftTypeForNumber(aircraft, aircraftNumbersByType);
+          return <label key={aircraft}><input type="checkbox" checked={selectedAircraft.includes(aircraft)} onChange={(event) => setSelectedAircraft((current) =>
+            event.target.checked ? [...current, aircraft] : current.filter((item) => item !== aircraft))} /><span><strong>{aircraft}</strong><small>{aircraftType}</small></span></label>;
+        })}</div>}
+        <label className="field"><span>Роль в плане</span><select value={role} onChange={(event) => setRole(event.target.value as PlanRole)}>{(["primary", "reserve"] as PlanRole[]).map((item) => <option key={item} value={item}>{planRoleLabels[item]}</option>)}</select></label>
+      </section>}
+      <section className="employment-days">
+        <div className="section-label"><strong>Дни применения</strong><span>{readyDates.length} из {dates.length}</span></div>
+        <div className="planner-hint">Нажмите день, чтобы включить или исключить его. Недоступный день отмечен красным; наведите курсор, чтобы увидеть причину.</div>
+        <div className="employment-day-grid">{dates.map((date) => {
+          const reason = dateBlockReason(date);
+          const selected = selectedDates.includes(date) && !reason;
+          const meta = dayMeta(date);
+          return <button
+            type="button"
+            key={date}
+            className={`${selected ? "selected" : ""} ${reason ? "blocked" : ""}`}
+            title={reason ?? (selected ? "Включено в запись" : "Исключено из записи")}
+            disabled={Boolean(reason)}
+            onClick={() => setSelectedDates((current) =>
+              current.includes(date) ? current.filter((item) => item !== date) : [...current, date])}
+          ><strong>{String(meta.day).padStart(2, "0")}</strong><span>{meta.weekday}</span>{reason && <i>!</i>}</button>;
+        })}</div>
+      </section>
+      {activity !== "flight" && <label className="field"><span>Примечание</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Место, программа, основание…" /></label>}
+      <div className="report-scope-note">Запись сразу появится в месячном плане и в разделе «Полётные смены». Фактическое время и налёт по выполненному полёту затем вносятся обычной записью смены.</div>
+      {error && <div className="form-error">{error}</div>}
+      <div className="form-actions"><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button">Применить занятость</button></div>
+    </form>
+  </PlanModal>;
+}
+
+function PlanModal({ title, subtitle, onClose, wide, children }: { title: string; subtitle: string; onClose: () => void; wide?: boolean; children: React.ReactNode }) {
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className={`modal ${wide ? "wide" : ""}`} role="dialog" aria-modal="true"><header><div><p className="eyebrow">Месячный план</p><h2>{title}</h2><span>{subtitle}</span></div><button type="button" className="modal-close" aria-label="Закрыть" onClick={onClose}>×</button></header>{children}</section></div>;
 }

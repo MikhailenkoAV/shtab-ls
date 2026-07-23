@@ -15,8 +15,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 246px 1fr; }
 .sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 26px 18px 20px; color: #eaf1f4; background: linear-gradient(180deg, #0e283a 0%, #102f43 58%, #0b2232 100%); }
 .brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 27px; border-bottom: 1px solid rgba(255,255,255,.1); }
-.brand-mark { width: 40px; height: 40px; display: grid; flex: none; place-items: center; overflow: hidden; border: 1px solid rgba(255,255,255,.48); border-radius: 12px; background: rgba(255,255,255,.94); box-shadow: 0 5px 14px rgba(0,0,0,.15); }
-.brand-mark img { display: block; width: 25px; height: 25px; object-fit: contain; }
+.brand-mark { width: 40px; height: 40px; display: grid; flex: none; place-items: center; overflow: hidden; border: 1px solid rgba(255,255,255,.34); border-radius: 12px; background: rgba(255,255,255,.14); box-shadow: 0 5px 14px rgba(0,0,0,.1); }
+.brand-mark svg { display: block; width: 27px; height: 27px; overflow: visible; }
 .brand strong, .brand span { display: block; }
 .brand strong { color: white; font-size: 17px; letter-spacing: .01em; }
 .brand span { margin-top: 3px; color: #91a7b4; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
@@ -354,6 +354,35 @@ td strong { color: #314956; }
 .plan-legend i.primary { background: #edf7e7; }
 .plan-legend i.reserve { background: #fff0e3; }
 .plan-legend i.busy { background: #55c6e9; }
+.employment-planner { padding-top: 18px; }
+.employment-aircraft, .employment-days { display: grid; gap: 10px; padding: 14px; border: 1px solid #dfe7ea; border-radius: 12px; background: #f8fafb; }
+.employment-aircraft .field { max-width: 280px; }
+.aircraft-choice-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.aircraft-choice-grid label { cursor: pointer; }
+.aircraft-choice-grid input { position: absolute; opacity: 0; pointer-events: none; }
+.aircraft-choice-grid label > span { min-height: 50px; display: grid; place-items: center; padding: 7px; border: 1px solid #d8e3e5; border-radius: 9px; color: #526d79; background: white; text-align: center; }
+.aircraft-choice-grid label > span strong, .aircraft-choice-grid label > span small { display: block; }
+.aircraft-choice-grid label > span strong { color: #284b5b; font-size: 10px; }
+.aircraft-choice-grid label > span small { margin-top: 3px; color: #809098; font-size: 8px; }
+.aircraft-choice-grid input:checked + span { border-color: #4aa59d; background: #e5f4f1; box-shadow: inset 0 0 0 1px #4aa59d; }
+.planner-hint { color: #72848d; font-size: 10px; line-height: 1.5; }
+.employment-day-grid { display: grid; grid-template-columns: repeat(10, minmax(42px, 1fr)); gap: 6px; }
+.employment-day-grid button { position: relative; min-height: 48px; padding: 5px; border: 1px solid #d9e3e6; border-radius: 8px; color: #607782; background: white; }
+.employment-day-grid button strong, .employment-day-grid button span { display: block; }
+.employment-day-grid button strong { color: #294b5b; font-size: 11px; }
+.employment-day-grid button span { margin-top: 3px; font-size: 8px; }
+.employment-day-grid button.selected { border-color: #3c9e94; color: #1b6d65; background: #e2f3f0; box-shadow: inset 0 0 0 1px #3c9e94; }
+.employment-day-grid button.blocked { border-color: #e3b0ad; color: #a65a54; background: #fcebea; cursor: not-allowed; opacity: 1; }
+.employment-day-grid button.blocked strong { color: #9d4944; }
+.employment-day-grid button i { position: absolute; top: 3px; right: 5px; color: #b43f38; font-size: 9px; font-style: normal; font-weight: 900; }
+.planned-journal { margin-top: 22px; border-top: 4px solid #d9e8e7; }
+.planned-journal-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 18px; border-bottom: 1px solid #e3eaec; background: #f5f9f8; }
+.planned-journal-heading strong, .planned-journal-heading span { display: block; }
+.planned-journal-heading strong { color: #264b59; font-size: 13px; }
+.planned-journal-heading span { margin-top: 4px; color: #768890; font-size: 9px; }
+.planned-journal-heading b { min-width: 30px; padding: 7px; border-radius: 999px; color: #226c65; background: #dcefeb; text-align: center; font-size: 10px; }
+.planned-journal-table { min-width: 930px !important; }
+.planned-journal-table td { background: rgba(248,251,250,.65); }
 .toast { position: fixed; z-index: 80; right: 25px; bottom: 25px; padding: 13px 17px; border-radius: 10px; color: white; background: #173b4f; box-shadow: 0 14px 35px rgba(10,32,45,.24); font-size: 11px; font-weight: 700; animation: toast-in .2s ease; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 
@@ -368,6 +397,7 @@ td strong { color: #314956; }
   .panel-heading { align-items: flex-start; flex-wrap: wrap; }
   .plan-heading-actions { width: 100%; justify-content: flex-start; }
   .split-parts-grid { grid-template-columns: 1fr; }
+  .employment-day-grid { grid-template-columns: repeat(7, minmax(42px, 1fr)); }
 }
 @media (max-width: 760px) {
   .app-shell { display: block; }
@@ -407,6 +437,8 @@ td strong { color: #314956; }
   .plan-summary { align-items: flex-start; flex-direction: column; }
   .plan-summary strong { margin-right: 0; }
   .plan-table-scroll { max-height: 70vh; }
+  .aircraft-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .employment-day-grid { grid-template-columns: repeat(5, minmax(42px, 1fr)); }
 }
 @media (max-width: 430px) {
   .metric-grid { grid-template-columns: 1fr; }

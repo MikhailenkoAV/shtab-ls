@@ -2,10 +2,17 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { activityUsesTime as usesTime, isRestNeutralActivity, normalizeActivityTiming } from "./activity-rules";
-import { aircraftNumbersForType, isAircraftNumberAllowed } from "./aircraft-rules";
+import { aircraftNumbersByType, aircraftNumbersForType, isAircraftNumberAllowed } from "./aircraft-rules";
 import { downloadEmploymentReport, downloadFlightReport } from "./monthly-report";
-import { MonthlyPlanView } from "./monthly-plan";
-import { PlanAssignment, PlanBusyEntry } from "./monthly-plan-rules";
+import { MonthlyPlanView, PlanEditRequest } from "./monthly-plan";
+import {
+  aircraftTypeForNumber,
+  datesInRange,
+  planBusyLabels,
+  planRoleLabels,
+  PlanAssignment,
+  PlanBusyEntry,
+} from "./monthly-plan-rules";
 import { CertificationRecord, getExpiryState, ImportAviabitModal, ImportPayload, PersonalFilesView } from "./personal-files";
 import {
   calculateRestIssues,
@@ -449,6 +456,7 @@ export default function Home() {
   const [personModal, setPersonModal] = useState<Person | "new" | null>(null);
   const [shiftModal, setShiftModal] = useState<Shift | "new" | null>(null);
   const [aviabitModal, setAviabitModal] = useState(false);
+  const [planEditRequest, setPlanEditRequest] = useState<PlanEditRequest | null>(null);
   const [toast, setToast] = useState("");
   const importRef = useRef<HTMLInputElement>(null);
 
@@ -524,6 +532,21 @@ export default function Home() {
     const { dateTo, ...base } = shift;
     const hasPeriod = multiDayActivities.includes(shift.activity) && Boolean(dateTo && dateTo > shift.date);
     const dates = hasPeriod ? enumerateDates(shift.date, dateTo!) : [shift.date];
+    if (base.activity === "flight") {
+      const conflict = data.planBusyEntries.find((entry) =>
+        entry.personId === base.personId && dates.some((date) => date >= entry.dateFrom && date <= entry.dateTo));
+      if (conflict) {
+        setToast(`Полёт не сохранён: на эту дату указано «${planBusyLabels[conflict.activity]}».`);
+        return;
+      }
+    } else {
+      const conflict = data.planAssignments.find((assignment) =>
+        assignment.personId === base.personId && dates.includes(assignment.date));
+      if (conflict) {
+        setToast(`Занятость не сохранена: сначала удалите назначение на ${conflict.aircraft} за ${formatDate(conflict.date)}.`);
+        return;
+      }
+    }
     const periodId = hasPeriod ? editing?.periodId ?? uid() : undefined;
     const createdAt = editing?.createdAt ?? new Date().toISOString();
     const records: Shift[] = dates.map((date) => {
@@ -548,12 +571,9 @@ export default function Home() {
     });
     setData((current) => {
       const kept = editing ? current.shifts.filter((item) => editing.periodId ? item.periodId !== editing.periodId : item.id !== editing.id) : current.shifts;
-      const busyDates = new Set(base.activity === "flight" ? [] : dates);
       return {
         ...current,
         shifts: [...kept, ...records],
-        planAssignments: current.planAssignments.filter((assignment) =>
-          assignment.personId !== base.personId || !busyDates.has(assignment.date)),
       };
     });
     setShiftModal(null); setToast(hasPeriod ? `Период сохранён: ${dates.length} дн.` : "Запись сохранена");
@@ -610,24 +630,35 @@ export default function Home() {
     }));
     setToast("Назначение сохранено");
   }
+  function savePlanAssignments(assignments: PlanAssignment[]) {
+    setData((current) => {
+      const slotKeys = new Set(assignments.map((item) => `${item.date}|${item.aircraft}|${item.role}`));
+      return {
+        ...current,
+        planAssignments: [
+          ...current.planAssignments.filter((item) => !slotKeys.has(`${item.date}|${item.aircraft}|${item.role}`)),
+          ...assignments,
+        ],
+      };
+    });
+    setToast(`Назначения сохранены: ${assignments.length}`);
+  }
   function deletePlanAssignment(assignmentId: string) {
     setData((current) => ({ ...current, planAssignments: current.planAssignments.filter((item) => item.id !== assignmentId) }));
     setToast("Назначение удалено");
   }
   function savePlanBusy(entry: PlanBusyEntry) {
-    setData((current) => {
-      const conflictingIds = new Set(current.planAssignments
-        .filter((assignment) => assignment.personId === entry.personId && assignment.date >= entry.dateFrom && assignment.date <= entry.dateTo)
-        .map((assignment) => assignment.id));
-      return {
-        ...current,
-        planBusyEntries: current.planBusyEntries.some((item) => item.id === entry.id)
-          ? current.planBusyEntries.map((item) => item.id === entry.id ? entry : item)
-          : [...current.planBusyEntries, entry],
-        planAssignments: current.planAssignments.filter((assignment) => !conflictingIds.has(assignment.id)),
-      };
-    });
+    setData((current) => ({
+      ...current,
+      planBusyEntries: current.planBusyEntries.some((item) => item.id === entry.id)
+        ? current.planBusyEntries.map((item) => item.id === entry.id ? entry : item)
+        : [...current.planBusyEntries, entry],
+    }));
     setToast("Занятость сохранена");
+  }
+  function savePlanBusyEntries(entries: PlanBusyEntry[]) {
+    setData((current) => ({ ...current, planBusyEntries: [...current.planBusyEntries, ...entries] }));
+    setToast(`Дни занятости сохранены: ${entries.length}`);
   }
   function deletePlanBusy(entryId: string) {
     setData((current) => ({ ...current, planBusyEntries: current.planBusyEntries.filter((item) => item.id !== entryId) }));
@@ -657,9 +688,10 @@ export default function Home() {
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">
-        {/* The public asset must stay relative so it also works under the GitHub Pages repository path. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="favicon-32x32.png" alt="" />
+        <svg viewBox="0 0 32 32" aria-hidden="true">
+          <defs><filter id="brand-icon-teal"><feColorMatrix type="matrix" values="0 0 0 0 0.067 0 0 0 0 0.435 0 0 0 0 0.412 -0.333 -0.333 -0.333 0 1" /></filter></defs>
+          <image href="favicon-32x32.png" width="32" height="32" filter="url(#brand-icon-teal)" />
+        </svg>
       </div><div><strong>Штаб ЛС</strong><span>Рабочий контур</span></div></div>
       <nav className="main-nav" aria-label="Основная навигация">
         <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")} label="Главная" glyph="⌂" />
@@ -684,7 +716,22 @@ export default function Home() {
       {!hydrated ? <Loading /> : view === "dashboard"
         ? <Dashboard people={data.people} shifts={monthSortedShifts} alerts={alerts} totalWork={totalWork} totalFlight={totalFlight} restMap={restMap} assumedCompliantRestIds={assumedCompliantRestIds} onAddPerson={() => setPersonModal("new")} onAddShift={() => setShiftModal("new")} />
         : view === "shifts"
-          ? <ShiftsView people={data.people} shifts={sortedShifts} restMap={restMap} assumedCompliantRestIds={assumedCompliantRestIds} onAdd={() => setShiftModal("new")} onEdit={setShiftModal} onDelete={deleteShift} onDeleteFlight={deleteFlight} onNotify={setToast} />
+          ? <ShiftsView
+            people={data.people}
+            shifts={sortedShifts}
+            assignments={data.planAssignments}
+            busyEntries={data.planBusyEntries}
+            restMap={restMap}
+            assumedCompliantRestIds={assumedCompliantRestIds}
+            onAdd={() => setShiftModal("new")}
+            onEdit={setShiftModal}
+            onDelete={deleteShift}
+            onDeleteFlight={deleteFlight}
+            onEditPlan={(request) => { setPlanEditRequest(request); setView("planning"); }}
+            onDeletePlanAssignment={deletePlanAssignment}
+            onDeletePlanBusy={deletePlanBusy}
+            onNotify={setToast}
+          />
           : view === "people"
             ? <PeopleView people={data.people} shifts={data.shifts} onAdd={() => setPersonModal("new")} onEdit={setPersonModal} onOpenPersonal={() => setView("personal")} />
             : view === "personal"
@@ -695,10 +742,14 @@ export default function Home() {
                 assignments={data.planAssignments}
                 busyEntries={data.planBusyEntries}
                 onSaveAssignment={savePlanAssignment}
+                onSaveAssignments={savePlanAssignments}
                 onDeleteAssignment={deletePlanAssignment}
                 onSaveBusy={savePlanBusy}
+                onSaveBusyEntries={savePlanBusyEntries}
                 onDeleteBusy={deletePlanBusy}
                 onNotify={setToast}
+                editRequest={planEditRequest}
+                onEditRequestHandled={() => setPlanEditRequest(null)}
               />}
     </main>
     {personModal && <PersonModal person={personModal === "new" ? null : personModal} onClose={() => setPersonModal(null)} onSubmit={savePerson} onDelete={personModal === "new" ? undefined : () => deletePerson(personModal)} />}
@@ -730,7 +781,37 @@ function Dashboard({ people, shifts, alerts, totalWork, totalFlight, restMap, as
 }
 function Metric({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: string }) { return <article className={`metric ${tone}`}><p>{label}</p><strong>{value}</strong><span>{detail}</span></article>; }
 
-function ShiftsView({ people, shifts, restMap, assumedCompliantRestIds, onAdd, onEdit, onDelete, onDeleteFlight, onNotify }: { people: Person[]; shifts: Shift[]; restMap: Map<string, number>; assumedCompliantRestIds: Set<string>; onAdd: () => void; onEdit: (shift: Shift) => void; onDelete: (shift: Shift) => void; onDeleteFlight: (shift: Shift, segmentId: string) => void; onNotify: (message: string) => void }) {
+function ShiftsView({
+  people,
+  shifts,
+  assignments,
+  busyEntries,
+  restMap,
+  assumedCompliantRestIds,
+  onAdd,
+  onEdit,
+  onDelete,
+  onDeleteFlight,
+  onEditPlan,
+  onDeletePlanAssignment,
+  onDeletePlanBusy,
+  onNotify,
+}: {
+  people: Person[];
+  shifts: Shift[];
+  assignments: PlanAssignment[];
+  busyEntries: PlanBusyEntry[];
+  restMap: Map<string, number>;
+  assumedCompliantRestIds: Set<string>;
+  onAdd: () => void;
+  onEdit: (shift: Shift) => void;
+  onDelete: (shift: Shift) => void;
+  onDeleteFlight: (shift: Shift, segmentId: string) => void;
+  onEditPlan: (request: PlanEditRequest) => void;
+  onDeletePlanAssignment: (assignmentId: string) => void;
+  onDeletePlanBusy: (entryId: string) => void;
+  onNotify: (message: string) => void;
+}) {
   const today = new Date();
   const [dateFrom, setDateFrom] = useState(localIsoDate(new Date(today.getFullYear(), today.getMonth(), 1)));
   const [dateTo, setDateTo] = useState(localIsoDate(new Date(today.getFullYear(), today.getMonth() + 1, 0)));
@@ -741,6 +822,16 @@ function ShiftsView({ people, shifts, restMap, assumedCompliantRestIds, onAdd, o
     ? shift.segments.map((segment, segmentIndex) => ({ shift, segment, segmentIndex }))
     : [{ shift, segment: null, segmentIndex: 0 }]);
   const dateCells = groupedDateCells(journalRows.map(({ shift }) => ({ date: shift.date })));
+  const plannedRows = [
+    ...assignments
+      .filter((assignment) => (!dateFrom || assignment.date >= dateFrom) && (!dateTo || assignment.date <= dateTo) && (!personId || assignment.personId === personId))
+      .map((assignment) => ({ kind: "assignment" as const, date: assignment.date, personId: assignment.personId, assignment })),
+    ...busyEntries.flatMap((entry) => datesInRange(entry.dateFrom, entry.dateTo)
+      .filter((date) => (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo) && (!personId || entry.personId === personId))
+      .map((date) => ({ kind: "busy" as const, date, personId: entry.personId, entry }))),
+  ].sort((left, right) => right.date.localeCompare(left.date)
+    || people.find((item) => item.id === left.personId)?.name.localeCompare(people.find((item) => item.id === right.personId)?.name ?? "", "ru-RU") || 0);
+  const plannedDateCells = groupedDateCells(plannedRows.map((row) => ({ date: row.date })));
   function showCurrentMonth() {
     setDateFrom(localIsoDate(new Date(today.getFullYear(), today.getMonth(), 1)));
     setDateTo(localIsoDate(new Date(today.getFullYear(), today.getMonth() + 1, 0)));
@@ -758,6 +849,17 @@ function ShiftsView({ people, shifts, restMap, assumedCompliantRestIds, onAdd, o
       const flight = segment?.flightMinutes ?? 0; const night = segment?.nightMinutes ?? 0;
       return <tr key={segment ? `${shift.id}-${segment.id}` : shift.id}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(shift.date)}</td>}<td><strong>{people.find((item) => item.id === shift.personId)?.name ?? "—"}</strong></td><td><span className="journal-activity">{activityLabels[shift.activity]}{segment?.splitShift && <span className="split-pill active">Разделённая · часть {segment.splitPart ?? 1}</span>}</span></td><td>{segment ? `${segment.dutyStart || "—"}–${segment.dutyEnd || "—"}` : shift.start ? `${shift.start}–${shiftEndClock(shift)}` : "—"}</td><td>{segment ? <span className="aircraft-cell"><strong>{[segment.aircraftType, segment.aircraft].filter(Boolean).join(" · ") || "—"}</strong><small>{segment.seat}</small></span> : "—"}</td><td>{segment?.purpose || "—"}</td><td>{segment ? formatDuration(segmentDutyMinutes(segment)) : shift.workMinutes ? formatDuration(shift.workMinutes) : "—"}</td><td>{segment ? <span className="flight-cell"><strong>{flight ? formatDuration(flight) : "—"}</strong>{night > 0 && <small>ночь {formatDuration(night)}</small>}</span> : "—"}</td><td><span className={assumedCompliant ? "success-text" : rest !== undefined && rest >= 0 && rest < 720 ? "danger-text" : rest !== undefined && rest >= 2520 ? "success-text" : ""}>{assumedCompliant ? "по норме" : rest === undefined ? "—" : rest < 0 ? "пересечение" : formatDuration(rest)}</span></td><td className="note-cell">{shift.note || "—"}</td><td><div className="row-actions"><button onClick={() => onEdit(shift)}>Изменить</button><button className="delete" onClick={() => segment ? onDeleteFlight(shift, segment.id) : onDelete(shift)}>Удалить</button></div></td></tr>;
     })}</tbody></table></div>}
+    <section className="planned-journal">
+      <div className="planned-journal-heading"><div><strong>Занятость из месячного плана</strong><span>Показывается здесь сразу после записи в плане; фактическое время вносится отдельной сменой.</span></div><b>{plannedRows.length}</b></div>
+      {!plannedRows.length ? <div className="panel-empty">В выбранном периоде запланированной занятости нет.</div> : <div className="table-scroll"><table className="planned-journal-table"><thead><tr><th>Дата</th><th>Сотрудник</th><th>Занятость</th><th>ВС / роль</th><th>Примечание</th><th>Действия</th></tr></thead><tbody>{plannedRows.map((row, rowIndex) => {
+        const person = people.find((item) => item.id === row.personId);
+        if (row.kind === "assignment") {
+          const aircraftType = aircraftTypeForNumber(row.assignment.aircraft, aircraftNumbersByType);
+          return <tr key={`assignment-${row.assignment.id}`}>{plannedDateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={plannedDateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">Полётная смена</span></td><td><span className="aircraft-cell"><strong>{[aircraftType, row.assignment.aircraft].filter(Boolean).join(" · ")}</strong><small>{planRoleLabels[row.assignment.role]}</small></span></td><td className="note-cell">Назначение из месячного плана</td><td><div className="row-actions"><button onClick={() => onEditPlan({ kind: "assignment", id: row.assignment.id })}>Изменить</button><button className="delete" onClick={() => { if (window.confirm(`Удалить назначение ${person?.name ?? "сотрудника"} на ${row.assignment.aircraft} за ${formatDate(row.date)}?`)) onDeletePlanAssignment(row.assignment.id); }}>Удалить</button></div></td></tr>;
+        }
+        return <tr key={`busy-${row.entry.id}-${row.date}`}>{plannedDateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={plannedDateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{planBusyLabels[row.entry.activity]}</span></td><td>—</td><td className="note-cell">{row.entry.note || "—"}</td><td><div className="row-actions"><button onClick={() => onEditPlan({ kind: "busy", id: row.entry.id })}>Изменить</button><button className="delete" onClick={() => { if (window.confirm(`Удалить занятость «${planBusyLabels[row.entry.activity]}» за ${formatDate(row.date)}?`)) onDeletePlanBusy(row.entry.id); }}>Удалить</button></div></td></tr>;
+      })}</tbody></table></div>}
+    </section>
   </section>{reportOpen && <FlightReportModal people={people} shifts={shifts} onClose={() => setReportOpen(false)} onNotify={onNotify} />}</>;
 }
 
