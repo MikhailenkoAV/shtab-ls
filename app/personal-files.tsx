@@ -5,7 +5,20 @@ import { getExpiryState } from "./personal-files-rules";
 
 export { getExpiryState, type ExpiryState } from "./personal-files-rules";
 
-export type PersonRef = { id: string; name: string; position: string; aircraftTypes: string[]; active: boolean };
+export type PersonRef = {
+  id: string;
+  name: string;
+  position: string;
+  permissions: string[];
+  aircraftTypes: string[];
+  qualifications: {
+    operators: string[];
+    aircraftTypes: string[];
+    seats: string[];
+    nightAircraftTypes?: string[];
+  }[];
+  active: boolean;
+};
 export type FlightTimeShiftRef = { personId: string; date: string; activity: string; segments: { flightMinutes: number }[] };
 export type CertificationRecord = {
   id: string; personId: string; category: string; certificationType: string; aircraftType: string;
@@ -56,9 +69,18 @@ async function parseAviabit(file: File) {
 }
 
 export function PersonalFilesView({ people, shifts, records, onImportClick, onUpsert, onDelete }: { people: PersonRef[]; shifts: FlightTimeShiftRef[]; records: CertificationRecord[]; onImportClick: () => void; onUpsert: (record: CertificationRecord) => void; onDelete: (id: string) => void }) {
-  const defaultPerson = people.find((person) => records.some((record) => record.personId === person.id))?.id ?? people[0]?.id ?? "";
+  const sortedPeople = useMemo(() => [...people].sort((left, right) => left.name.localeCompare(right.name, "ru-RU")), [people]);
+  const defaultPerson = sortedPeople.find((person) => records.some((record) => record.personId === person.id))?.id ?? sortedPeople[0]?.id ?? "";
   const [selected, setSelected] = useState(defaultPerson); const [query, setQuery] = useState(""); const [attentionOnly, setAttentionOnly] = useState(false); const [editing, setEditing] = useState<CertificationRecord | "new" | null>(null);
-  const personId = people.some((person) => person.id === selected) ? selected : people[0]?.id ?? ""; const person = people.find((item) => item.id === personId);
+  const [operatorFilter, setOperatorFilter] = useState(""); const [aircraftFilter, setAircraftFilter] = useState(""); const [seatFilter, setSeatFilter] = useState("");
+  const operatorOptions = useMemo(() => [...new Set(people.flatMap((person) => person.qualifications.flatMap((qualification) => qualification.operators)))].sort((left, right) => left.localeCompare(right, "ru-RU")), [people]);
+  const aircraftOptions = useMemo(() => [...new Set(people.flatMap((person) => person.qualifications.flatMap((qualification) => qualification.aircraftTypes)))].sort((left, right) => left.localeCompare(right, "ru-RU")), [people]);
+  const seatOptions = useMemo(() => [...new Set(people.flatMap((person) => person.qualifications.flatMap((qualification) => qualification.seats)))].sort((left, right) => left.localeCompare(right, "ru-RU")), [people]);
+  const filteredPeople = useMemo(() => sortedPeople.filter((person) => person.qualifications.some((qualification) =>
+    (!operatorFilter || qualification.operators.includes(operatorFilter))
+    && (!aircraftFilter || qualification.aircraftTypes.includes(aircraftFilter))
+    && (!seatFilter || qualification.seats.includes(seatFilter)))), [aircraftFilter, operatorFilter, seatFilter, sortedPeople]);
+  const personId = filteredPeople.some((person) => person.id === selected) ? selected : filteredPeople[0]?.id ?? ""; const person = people.find((item) => item.id === personId);
   const personRecords = useMemo(() => records.filter((record) => record.personId === personId).sort((a, b) => {
     const order = { expired: 0, alert14: 1, alert45: 2, incomplete: 3, valid: 4, undated: 5 };
     return order[getExpiryState(a).level] - order[getExpiryState(b).level] || (a.endDate || "9999").localeCompare(b.endDate || "9999");
@@ -68,12 +90,12 @@ export function PersonalFilesView({ people, shifts, records, onImportClick, onUp
   const currentMonthFlight = shifts.filter((shift) => shift.personId === personId && shift.activity === "flight" && shift.date.startsWith(monthKey)).reduce((total, shift) => total + shift.segments.reduce((sum, segment) => sum + Math.max(0, segment.flightMinutes || 0), 0), 0);
   const visible = personRecords.filter((record) => { const state = getExpiryState(record); const matchesStatus = !attentionOnly || ["expired", "alert14", "alert45", "incomplete"].includes(state.level); return matchesStatus && `${record.category} ${record.certificationType} ${record.aircraftType} ${record.organization} ${record.number}`.toLocaleLowerCase("ru-RU").includes(query.trim().toLocaleLowerCase("ru-RU")); });
   if (!people.length) return <section className="empty-start"><div className="empty-visual"><span>ЛД</span><i /></div><p className="eyebrow">Личные дела</p><h2>Загрузите первую выгрузку Авиабит</h2><p>Сайт создаст карточку пилота, перенесёт сертификации и рассчитает сроки. Файл обрабатывается только на этом устройстве.</p><button className="primary-button" onClick={onImportClick}>Загрузить Excel</button></section>;
-  return <div className="records-layout"><aside className="pilot-list panel"><div className="panel-heading"><div><p className="eyebrow">Лётный состав</p><h2>Личные дела</h2></div><button className="icon-button" onClick={onImportClick} title="Импорт из Авиабит">＋</button></div><div className="pilot-items">{people.map((item) => { const itemRecords = records.filter((record) => record.personId === item.id); const warnings = itemRecords.filter((record) => ["expired", "alert14", "alert45", "incomplete"].includes(getExpiryState(record).level)).length; return <button key={item.id} className={item.id === personId ? "active" : ""} onClick={() => setSelected(item.id)}><span className="person-avatar small">{item.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</span><span><strong>{item.name}</strong><small>{itemRecords.length} записей</small></span>{warnings > 0 && <i>{warnings}</i>}</button>; })}</div></aside>
-    <section className="records-main"><div className="record-hero panel"><div className="record-person"><p className="eyebrow">Личное дело</p><h2>{person?.name}</h2><span>{person?.position}</span></div><div className="record-hero-side"><div className="monthly-flight-card"><span>Налёт в текущем месяце</span><strong>{displayMinutes(currentMonthFlight)}</strong></div><div className="hero-actions"><button className="secondary-button" onClick={() => setEditing("new")}>+ Запись</button><button className="primary-button" onClick={onImportClick}>Импорт Авиабит</button></div></div></div>
+  return <div className="records-layout"><aside className="pilot-list panel"><div className="panel-heading"><div><p className="eyebrow">Лётный состав</p><h2>Личные дела</h2></div><button className="icon-button" onClick={onImportClick} title="Импорт из Авиабит">＋</button></div><div className="pilot-filters"><select value={operatorFilter} onChange={(event) => setOperatorFilter(event.target.value)}><option value="">Все эксплуатанты</option>{operatorOptions.map((item) => <option key={item}>{item}</option>)}</select><select value={aircraftFilter} onChange={(event) => setAircraftFilter(event.target.value)}><option value="">Все типы ВС</option>{aircraftOptions.map((item) => <option key={item}>{item}</option>)}</select><select value={seatFilter} onChange={(event) => setSeatFilter(event.target.value)}><option value="">Все кресла</option>{seatOptions.map((item) => <option key={item}>{item}</option>)}</select></div><div className="pilot-items">{filteredPeople.map((item) => { const itemRecords = records.filter((record) => record.personId === item.id); const warnings = itemRecords.filter((record) => ["expired", "alert14", "alert45", "incomplete"].includes(getExpiryState(record).level)).length; return <button key={item.id} className={item.id === personId ? "active" : ""} onClick={() => setSelected(item.id)}><span className="person-avatar small">{item.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</span><span><strong>{item.name}</strong><small>{itemRecords.length} записей</small></span>{warnings > 0 && <i>{warnings}</i>}</button>; })}{!filteredPeople.length && <div className="pilot-filter-empty">Сотрудники по фильтрам не найдены.</div>}</div></aside>
+    {!person ? <section className="records-main"><div className="panel panel-empty tall">Измените фильтры, чтобы выбрать сотрудника.</div></section> : <section className="records-main"><div className="record-hero panel"><div className="record-person"><p className="eyebrow">Личное дело</p><h2>{person.name}</h2><span>{person.position}</span></div><div className="record-hero-side"><div className="monthly-flight-card"><span>Налёт в текущем месяце</span><strong>{displayMinutes(currentMonthFlight)}</strong></div><div className="hero-actions"><button className="secondary-button" onClick={() => setEditing("new")}>+ Запись</button><button className="primary-button" onClick={onImportClick}>Импорт Авиабит</button></div></div></div>
       <div className="record-metrics"><RecordMetric value={counts.expired} label="просрочено" tone="danger" /><RecordMetric value={counts.alert14} label="до 14 дней" tone="alert14" /><RecordMetric value={counts.alert45} label="15–45 дней" tone="alert45" /><RecordMetric value={counts.incomplete} label="нет данных" tone="neutral" /></div>
       <section className="panel records-panel"><div className="records-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по личному делу…" /><div className="filter-buttons"><button className={!attentionOnly ? "active" : ""} onClick={() => setAttentionOnly(false)}>Все</button><button className={attentionOnly ? "active" : ""} onClick={() => setAttentionOnly(true)}>Требует внимания</button></div></div>
         {!personRecords.length ? <div className="panel-empty tall">В личном деле пока нет записей. Загрузите Excel из Авиабит или добавьте запись вручную.</div> : !visible.length ? <div className="panel-empty">По выбранному фильтру записей нет.</div> : <div className="table-scroll"><table className="records-table"><thead><tr><th>Сертификация</th><th>Тип / ВС</th><th>Документ</th><th>Начало</th><th>Конец</th><th>Состояние</th><th /></tr></thead><tbody>{visible.map((record) => { const state = getExpiryState(record); return <tr key={record.id}><td><strong>{record.certificationType || record.category || "—"}</strong><small>{record.category}</small></td><td>{record.aircraftType || "—"}</td><td>{[record.documentType, record.series, record.number].filter(Boolean).join(" · ") || "—"}</td><td>{displayDate(record.startDate)}</td><td>{displayDate(record.endDate)}</td><td><span className={`expiry-pill ${state.level}`}>{state.label}</span></td><td><button className="row-action" onClick={() => setEditing(record)}>Изменить</button></td></tr>; })}</tbody></table></div>}
-      </section></section>
+      </section></section>}
     {editing && person && <RecordModal personId={person.id} record={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSave={(record) => { onUpsert(record); setEditing(null); }} onDelete={editing === "new" ? undefined : () => { if (window.confirm("Удалить запись из личного дела?")) { onDelete(editing.id); setEditing(null); } }} />}</div>;
 }
 function RecordMetric({ value, label, tone }: { value: number; label: string; tone: string }) { return <article className={`record-metric ${tone}`}><strong>{value}</strong><span>{label}</span></article>; }

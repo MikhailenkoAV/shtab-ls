@@ -5,6 +5,7 @@ export const aircraftNumbersByType: Readonly<Record<string, readonly string[]>> 
   R66: ["RA-07375", "RA-05828"],
   R44: ["RA-04186", "RA-04359"],
   AS350: ["RA-07338", "RA-04063"],
+  Bell407: ["RA-01619"],
 };
 
 export function aircraftNumbersForType(aircraftType: string): readonly string[] {

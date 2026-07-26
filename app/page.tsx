@@ -13,7 +13,7 @@ import {
   PlanAssignment,
   PlanBusyEntry,
 } from "./monthly-plan-rules";
-import { CertificationRecord, getExpiryState, ImportAviabitModal, ImportPayload, PersonalFilesView } from "./personal-files";
+import { CertificationRecord, ImportAviabitModal, ImportPayload, PersonalFilesView } from "./personal-files";
 import {
   calculateRestIssues,
   isSundayDate,
@@ -23,12 +23,26 @@ import {
   RestIssue,
 } from "./rest-rules";
 import { groupedDateCells } from "./journal-rules";
+import { WorkTimeImportModal } from "./work-time-import";
+import { ImportedWorkTimeShift, mergeImportedWorkTime } from "./work-time-import-rules";
+import { ControlJournalView } from "./control-journal";
+import {
+  buildControlRows,
+  compareAttentionDates,
+  isControlAttention,
+} from "./control-journal-rules";
 
-type View = "dashboard" | "shifts" | "people" | "personal" | "planning";
+type View = "dashboard" | "shifts" | "people" | "personal" | "control" | "planning";
 type Activity = "flight" | "trip" | "office" | "periodic_training" | "ground_training" | "standby" | "vacation" | "dayoff";
 type Seat = "КВС" | "Пилот-инструктор";
 
-type Qualification = { id: string; operators: string[]; aircraftTypes: string[]; seats: string[] };
+type Qualification = {
+  id: string;
+  operators: string[];
+  aircraftTypes: string[];
+  seats: string[];
+  nightAircraftTypes: string[];
+};
 type Person = { id: string; name: string; position: string; permissions: string[]; aircraftTypes: string[]; qualifications: Qualification[]; active: boolean };
 type Segment = {
   id: string; aircraft: string; aircraftType?: string; seat: Seat; purpose: string;
@@ -69,7 +83,7 @@ const flightPurposes = ["КВП", "АОН", "АР", "АОН (УТП)"];
 const seatOptions: Seat[] = ["КВС", "Пилот-инструктор"];
 const positionOptions = ["Командир ВС", "Пилот-инструктор", "Экзаменатор"];
 const operatorOptions = ["КВП", "АОН", "АР"];
-const aircraftTypeOptions = ["A109", "AW109", "AW139", "AS350", "EC130", "R44", "R66", "BO105"];
+const aircraftTypeOptions = ["A109", "AW109", "AW139", "AS350", "EC130", "R44", "R66", "BO105", "Bell407"];
 const PERIODIC_SUNDAY_NOTE = "Воскресенье в периоде периодической подготовки";
 const operationalClocks = [
   { label: "UTC", timeZone: "UTC" },
@@ -145,11 +159,16 @@ function normalizePerson(person: Person): Person {
     operators: orderedUnique(qualification.operators ?? [], operatorOptions),
     aircraftTypes: orderedUnique(qualification.aircraftTypes ?? [], aircraftTypeOptions),
     seats: orderedUnique(qualification.seats ?? [], positionOptions),
+    nightAircraftTypes: orderedUnique(
+      (qualification.nightAircraftTypes ?? []).filter((aircraftType) => (qualification.aircraftTypes ?? []).includes(aircraftType)),
+      aircraftTypeOptions,
+    ),
   })) : ((person.permissions?.length || person.aircraftTypes?.length || legacySeats.length) ? [{
     id: `${person.id}-legacy-qualification`,
     operators: orderedUnique(person.permissions ?? [], operatorOptions),
     aircraftTypes: orderedUnique(person.aircraftTypes ?? [], aircraftTypeOptions),
     seats: orderedUnique(legacySeats, positionOptions),
+    nightAircraftTypes: [],
   }] : []);
   const operators = orderedUnique(qualifications.flatMap((qualification) => qualification.operators), operatorOptions);
   const aircraftTypes = orderedUnique(qualifications.flatMap((qualification) => qualification.aircraftTypes), aircraftTypeOptions);
@@ -481,10 +500,15 @@ export default function Home() {
   const restMap = useMemo(() => getRestMap(data.shifts), [data.shifts]);
   const assumedCompliantRestIds = useMemo(() => getAssumedCompliantRestIds(data.shifts), [data.shifts]);
   const restIssues = useMemo(() => getRestIssues(data.shifts), [data.shifts]);
-  const monthKey = new Date().toISOString().slice(0, 7);
+  const todayIso = localIsoDate(new Date());
+  const monthKey = todayIso.slice(0, 7);
   const monthShifts = useMemo(() => data.shifts.filter((shift) => shift.date.startsWith(monthKey)), [data.shifts, monthKey]);
+  const controlRows = useMemo(
+    () => buildControlRows(data.people, data.shifts, data.certifications, todayIso),
+    [data.people, data.shifts, data.certifications, todayIso],
+  );
   const alerts = useMemo(() => {
-    const result: { id: string; severity: "danger" | "warning"; title: string; detail: string }[] = [];
+    const result: { id: string; severity: "danger" | "warning"; title: string; detail: string; sortDate: string }[] = [];
     restIssues.filter((issue) => issue.date.startsWith(monthKey) && isRestIssueVisible(issue)).forEach((issue) => {
       const person = data.people.find((item) => item.id === issue.personId);
       result.push({
@@ -492,15 +516,30 @@ export default function Home() {
         severity: "danger",
         title: restIssueTitle(issue, person?.name ?? "Сотрудник"),
         detail: restIssueDetail(issue),
+        sortDate: issue.date,
       });
     });
-    data.certifications.forEach((record) => {
-      const state = getExpiryState(record); const person = data.people.find((item) => item.id === record.personId);
-      if (state.level === "expired") result.push({ id: `cert-${record.id}`, severity: "danger", title: `${person?.name ?? "Сотрудник"}: ${record.certificationType || record.category} просрочено`, detail: `Срок закончился ${formatDate(record.endDate)} · ${state.label.toLocaleLowerCase("ru-RU")}` });
-      else if (state.level === "alert14" || state.level === "alert45") result.push({ id: `cert-${record.id}`, severity: state.level === "alert14" ? "danger" : "warning", title: `${person?.name ?? "Сотрудник"}: истекает ${record.certificationType || record.category}`, detail: `${formatDate(record.endDate)} · ${state.label.toLocaleLowerCase("ru-RU")}` });
+    controlRows.filter(isControlAttention).forEach((row) => {
+      const title = row.kind === "type"
+        ? `${row.personName}: срок полёта на ${row.aircraftType}`
+        : row.kind === "night"
+          ? `${row.personName}: ночной допуск ${row.aircraftType}`
+          : `${row.personName}: ${row.subject}`;
+      const detail = row.dueDate
+        ? `${formatDate(row.dueDate)} · ${row.statusLabel.toLocaleLowerCase("ru-RU")}`
+        : `${row.aircraftType ? `${row.aircraftType} · ` : ""}${row.statusLabel}`;
+      result.push({
+        id: row.id,
+        severity: row.status === "expired" || row.status === "alert14" || row.status === "incomplete" ? "danger" : "warning",
+        title,
+        detail,
+        sortDate: row.dueDate,
+      });
     });
-    return result;
-  }, [data, restIssues, monthKey]);
+    return result.sort((left, right) =>
+      compareAttentionDates(left.sortDate, right.sortDate, todayIso)
+      || left.title.localeCompare(right.title, "ru-RU"));
+  }, [controlRows, data.people, restIssues, monthKey, todayIso]);
   const sortedShifts = useMemo(() => [...data.shifts].sort((a, b) => `${b.date}${b.start}`.localeCompare(`${a.date}${a.start}`)), [data.shifts]);
   const monthSortedShifts = useMemo(() => [...monthShifts].sort((a, b) => `${b.date}${b.start}`.localeCompare(`${a.date}${a.start}`)), [monthShifts]);
   const totalWork = monthShifts.reduce((sum, shift) => sum + shift.workMinutes, 0);
@@ -609,13 +648,21 @@ export default function Home() {
         position: "Командир ВС",
         permissions: [],
         aircraftTypes,
-        qualifications: aircraftTypes.length ? [{ id: uid(), operators: [], aircraftTypes, seats: ["Командир ВС"] }] : [],
+        qualifications: aircraftTypes.length ? [{ id: uid(), operators: [], aircraftTypes, seats: ["Командир ВС"], nightAircraftTypes: [] }] : [],
         active: true,
       }];
       const kept = current.certifications.filter((record) => !(record.personId === personId && record.source === "aviabit"));
       return { ...current, people, certifications: [...kept, ...payload.records.map((record) => ({ ...record, personId }))] };
     });
     setAviabitModal(false); setView("personal"); setToast(`Импортировано записей: ${payload.records.length}`);
+  }
+  function importWorkTime(records: ImportedWorkTimeShift[]) {
+    const preview = mergeImportedWorkTime(data.shifts, records);
+    setData((current) => {
+      const merged = mergeImportedWorkTime(current.shifts, records);
+      return { ...current, shifts: merged.shifts.map((shift) => normalizeShift(shift as Shift)) };
+    });
+    setToast(`Импорт завершён: добавлено ${preview.addedRows}, пропущено дублей ${preview.duplicateRows}`);
   }
   function upsertCertification(record: CertificationRecord) {
     setData((current) => ({ ...current, certifications: current.certifications.some((item) => item.id === record.id) ? current.certifications.map((item) => item.id === record.id ? record : item) : [...current.certifications, record] })); setToast("Запись личного дела сохранена");
@@ -665,7 +712,7 @@ export default function Home() {
     setToast("Занятость удалена");
   }
   function exportBackup() {
-    download(`shtab-ls-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ version: 6, exportedAt: new Date().toISOString(), data }, null, 2));
+    download(`shtab-ls-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ version: 7, exportedAt: new Date().toISOString(), data }, null, 2));
     setToast("Резервная копия сохранена");
   }
   function importBackup(event: ChangeEvent<HTMLInputElement>) {
@@ -697,6 +744,7 @@ export default function Home() {
         <NavButton active={view === "shifts"} onClick={() => setView("shifts")} label="Полётные смены" glyph="◷" />
         <NavButton active={view === "people"} onClick={() => setView("people")} label="Личный состав" glyph="◎" />
         <NavButton active={view === "personal"} onClick={() => setView("personal")} label="Личные дела" glyph="▤" />
+        <NavButton active={view === "control"} onClick={() => setView("control")} label="Контрольный журнал" glyph="✓" />
         <NavButton active={view === "planning"} onClick={() => setView("planning")} label="Месячный план" glyph="▦" />
       </nav>
       <div className="local-card"><span className="status-dot" /><div><strong>Локальная база</strong><span>Данные только на этом устройстве</span></div></div>
@@ -708,7 +756,7 @@ export default function Home() {
       </div>
     </aside>
     <main className="workspace" style={{ backgroundImage: 'linear-gradient(180deg, rgba(242, 245, 246, .62), rgba(242, 245, 246, .82)), url("solaris-berassom-bg.jpeg")' }}>
-      <header className="topbar"><div className="topbar-title"><p className="eyebrow current-date">{new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date())}</p><h1>{view === "dashboard" ? "Оперативная информация" : view === "shifts" ? "Полётные смены" : view === "people" ? "Личный состав" : view === "personal" ? "Личные дела" : "Месячный план"}</h1></div>
+      <header className="topbar"><div className="topbar-title"><p className="eyebrow current-date">{new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date())}</p><h1>{view === "dashboard" ? "Оперативная информация" : view === "shifts" ? "Полётные смены" : view === "people" ? "Личный состав" : view === "personal" ? "Личные дела" : view === "control" ? "Контрольный журнал" : "Месячный план"}</h1></div>
         <WorldClocks />
         <div className="top-actions"><span className={`save-state ${saveState}`}>{saveState === "saved" ? "Сохранено" : saveState === "saving" ? "Сохраняю…" : "Ошибка сохранения"}</span></div>
       </header>
@@ -729,13 +777,16 @@ export default function Home() {
             onEditPlan={(request) => { setPlanEditRequest(request); setView("planning"); }}
             onDeletePlanAssignment={deletePlanAssignment}
             onDeletePlanBusy={deletePlanBusy}
+            onImport={importWorkTime}
             onNotify={setToast}
           />
           : view === "people"
             ? <PeopleView people={data.people} shifts={data.shifts} onAdd={() => setPersonModal("new")} onEdit={setPersonModal} onOpenPersonal={() => setView("personal")} />
             : view === "personal"
               ? <PersonalFilesView people={data.people} shifts={data.shifts} records={data.certifications} onImportClick={() => setAviabitModal(true)} onUpsert={upsertCertification} onDelete={deleteCertification} />
-              : <MonthlyPlanView
+              : view === "control"
+                ? <ControlJournalView rows={controlRows} onNotify={setToast} />
+                : <MonthlyPlanView
                 people={data.people}
                 shifts={data.shifts}
                 assignments={data.planAssignments}
@@ -794,6 +845,7 @@ function ShiftsView({
   onEditPlan,
   onDeletePlanAssignment,
   onDeletePlanBusy,
+  onImport,
   onNotify,
 }: {
   people: Person[];
@@ -809,6 +861,7 @@ function ShiftsView({
   onEditPlan: (request: PlanEditRequest) => void;
   onDeletePlanAssignment: (assignmentId: string) => void;
   onDeletePlanBusy: (entryId: string) => void;
+  onImport: (records: ImportedWorkTimeShift[]) => void;
   onNotify: (message: string) => void;
 }) {
   const today = new Date();
@@ -816,6 +869,7 @@ function ShiftsView({
   const [dateTo, setDateTo] = useState(localIsoDate(new Date(today.getFullYear(), today.getMonth() + 1, 0)));
   const [personId, setPersonId] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const filtered = shifts.filter((shift) => (!dateFrom || shift.date >= dateFrom) && (!dateTo || shift.date <= dateTo) && (!personId || shift.personId === personId));
   const actualRows = filtered.flatMap<{ kind: "actual"; date: string; personId: string; shift: Shift; segment: Segment | null; segmentIndex: number }>((shift) => shift.activity === "flight" && shift.segments.length
     ? shift.segments.map((segment, segmentIndex) => ({ kind: "actual" as const, date: shift.date, personId: shift.personId, shift, segment, segmentIndex }))
@@ -848,7 +902,7 @@ function ShiftsView({
     setDateFrom(localIsoDate(target));
     setDateTo(localIsoDate(new Date(target.getFullYear(), target.getMonth() + 1, 0)));
   }
-  return <><section className="panel table-panel"><div className="panel-heading"><div><p className="eyebrow">Единый журнал</p><h2>Смены за выбранный период</h2></div><div className="journal-heading-actions"><button className="secondary-button pdf-button" disabled={!people.length} onClick={() => setReportOpen(true)}>Отчёт PDF</button><button className="primary-button" disabled={!people.length} onClick={onAdd}>+ Новая смена</button></div></div>
+  return <><section className="panel table-panel"><div className="panel-heading"><div><p className="eyebrow">Единый журнал</p><h2>Смены за выбранный период</h2></div><div className="journal-heading-actions"><button className="secondary-button" disabled={!people.length} onClick={() => setImportOpen(true)}>Импорт рабочего времени</button><button className="secondary-button pdf-button" disabled={!people.length} onClick={() => setReportOpen(true)}>Отчёт PDF</button><button className="primary-button" disabled={!people.length} onClick={onAdd}>+ Новая смена</button></div></div>
     <div className="journal-filters"><Field label="Период с"><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></Field><Field label="Период по"><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field><Field label="Сотрудник"><select value={personId} onChange={(event) => setPersonId(event.target.value)}><option value="">Все сотрудники</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field><div className="quick-filters"><button className="secondary-button" onClick={showToday}>Сегодня</button><button className="secondary-button month-arrow" title="Предыдущий месяц" aria-label="Предыдущий месяц" onClick={() => showAdjacentMonth(-1)}>←</button><button className="secondary-button" onClick={showCurrentMonth}>Текущий месяц</button><button className="secondary-button month-arrow" title="Следующий месяц" aria-label="Следующий месяц" onClick={() => showAdjacentMonth(1)}>→</button></div></div>
     <div className="journal-summary">Показано строк: <strong>{journalRows.length}</strong>{dateFrom === dateTo ? ` · ${formatDate(dateFrom)}` : ` · ${formatDate(dateFrom)} — ${formatDate(dateTo)}`}</div>
     {!journalRows.length ? <div className="panel-empty tall">За выбранный период смен нет.</div> : <div className="table-scroll"><table><thead><tr><th>Дата</th><th>Сотрудник</th><th>Занятость</th><th>Начало–конец</th><th>ВС / кресло</th><th>Цель</th><th>Рабочее</th><th>Полётное / ночь</th><th>Отдых</th><th>Примечание</th><th>Действия</th></tr></thead><tbody>{journalRows.map((row, rowIndex) => {
@@ -866,7 +920,7 @@ function ShiftsView({
       }
       return <tr className="planned-row" key={`busy-${row.entry.id}-${row.date}`}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{planBusyLabels[row.entry.activity]}<span className="source-pill">Из месячного плана</span></span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td className="note-cell">{row.entry.note || "Из месячного плана"}</td><td><div className="row-actions"><button onClick={() => onEditPlan({ kind: "busy", id: row.entry.id })}>Изменить</button><button className="delete" onClick={() => { if (window.confirm(`Удалить занятость «${planBusyLabels[row.entry.activity]}» за ${formatDate(row.date)}?`)) onDeletePlanBusy(row.entry.id); }}>Удалить</button></div></td></tr>;
     })}</tbody></table></div>}
-  </section>{reportOpen && <FlightReportModal people={people} shifts={shifts} onClose={() => setReportOpen(false)} onNotify={onNotify} />}</>;
+  </section>{reportOpen && <FlightReportModal people={people} shifts={shifts} onClose={() => setReportOpen(false)} onNotify={onNotify} />}{importOpen && <WorkTimeImportModal people={people} shifts={shifts} onClose={() => setImportOpen(false)} onSubmit={(records) => { onImport(records); setImportOpen(false); }} />}</>;
 }
 
 function FlightReportModal({ people, shifts, onClose, onNotify }: { people: Person[]; shifts: Shift[]; onClose: () => void; onNotify: (message: string) => void }) {
@@ -908,6 +962,7 @@ function PeopleView({ people, shifts, onAdd, onEdit, onOpenPersonal }: { people:
             <b>{qualification.operators.join(", ") || "Эксплуатант не указан"}</b>
             <span>{qualification.aircraftTypes.join(", ") || "Тип ВС не указан"}</span>
             <small>{qualification.seats.join(", ") || "Кресла не указаны"}</small>
+            {qualification.nightAircraftTypes.length > 0 && <small>Ночь: {qualification.nightAircraftTypes.join(", ")}</small>}
           </div>) : <div><span>Наборы допуска не указаны</span></div>}</div>
           <div className="person-card-actions"><button onClick={onOpenPersonal}>Личное дело</button><button onClick={() => onEdit(person)}>Изменить</button></div>
         </div>
@@ -923,11 +978,12 @@ function PersonModal({ person, onClose, onSubmit, onDelete }: { person: Person |
   const [operators, setOperators] = useState<string[]>([]);
   const [types, setTypes] = useState<string[]>([]);
   const [seats, setSeats] = useState<string[]>([]);
+  const [nightTypes, setNightTypes] = useState<string[]>([]);
   const [editingQualificationId, setEditingQualificationId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   function resetQualificationDraft() {
-    setOperators([]); setTypes([]); setSeats([]); setEditingQualificationId(null); setError("");
+    setOperators([]); setTypes([]); setSeats([]); setNightTypes([]); setEditingQualificationId(null); setError("");
   }
 
   function saveQualification() {
@@ -940,6 +996,7 @@ function PersonModal({ person, onClose, onSubmit, onDelete }: { person: Person |
       operators: orderedUnique(operators, operatorOptions),
       aircraftTypes: orderedUnique(types, aircraftTypeOptions),
       seats: orderedUnique(seats, positionOptions),
+      nightAircraftTypes: orderedUnique(nightTypes.filter((aircraftType) => types.includes(aircraftType)), aircraftTypeOptions),
     };
     setQualifications((current) => editingQualificationId
       ? current.map((item) => item.id === editingQualificationId ? qualification : item)
@@ -949,13 +1006,14 @@ function PersonModal({ person, onClose, onSubmit, onDelete }: { person: Person |
 
   function editQualification(qualification: Qualification) {
     setOperators(qualification.operators); setTypes(qualification.aircraftTypes); setSeats(qualification.seats);
+    setNightTypes(qualification.nightAircraftTypes ?? []);
     setEditingQualificationId(qualification.id); setError("");
   }
 
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!name.trim()) { setError("Укажите Ф. И. О. сотрудника."); return; }
-    if (operators.length || types.length || seats.length || editingQualificationId) { setError("Сначала добавьте или сохраните заполненный набор допуска."); return; }
+    if (operators.length || types.length || seats.length || nightTypes.length || editingQualificationId) { setError("Сначала добавьте или сохраните заполненный набор допуска."); return; }
     if (!qualifications.length) { setError("Добавьте хотя бы один набор допуска сотрудника."); return; }
     if (qualifications.some((qualification) => !qualification.operators.length || !qualification.aircraftTypes.length || !qualification.seats.length)) {
       setError("Отредактируйте неполный набор: эксплуатант, тип ВС и кресла обязательны."); return;
@@ -965,14 +1023,17 @@ function PersonModal({ person, onClose, onSubmit, onDelete }: { person: Person |
     const position = orderedUnique(qualifications.flatMap((qualification) => qualification.seats), positionOptions).join(", ");
     onSubmit({ name: name.trim(), position, permissions, aircraftTypes, qualifications });
   }
-  return <Modal title={person ? "Редактирование сотрудника" : "Новый сотрудник"} subtitle="Эксплуатант → тип ВС → занимаемые кресла" onClose={onClose} wide>
+  return <Modal title={person ? "Редактирование сотрудника" : "Новый сотрудник"} subtitle="Эксплуатант → тип ВС → занимаемые кресла → ночной допуск" onClose={onClose} wide>
     <form onSubmit={submit} className="form-stack person-form">
       <Field label="Ф. И. О."><input autoFocus required value={name} onChange={(event) => setName(event.target.value)} placeholder="Иванов Иван Иванович" /></Field>
       <section className="qualification-builder">
         <div className="qualification-builder-heading"><div><strong>{editingQualificationId ? "Изменение набора допуска" : "Новый набор допуска"}</strong><span>Последовательно выберите данные и добавьте набор в карточку сотрудника.</span></div>{editingQualificationId && <button type="button" className="link-button" onClick={resetQualificationDraft}>Отменить изменение набора</button>}</div>
         <div className="qualification-step"><span>1</span><CheckboxGroup label="Эксплуатант" options={operatorOptions} values={operators} onChange={setOperators} /></div>
-        <div className="qualification-step"><span>2</span><CheckboxGroup label="Тип ВС" options={aircraftTypeOptions} values={types} onChange={setTypes} columns={4} /></div>
+        <div className="qualification-step"><span>2</span><CheckboxGroup label="Тип ВС" options={aircraftTypeOptions} values={types} onChange={(values) => { setTypes(values); setNightTypes((current) => current.filter((aircraftType) => values.includes(aircraftType))); }} columns={4} /></div>
         <div className="qualification-step"><span>3</span><CheckboxGroup label="Занимаемые кресла" options={positionOptions} values={seats} onChange={setSeats} /></div>
+        <div className="qualification-step"><span>4</span>{types.length
+          ? <CheckboxGroup label="Допуск к полётам ночью — выберите типы ВС" options={types} values={nightTypes} onChange={setNightTypes} columns={4} />
+          : <div className="qualification-night-empty"><strong>Допуск к полётам ночью</strong><span>Сначала выберите хотя бы один тип ВС на шаге 2.</span></div>}</div>
         <div className="qualification-add"><button type="button" className="secondary-button" onClick={saveQualification}>{editingQualificationId ? "Сохранить набор" : "+ Добавить набор"}</button></div>
       </section>
       {qualifications.length > 0 && <section className="qualification-list"><div className="section-label"><strong>Добавленные наборы</strong><span>{qualifications.length}</span></div>{qualifications.map((qualification, index) => <article className={editingQualificationId === qualification.id ? "editing" : ""} key={qualification.id}>
@@ -980,6 +1041,7 @@ function PersonModal({ person, onClose, onSubmit, onDelete }: { person: Person |
         <div><small>Эксплуатант</small><strong>{qualification.operators.join(", ") || "Не указан"}</strong></div>
         <div><small>Тип ВС</small><strong>{qualification.aircraftTypes.join(", ") || "Не указан"}</strong></div>
         <div><small>Кресла</small><strong>{qualification.seats.join(", ") || "Не указаны"}</strong></div>
+        <div><small>Ночь</small><strong>{qualification.nightAircraftTypes.length ? qualification.nightAircraftTypes.join(", ") : "Нет допуска"}</strong></div>
         <div className="qualification-actions"><button type="button" onClick={() => editQualification(qualification)}>Изменить</button><button type="button" className="delete" onClick={() => { setQualifications((current) => current.filter((item) => item.id !== qualification.id)); if (editingQualificationId === qualification.id) resetQualificationDraft(); }}>Удалить</button></div>
       </article>)}</section>}
       {error && <div className="form-error">{error}</div>}

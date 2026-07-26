@@ -12,6 +12,7 @@ test("aircraft types expose only their assigned registration numbers", () => {
   assert.deepEqual([...aircraftNumbersForType("R66")], ["RA-07375", "RA-05828"]);
   assert.deepEqual([...aircraftNumbersForType("R44")], ["RA-04186", "RA-04359"]);
   assert.deepEqual([...aircraftNumbersForType("AS350")], ["RA-07338", "RA-04063"]);
+  assert.deepEqual([...aircraftNumbersForType("Bell407")], ["RA-01619"]);
 });
 
 test("a registration number cannot be saved for another mapped aircraft type", () => {
