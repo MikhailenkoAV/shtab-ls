@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { expandLinkedCrewShifts, linkedCrewShiftId } from "../app/crew-rules.ts";
+import { crewDutyMinutes, expandLinkedCrewShifts, linkedCrewShiftId } from "../app/crew-rules.ts";
+
+test("time marked as excluded is removed from counted working time", () => {
+  assert.equal(crewDutyMinutes([{
+    dutyStart: "08:00",
+    dutyEnd: "16:00",
+    excludedWorkMinutes: 90,
+  }]), 390);
+});
 
 test("an instructor flight creates one linked commander journal shift without duplicating the stored shift", () => {
   const shifts = [{

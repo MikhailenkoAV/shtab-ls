@@ -7,7 +7,7 @@ import { ControlKind, ControlRow, isControlAttention } from "./control-journal-r
 const kindLabels: Record<ControlKind, string> = {
   type: "Тип",
   night: "Ночь",
-  certification: "Сертификация",
+  certification: "Контроль",
 };
 
 function localIsoDate(date: Date): string {
@@ -27,7 +27,6 @@ export function ControlJournalView({
 }) {
   const [kind, setKind] = useState<ControlKind>("type");
   const [query, setQuery] = useState("");
-  const [attentionOnly, setAttentionOnly] = useState(false);
   const today = new Date();
   const after45Days = new Date(today);
   after45Days.setDate(after45Days.getDate() + 45);
@@ -36,15 +35,15 @@ export function ControlJournalView({
   const [exporting, setExporting] = useState(false);
 
   const counts = useMemo(() => ({
-    type: rows.filter((row) => row.kind === "type").length,
-    night: rows.filter((row) => row.kind === "night").length,
-    certification: rows.filter((row) => row.kind === "certification").length,
+    type: rows.filter((row) => row.kind === "type" && isControlAttention(row)).length,
+    night: rows.filter((row) => row.kind === "night" && isControlAttention(row)).length,
+    certification: rows.filter((row) => row.kind === "certification" && isControlAttention(row)).length,
   }), [rows]);
   const visible = useMemo(() => rows.filter((row) =>
     row.kind === kind
-    && (!attentionOnly || isControlAttention(row))
+    && isControlAttention(row)
     && `${row.personName} ${row.subject} ${row.aircraftType}`.toLocaleLowerCase("ru-RU")
-      .includes(query.trim().toLocaleLowerCase("ru-RU"))), [attentionOnly, kind, query, rows]);
+      .includes(query.trim().toLocaleLowerCase("ru-RU"))), [kind, query, rows]);
 
   async function exportJournal() {
     setExporting(true);
@@ -68,15 +67,14 @@ export function ControlJournalView({
       <button key={item} className={kind === item ? "active" : ""} onClick={() => setKind(item)} role="tab" aria-selected={kind === item}><span>{kindLabels[item]}</span><i>{counts[item]}</i></button>)}</div>
     <div className="records-toolbar control-journal-toolbar">
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по сотруднику, типу или документу…" />
-      <div className="filter-buttons"><button className={!attentionOnly ? "active" : ""} onClick={() => setAttentionOnly(false)}>Все</button><button className={attentionOnly ? "active" : ""} onClick={() => setAttentionOnly(true)}>Требует внимания</button></div>
+      <span className="control-attention-note">Показаны только записи, требующие внимания</span>
     </div>
     <div className="control-journal-note">{kind === "type"
       ? "Срок 90 дней рассчитывается от последнего полёта сотрудника на каждом допущенном типе ВС."
       : kind === "night"
         ? "Показываются только типы ВС, для которых в карточке сотрудника установлен допуск к полётам ночью."
         : "Сроки документов берутся из личных дел и обновляются после импорта из Авиабит."}</div>
-    {!visible.length ? <div className="panel-empty tall">По выбранному разделу и фильтрам записей нет.</div> : <div className="table-scroll"><table className="control-journal-table"><thead><tr><th>Сотрудник</th><th>{kind === "certification" ? "Документ" : "Тип ВС"}</th><th>{kind === "certification" ? "Начало" : "Последний полёт"}</th><th>Срок</th><th>Осталось</th><th>Состояние</th></tr></thead><tbody>{visible.map((row) =>
+    {!visible.length ? <div className="panel-empty tall">В этом разделе нет записей, требующих внимания.</div> : <div className="table-scroll"><table className="control-journal-table"><thead><tr><th>Сотрудник</th><th>{kind === "certification" ? "Документ" : "Тип ВС"}</th><th>{kind === "certification" ? "Начало" : "Последний полёт"}</th><th>Срок</th><th>Осталось</th><th>Состояние</th></tr></thead><tbody>{visible.map((row) =>
       <tr key={row.id}><td><strong>{row.personName}</strong></td><td><strong>{kind === "certification" ? row.subject : row.aircraftType}</strong>{kind === "certification" && row.aircraftType && <small>{row.aircraftType}</small>}</td><td>{displayDate(row.referenceDate)}</td><td>{displayDate(row.dueDate)}</td><td>{row.daysLeft === null ? "—" : row.daysLeft < 0 ? `−${Math.abs(row.daysLeft)} дн.` : `${row.daysLeft} дн.`}</td><td><span className={`expiry-pill ${row.status}`}>{row.statusLabel}</span></td></tr>)}</tbody></table></div>}
   </section>;
 }
-

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { buildEmploymentReport, buildFlightReport } from "../app/monthly-report.ts";
+import {
+  buildCumulativeFlightReport,
+  buildEmploymentReport,
+  buildFlightReport,
+  buildSummaryFlightReport,
+} from "../app/monthly-report.ts";
 
 test("GitHub Pages export contains the main application sections", async () => {
   const html = await readFile(new URL("../out/index.html", import.meta.url), "utf8");
@@ -10,6 +15,7 @@ test("GitHub Pages export contains the main application sections", async () => {
   assert.match(html, /Личные дела/);
   assert.match(html, /Контрольный журнал/);
   assert.match(html, /Месячный план/);
+  assert.match(html, /Фактический план/);
   assert.match(html, /solaris-berassom-bg\.jpeg/);
   assert.match(html, /sidebar-icon\.png/);
   assert.match(html, /UTC/);
@@ -44,6 +50,7 @@ test("period report aggregates chair, aircraft type, purpose, total and night fl
   assert.match(serialized, /Бортовой №/);
   assert.match(serialized, /RA-00001/);
   assert.match(serialized, /РС/);
+  assert.ok(serialized.includes("\"text\":\"+\""));
   assert.match(serialized, /Цель/);
   assert.match(serialized, /Налёт/);
   assert.match(serialized, /Из них ночь/);
@@ -100,6 +107,27 @@ test("monthly report contains every calendar day, aircraft types and flight-time
   assert.match(serialized, /8:00/);
   assert.match(serialized, /Москва/);
   assert.match(serialized, /ИТОГО ПО СОТРУДНИКУ/);
+});
+
+test("summary and cumulative reports use the requested flight totals", () => {
+  const people = [{ id: "barkov", name: "Барков Сергей Владимирович", position: "Командир ВС", aircraftTypes: ["R44"], active: true }];
+  const shifts = [
+    { personId: "barkov", date: "2026-06-30", activity: "flight", segments: [{ aircraft: "RA-04186", aircraftType: "R44", seat: "КВС", purpose: "АОН", flightMinutes: 60, nightMinutes: 0 }] },
+    { personId: "barkov", date: "2026-07-02", activity: "flight", segments: [{ aircraft: "RA-04186", aircraftType: "R44", seat: "Пилот-инструктор", purpose: "АОН (УТП)", flightMinutes: 90, nightMinutes: 30 }] },
+  ];
+  const cumulative = JSON.stringify(buildCumulativeFlightReport("2026-07-01", "2026-07-31", people, shifts, "barkov"));
+  assert.match(cumulative, /Барков Сергей Владимирович/);
+  assert.match(cumulative, /Отчёт по нарастающему налёту/);
+  assert.match(cumulative, /2:30/);
+  assert.match(cumulative, /1:30/);
+
+  const summary = JSON.stringify(buildSummaryFlightReport("2026-07-01", "2026-07-31", people, shifts));
+  assert.match(summary, /Итоговая справка о налёте/);
+  assert.match(summary, /Барков Сергей Владимирович/);
+  assert.match(summary, /R44/);
+  assert.match(summary, /Инструктор/);
+  assert.match(summary, /1:30/);
+  assert.match(summary, /0:30/);
 });
 
 test("overall report includes a shared summary and individual employees", () => {

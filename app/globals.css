@@ -228,6 +228,7 @@ td strong { color: #314956; }
 .control-journal-tabs button.active { border-color: #4da59d; color: #176c65; background: #e7f4f2; box-shadow: inset 0 0 0 1px rgba(77,165,157,.25); }
 .control-journal-tabs i { min-width: 22px; padding: 3px 6px; border-radius: 999px; color: #607783; background: #edf2f4; font-size: 8px; font-style: normal; }
 .control-journal-tabs button.active i { color: #176c65; background: white; }
+.control-attention-note { margin-left: auto; color: #9b511f; font-size: 9px; font-weight: 800; }
 .control-journal-note { padding: 10px 18px; border-bottom: 1px solid #e7ecef; color: #647a85; background: #f8fafb; font-size: 9px; line-height: 1.5; }
 .control-journal-table { min-width: 900px; }
 .control-journal-table td { vertical-align: middle; }
@@ -338,6 +339,9 @@ td strong { color: #314956; }
 .split-part-heading span { color: #9a8763; font-size: 8px; }
 .split-shift-checkbox { display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 7px 10px; border: 1px solid #dce5e7; border-radius: 8px; color: #526b77; background: #f8fbfb; font-size: 10px; font-weight: 700; cursor: pointer; }
 .split-shift-checkbox input { accent-color: var(--teal); }
+.excluded-work-toggle { display: flex; align-items: center; gap: 8px; min-height: 41px; padding: 9px 11px; border: 1px solid #d8e2e5; border-radius: 8px; color: #526b77; background: #f8fbfb; font-size: 9px; font-weight: 800; cursor: pointer; }
+.excluded-work-toggle:has(input:checked) { border-color: #d29b54; color: #7a541e; background: #fff7e8; }
+.excluded-work-toggle input { margin: 0; accent-color: #b87928; }
 .remove-segment { width: 26px; height: 41px; border: 0; color: #a55e5e; background: transparent; font-size: 20px; }
 .split-pill { display: inline-block; min-width: 32px; padding: 4px 7px; border-radius: 999px; color: #76868e; background: #eef2f3; text-align: center; font-size: 9px; font-weight: 800; }
 .split-pill.active { color: #81571f; background: #fff0cf; }
@@ -346,6 +350,7 @@ td strong { color: #314956; }
 .rest-cell { display: grid; min-width: 92px; gap: 2px; }
 .rest-cell strong { font-size: 9px; font-weight: 800; }
 .rest-cell small { color: #7d8d96; font-size: 7px; line-height: 1.25; white-space: nowrap; }
+.rest-cell .weekly-rest { font-weight: 900; }
 .journal-date-cell { vertical-align: top; color: #284b5c; background: #f4f8f9; font-weight: 800; white-space: nowrap; }
 .aircraft-cell strong, .flight-cell strong { color: #314956; font-size: 10px; }
 .aircraft-cell small, .flight-cell small { color: #82919a; font-size: 9px; }
@@ -405,6 +410,42 @@ td strong { color: #314956; }
 .plan-legend i.primary { background: #edf7e7; }
 .plan-legend i.reserve { background: #fff0e3; }
 .plan-legend i.busy { background: #55c6e9; }
+.actual-plan-panel { min-height: 650px; }
+.actual-plan-heading { align-items: flex-end; }
+.actual-plan-scroll { max-height: calc(100vh - 285px); overflow: auto; background: white; }
+.actual-plan-table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+.actual-plan-table th, .actual-plan-table td { height: 58px; padding: 0; border-right: 1px solid #d0dadd; border-bottom: 1px solid #d0dadd; color: #334b57; background: white; text-align: center; vertical-align: top; }
+.actual-plan-table thead th { position: sticky; z-index: 6; top: 0; min-width: 82px; height: 48px; padding: 5px; border-top: 1px solid #d0dadd; color: #526b78; background: #edf3f5; }
+.actual-plan-table thead th strong, .actual-plan-table thead th span { display: block; }
+.actual-plan-table thead th strong { font-size: 10px; }
+.actual-plan-table thead th span { margin-top: 3px; font-size: 7px; }
+.actual-plan-table .actual-person-head { z-index: 9; left: 0; min-width: 190px; padding-left: 12px; text-align: left; }
+.actual-person-name { position: sticky; z-index: 4; left: 0; width: 190px; min-width: 190px; padding: 8px 10px !important; border-left: 1px solid #d0dadd; color: #284958 !important; background: #f7fafb !important; text-align: left !important; font-size: 9px !important; }
+.actual-plan-table .weekend { background-image: linear-gradient(rgba(255,244,229,.58), rgba(255,244,229,.58)); }
+.actual-plan-table td { width: 82px; min-width: 82px; }
+.actual-day-cell { display: grid; gap: 3px; max-height: 86px; overflow: auto; padding: 3px; }
+.actual-entry { display: grid; gap: 2px; width: 100%; min-height: 25px; overflow: hidden; padding: 4px 5px; border: 1px solid rgba(44,75,87,.12); border-radius: 5px; color: #264653; background: #edf3f5; text-align: left; }
+.actual-entry strong { overflow: hidden; font-size: 7px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.actual-entry span { color: #667c86; font-size: 6px; }
+.actual-entry.flight { background: #e7f4e3; }
+.actual-entry.trip { background: #ddd9d9; }
+.actual-entry.office { background: #b9e0f4; }
+.actual-entry.periodic_training { background: #e5e7e8; }
+.actual-entry.ground_training { background: #f8df91; }
+.actual-entry.standby { background: #d6e7e4; }
+.actual-entry.vacation { background: #ffd8a5; }
+.actual-entry.dayoff { background: #6fcde9; }
+.actual-plan-legend { display: flex; flex-wrap: wrap; gap: 10px 15px; padding: 12px 18px; color: #6f8089; background: #fbfcfc; font-size: 8px; }
+.actual-plan-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.actual-plan-legend i { width: 12px; height: 12px; border: 1px solid #c5d0d4; border-radius: 3px; background: #edf3f5; }
+.actual-plan-legend i.flight { background: #e7f4e3; }
+.actual-plan-legend i.trip { background: #ddd9d9; }
+.actual-plan-legend i.office { background: #b9e0f4; }
+.actual-plan-legend i.periodic_training { background: #e5e7e8; }
+.actual-plan-legend i.ground_training { background: #f8df91; }
+.actual-plan-legend i.standby { background: #d6e7e4; }
+.actual-plan-legend i.vacation { background: #ffd8a5; }
+.actual-plan-legend i.dayoff { background: #6fcde9; }
 .employment-planner { padding-top: 18px; }
 .employment-aircraft, .employment-days { display: grid; gap: 10px; padding: 14px; border: 1px solid #dfe7ea; border-radius: 12px; background: #f8fafb; }
 .employment-aircraft .field { max-width: 280px; }

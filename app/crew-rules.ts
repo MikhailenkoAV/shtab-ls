@@ -4,6 +4,7 @@ export type CrewSegmentRef = {
   commanderPersonId?: string;
   dutyStart?: string;
   dutyEnd?: string;
+  excludedWorkMinutes?: number;
 };
 
 export type CrewShiftRef<S extends CrewSegmentRef = CrewSegmentRef> = {
@@ -44,7 +45,12 @@ export function crewDutyMinutes(segments: CrewSegmentRef[]): number {
       currentEnd = range.end;
     }
   });
-  return total + currentEnd - currentStart;
+  const dutyMinutes = total + currentEnd - currentStart;
+  const excludedMinutes = segments.reduce(
+    (sum, segment) => sum + Math.max(0, segment.excludedWorkMinutes ?? 0),
+    0,
+  );
+  return Math.max(0, dutyMinutes - excludedMinutes);
 }
 
 export function linkedCrewShiftId(sourceShiftId: string, personId: string): string {

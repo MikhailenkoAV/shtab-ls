@@ -1,9 +1,9 @@
-import { ControlRow } from "./control-journal-rules";
+import { ControlRow, isControlAttention } from "./control-journal-rules";
 
 const kindLabels = {
   type: "Тип",
   night: "Ночь",
-  certification: "Сертификация",
+  certification: "Контроль",
 };
 
 function displayDate(value: string): string {
@@ -13,7 +13,7 @@ function displayDate(value: string): string {
 export async function downloadControlJournalExcel(rows: ControlRow[], dateFrom: string, dateTo: string) {
   if (!dateFrom || !dateTo || dateTo < dateFrom) throw new Error("Проверьте выбранный период.");
   const selected = rows
-    .filter((row) => row.dueDate && row.dueDate >= dateFrom && row.dueDate <= dateTo)
+    .filter((row) => isControlAttention(row) && row.dueDate && row.dueDate >= dateFrom && row.dueDate <= dateTo)
     .sort((left, right) => left.dueDate.localeCompare(right.dueDate) || left.personName.localeCompare(right.personName, "ru-RU"));
   if (!selected.length) throw new Error("В выбранном периоде нет контрольных сроков.");
 
@@ -91,4 +91,3 @@ export async function downloadControlJournalExcel(rows: ControlRow[], dateFrom: 
   XLSX.utils.book_append_sheet(workbook, sheet, "Контроль");
   XLSX.writeFile(workbook, `kontrolnyy-zhurnal-${dateFrom}-${dateTo}.xlsx`);
 }
-
