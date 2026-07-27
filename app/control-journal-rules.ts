@@ -183,6 +183,10 @@ export function isControlAttention(row: ControlRow): boolean {
   return ["expired", "alert14", "alert45", "incomplete"].includes(row.status);
 }
 
+export function isControlJournalVisible(row: ControlRow, kind: ControlKind): boolean {
+  return row.kind === kind && (kind !== "certification" || isControlAttention(row));
+}
+
 export function compareAttentionDates(leftDate: string, rightDate: string, today: string): number {
   const rank = (value: string): [number, number] => {
     const days = daysBetween(today, value);
@@ -194,4 +198,3 @@ export function compareAttentionDates(leftDate: string, rightDate: string, today
   const right = rank(rightDate);
   return left[0] - right[0] || left[1] - right[1];
 }
-

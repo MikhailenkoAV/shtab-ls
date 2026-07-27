@@ -5,6 +5,7 @@ import {
   buildControlRows,
   compareAttentionDates,
   isControlAttention,
+  isControlJournalVisible,
 } from "../app/control-journal-rules.ts";
 
 test("control journal creates 90-day type and night rows from the latest qualifying flight", () => {
@@ -43,6 +44,9 @@ test("control journal creates 90-day type and night rows from the latest qualify
   assert.equal(nightRows.length, 1);
   assert.equal(nightRows[0].aircraftType, "R44");
   assert.equal(nightRows[0].referenceDate, "2026-07-01");
+  assert.equal(isControlAttention(r44Type), false);
+  assert.equal(isControlJournalVisible(r44Type, "type"), true);
+  assert.equal(isControlJournalVisible(nightRows[0], "night"), true);
 });
 
 test("Bell407 board is recognized and missing flights require attention", () => {
@@ -92,7 +96,8 @@ test("certification dates are included and attention is ordered by nearest overd
   assert.equal(rows[0].kind, "certification");
   assert.equal(rows[0].status, "alert45");
   assert.equal(rows[0].daysLeft, 15);
+  assert.equal(isControlJournalVisible(rows[0], "certification"), true);
+  assert.equal(isControlJournalVisible({ ...rows[0], status: "valid" }, "certification"), false);
   assert.ok(compareAttentionDates("2026-07-25", "2026-07-27", "2026-07-26") < 0);
   assert.ok(compareAttentionDates("2026-07-25", "2026-07-20", "2026-07-26") < 0);
 });
-

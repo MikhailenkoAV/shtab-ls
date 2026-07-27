@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
-  buildCumulativeFlightReport,
   buildEmploymentReport,
   buildFlightReport,
   buildSummaryFlightReport,
 } from "../app/monthly-report.ts";
+import { buildCumulativeWorkbookModel } from "../app/cumulative-flight-report.ts";
 
 test("GitHub Pages export contains the main application sections", async () => {
   const html = await readFile(new URL("../out/index.html", import.meta.url), "utf8");
@@ -109,17 +109,28 @@ test("monthly report contains every calendar day, aircraft types and flight-time
   assert.match(serialized, /ИТОГО ПО СОТРУДНИКУ/);
 });
 
-test("summary and cumulative reports use the requested flight totals", () => {
-  const people = [{ id: "barkov", name: "Барков Сергей Владимирович", position: "Командир ВС", aircraftTypes: ["R44"], active: true }];
+test("summary and common cumulative reports use the requested flight totals", () => {
+  const people = [
+    { id: "barkov", name: "Барков Сергей Владимирович", position: "Командир ВС", aircraftTypes: ["R44"], active: true },
+    { id: "pronin", name: "Пронин Александр Константинович", position: "Командир ВС", aircraftTypes: ["R44"], active: true },
+  ];
   const shifts = [
     { personId: "barkov", date: "2026-06-30", activity: "flight", segments: [{ aircraft: "RA-04186", aircraftType: "R44", seat: "КВС", purpose: "АОН", flightMinutes: 60, nightMinutes: 0 }] },
     { personId: "barkov", date: "2026-07-02", activity: "flight", segments: [{ aircraft: "RA-04186", aircraftType: "R44", seat: "Пилот-инструктор", purpose: "АОН (УТП)", flightMinutes: 90, nightMinutes: 30 }] },
+    { personId: "pronin", date: "2026-07-02", activity: "flight", linkedSourceShiftId: "instructor-shift", segments: [{ aircraft: "RA-04186", aircraftType: "R44", seat: "КВС", purpose: "АОН (УТП)", flightMinutes: 90, nightMinutes: 30 }] },
+    { personId: "pronin", date: "2026-07-03", activity: "flight", segments: [{ aircraft: "RA-04186", aircraftType: "R44", seat: "КВС", purpose: "АОН", flightMinutes: 60, nightMinutes: 0 }] },
   ];
-  const cumulative = JSON.stringify(buildCumulativeFlightReport("2026-07-01", "2026-07-31", people, shifts, "barkov"));
-  assert.match(cumulative, /Барков Сергей Владимирович/);
-  assert.match(cumulative, /Отчёт по нарастающему налёту/);
-  assert.match(cumulative, /2:30/);
-  assert.match(cumulative, /1:30/);
+  const cumulative = buildCumulativeWorkbookModel("2026-07-31", people, shifts, {
+    aircraft: [{ board: "RA-04186", month: "Июнь", minutes: 120 }],
+    pilots: [{ pilot: "Пронин А.К.", month: "Июнь", minutes: 180 }],
+  });
+  const aircraft = cumulative.aircraftGroups.find((group) => group.board === "RA-04186");
+  const julyAircraft = aircraft?.rows.find((row) => row.month === "Июль 2026");
+  assert.equal(julyAircraft?.minutes, 150);
+  const julyPilots = cumulative.pilotMonths.find((month) => month.month === "Июль 2026");
+  assert.equal(julyPilots?.rows.find((row) => row.pilot === "Барков С.В.")?.minutes, 90);
+  assert.equal(julyPilots?.rows.find((row) => row.pilot === "Пронин А.К.")?.minutes, 150);
+  assert.equal(cumulative.pilotMonths[0].rows.find((row) => row.pilot === "Пронин А.К.")?.minutes, 180);
 
   const summary = JSON.stringify(buildSummaryFlightReport("2026-07-01", "2026-07-31", people, shifts));
   assert.match(summary, /Итоговая справка о налёте/);

@@ -5,10 +5,13 @@ import { activityUsesTime as usesTime, isRestNeutralActivity, normalizeActivityT
 import { aircraftNumbersByType, aircraftNumbersForType, isAircraftNumberAllowed } from "./aircraft-rules";
 import {
   downloadEmploymentReport,
-  downloadCumulativeFlightReport,
   downloadFlightReport,
   downloadSummaryFlightReport,
 } from "./monthly-report";
+import {
+  CUMULATIVE_APPEND_START,
+  downloadCumulativeFlightExcel,
+} from "./cumulative-flight-report";
 import { MonthlyPlanView, PlanEditRequest } from "./monthly-plan";
 import { ActualPlanView } from "./actual-plan";
 import {
@@ -38,6 +41,7 @@ import {
   isControlAttention,
 } from "./control-journal-rules";
 import { expandLinkedCrewShifts } from "./crew-rules";
+import { dashboardRows } from "./dashboard-rules";
 
 type View = "dashboard" | "shifts" | "people" | "personal" | "control" | "planning" | "actual";
 type Activity = "flight" | "trip" | "office" | "periodic_training" | "ground_training" | "standby" | "vacation" | "dayoff";
@@ -891,8 +895,8 @@ function WorldClocks() {
 function Dashboard({ people, shifts, alerts, totalWork, totalFlight, restMap, assumedCompliantRestIds, onAddPerson, onAddShift }: { people: Person[]; shifts: Shift[]; alerts: { id: string; severity: "danger" | "warning"; title: string; detail: string }[]; totalWork: number; totalFlight: number; restMap: Map<string, number>; assumedCompliantRestIds: Set<string>; onAddPerson: () => void; onAddShift: () => void }) {
   if (!people.length) return <section className="empty-start"><div className="empty-visual"><span>01</span><i /></div><p className="eyebrow">Начало работы</p><h2>Создайте первую карточку сотрудника</h2><p>После этого можно вносить смены, а система начнёт автоматически считать рабочее время и отдых.</p><button className="primary-button" onClick={onAddPerson}>Добавить сотрудника</button></section>;
   return <><section className="metric-grid"><Metric label="Активный состав" value={String(people.filter((person) => person.active).length)} detail="сотрудников в базе" tone="blue" /><Metric label="Рабочее время" value={formatDuration(totalWork)} detail="в текущем месяце" tone="navy" /><Metric label="Полётное время" value={formatDuration(totalFlight)} detail="в текущем месяце" tone="teal" /><Metric label="Полётные смены" value={String(shifts.filter((shift) => shift.activity === "flight").reduce((sum, shift) => sum + flightEntryCount(shift.segments), 0))} detail="в текущем месяце" tone="violet" /><Metric label="Требует внимания" value={String(alerts.length)} detail={alerts.length ? "открытых предупреждений" : "нарушений не выявлено"} tone={alerts.length ? "red" : "green"} /></section>
-    <section className="content-grid"><article className="panel alerts-panel"><div className="panel-heading"><div><p className="eyebrow">Контроль</p><h2>Требует внимания</h2></div><span className="count-badge">{alerts.length}</span></div><div className="control-rules"><strong>Нормы отдыха · приказ № 381</strong><span>12 ч ежедневно · 42 ч после 6 рабочих дней · 48 ч после двух разделённых смен</span></div>{!alerts.length ? <div className="good-state"><span>✓</span><div><strong>Критических замечаний нет</strong><p>Новые предупреждения появятся после расчёта смен.</p></div></div> : alerts.slice(0, 5).map((alert) => <div className={`alert-row ${alert.severity}`} key={alert.id}><span className="alert-icon">!</span><div><strong>{alert.title}</strong><p>{alert.detail}</p></div></div>)}</article>
-      <article className="panel recent-panel"><div className="panel-heading"><div><p className="eyebrow">Последние записи</p><h2>Недавние смены</h2></div><button className="link-button" onClick={onAddShift}>Добавить</button></div>{!shifts.length ? <div className="panel-empty">Смен пока нет</div> : shifts.slice(0, 5).map((shift) => { const person = people.find((item) => item.id === shift.personId); const rest = restMap.get(shift.id); const assumedCompliant = assumedCompliantRestIds.has(shift.id); return <div className="shift-row" key={shift.id}><div className="date-tile"><strong>{shift.date.slice(8, 10)}</strong><span>{new Intl.DateTimeFormat("ru-RU", { month: "short" }).format(new Date(`${shift.date}T12:00:00`)).replace(".", "")}</span></div><div className="shift-main"><strong>{person?.name ?? "Сотрудник"}</strong><span>{activityLabels[shift.activity]} · {shift.start || "без времени"}</span></div><div className="shift-meta"><strong>{shift.workMinutes ? formatDuration(shift.workMinutes) : "—"}</strong><span>{shift.activity === "dayoff" ? "отдых 24 ч" : assumedCompliant ? "отдых по норме" : rest === undefined ? "первая смена" : `отдых ${formatDuration(rest)}`}</span></div></div>; })}</article></section></>;
+    <section className="content-grid"><article className="panel alerts-panel"><div className="panel-heading"><div><p className="eyebrow">Контроль</p><h2>Требует внимания</h2></div><span className="count-badge">{alerts.length}</span></div><div className="control-rules"><strong>Нормы отдыха · приказ № 381</strong><span>12 ч ежедневно · 42 ч после 6 рабочих дней · 48 ч после двух разделённых смен</span></div>{!alerts.length ? <div className="good-state"><span>✓</span><div><strong>Критических замечаний нет</strong><p>Новые предупреждения появятся после расчёта смен.</p></div></div> : dashboardRows(alerts).map((alert) => <div className={`alert-row ${alert.severity}`} key={alert.id}><span className="alert-icon">!</span><div><strong>{alert.title}</strong><p>{alert.detail}</p></div></div>)}</article>
+      <article className="panel recent-panel"><div className="panel-heading"><div><p className="eyebrow">Последние записи</p><h2>Недавние смены</h2></div><button className="link-button" onClick={onAddShift}>Добавить</button></div>{!shifts.length ? <div className="panel-empty">Смен пока нет</div> : dashboardRows(shifts).map((shift) => { const person = people.find((item) => item.id === shift.personId); const rest = restMap.get(shift.id); const assumedCompliant = assumedCompliantRestIds.has(shift.id); return <div className="shift-row" key={shift.id}><div className="date-tile"><strong>{shift.date.slice(8, 10)}</strong><span>{new Intl.DateTimeFormat("ru-RU", { month: "short" }).format(new Date(`${shift.date}T12:00:00`)).replace(".", "")}</span></div><div className="shift-main"><strong>{person?.name ?? "Сотрудник"}</strong><span>{activityLabels[shift.activity]} · {shift.start || "без времени"}</span></div><div className="shift-meta"><strong>{shift.workMinutes ? formatDuration(shift.workMinutes) : "—"}</strong><span>{shift.activity === "dayoff" ? "отдых 24 ч" : assumedCompliant ? "отдых по норме" : rest === undefined ? "первая смена" : `отдых ${formatDuration(rest)}`}</span></div></div>; })}</article></section></>;
 }
 function Metric({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: string }) { return <article className={`metric ${tone}`}><p>{label}</p><strong>{value}</strong><span>{detail}</span></article>; }
 
@@ -1047,35 +1051,36 @@ function FlightReportModal({ people, shifts, onClose, onNotify }: { people: Pers
   const [error, setError] = useState("");
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!dateFrom || !dateTo || dateFrom > dateTo) { setError("Проверьте даты периода отчёта."); return; }
-    if (reportType === "cumulative" && !personId) { setError("Для нарастающего налёта выберите сотрудника."); return; }
+    if (!dateTo || (reportType !== "cumulative" && (!dateFrom || dateFrom > dateTo))) { setError("Проверьте даты периода отчёта."); return; }
     setExporting(true); setError("");
     try {
       if (reportType === "flight") await downloadFlightReport(dateFrom, dateTo, people, reportShifts, personId || null);
       else if (reportType === "employment") await downloadEmploymentReport(dateFrom, dateTo, people, reportShifts, personId || null);
-      else if (reportType === "cumulative") await downloadCumulativeFlightReport(dateFrom, dateTo, people, reportShifts, personId);
+      else if (reportType === "cumulative") await downloadCumulativeFlightExcel(dateTo, people, reportShifts);
       else await downloadSummaryFlightReport(dateFrom, dateTo, people, reportShifts, personId || null);
-      onNotify("PDF-отчёт сформирован"); onClose();
+      onNotify(reportType === "cumulative" ? "Excel-отчёт сформирован" : "PDF-отчёт сформирован"); onClose();
     } catch {
-      setError("Не удалось сформировать PDF. Попробуйте ещё раз.");
+      setError(`Не удалось сформировать ${reportType === "cumulative" ? "Excel" : "PDF"}. Попробуйте ещё раз.`);
     } finally {
       setExporting(false);
     }
   }
-  const barkovId = people.find((person) => person.name.toLocaleLowerCase("ru-RU").startsWith("барков"))?.id ?? "";
   const reportHint = reportType === "flight"
     ? "Справка показывает налёт по креслу, типу ВС, бортовому номеру, цели полёта и отмечает разделённые смены."
     : reportType === "employment"
       ? "Каждая смена выводится отдельной строкой. Для каждого сотрудника добавляется итог по рабочему, полётному, инструкторскому и ночному времени."
       : reportType === "cumulative"
-        ? "Начальный итог автоматически берётся из всех ранее внесённых полётов выбранного сотрудника до начала периода. Далее отчёт дополняется каждой сменой периода."
+        ? "Общий Excel-отчёт включает исходные данные из файла «Баркову С.В.» за январь–июнь 2026 года и дополняет листы «ВС» и «КВС» всеми полётами сайта с 01.07.2026 по выбранную дату."
         : "Итоговая справка: пилот, тип ВС, общий налёт, ночь и инструкторский налёт — без разделения по эксплуатантам.";
   return <Modal title="Формирование отчёта" subtitle="Произвольный период и состав отчёта" onClose={onClose}><form className="form-stack" onSubmit={submit}><Field label="Вид отчёта"><select value={reportType} onChange={(event) => {
     const next = event.target.value as ReportType;
     setReportType(next);
-    if (next === "cumulative" && !personId && barkovId) setPersonId(barkovId);
+    if (next === "cumulative") {
+      setDateFrom(CUMULATIVE_APPEND_START);
+      setPersonId("");
+    }
     setError("");
-  }}><option value="flight">Справка о налёте</option><option value="employment">Отчёт о занятости</option><option value="cumulative">Отчёт по нарастающему налёту</option><option value="summary">Итоговая справка о налёте</option></select></Field><div className="form-grid two"><Field label="Период с"><input required type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></Field><Field label="Период по"><input required type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field></div><Field label={reportType === "cumulative" ? "Сотрудник" : "Состав отчёта"}><select required={reportType === "cumulative"} value={personId} onChange={(event) => setPersonId(event.target.value)}><option value="">{reportType === "cumulative" ? "Выберите сотрудника" : "Все сотрудники — общий отчёт"}</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field><div className="report-scope-note">{reportHint}</div>{error && <div className="form-error">{error}</div>}<div className="form-actions"><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button" disabled={exporting}>{exporting ? "Формирую…" : "Скачать PDF"}</button></div></form></Modal>;
+  }}><option value="flight">Справка о налёте</option><option value="employment">Отчёт о занятости</option><option value="cumulative">Отчёт по нарастающему налёту</option><option value="summary">Итоговая справка о налёте</option></select></Field>{reportType === "cumulative" ? <Field label="Дополнить исходный отчёт по дату"><input required min={CUMULATIVE_APPEND_START} type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field> : <><div className="form-grid two"><Field label="Период с"><input required type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></Field><Field label="Период по"><input required type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field></div><Field label="Состав отчёта"><select value={personId} onChange={(event) => setPersonId(event.target.value)}><option value="">Все сотрудники — общий отчёт</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field></>}<div className="report-scope-note">{reportHint}</div>{error && <div className="form-error">{error}</div>}<div className="form-actions"><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button" disabled={exporting}>{exporting ? "Формирую…" : reportType === "cumulative" ? "Скачать Excel" : "Скачать PDF"}</button></div></form></Modal>;
 }
 
 function PeopleView({ people, shifts, onAdd, onEdit, onOpenPersonal }: { people: Person[]; shifts: Shift[]; onAdd: () => void; onEdit: (person: Person) => void; onOpenPersonal: () => void }) {

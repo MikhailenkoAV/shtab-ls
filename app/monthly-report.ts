@@ -25,6 +25,7 @@ export type FlightReportSegment = {
 };
 
 export type FlightReportShift = {
+  id?: string;
   personId: string;
   date: string;
   activity: string;
@@ -32,6 +33,8 @@ export type FlightReportShift = {
   workMinutes?: number;
   note?: string;
   segments?: FlightReportSegment[];
+  linkedSourceShiftId?: string;
+  linkedPrimaryPersonId?: string;
 };
 
 type Totals = { flight: number; night: number };
@@ -428,96 +431,6 @@ export function buildSummaryFlightReport(
   };
 }
 
-export function buildCumulativeFlightReport(
-  dateFrom: string,
-  dateTo: string,
-  people: FlightReportPerson[],
-  shifts: FlightReportShift[],
-  personId: string,
-  logoDataUrl?: string,
-): TDocumentDefinitions {
-  const person = people.find((item) => item.id === personId);
-  const personShifts = shifts
-    .filter((shift) => shift.personId === personId && shift.activity === "flight")
-    .sort((left, right) => `${left.date}${left.start ?? ""}`.localeCompare(`${right.date}${right.start ?? ""}`));
-  const sumSegments = (selected: FlightReportShift[]) => selected.reduce((total, shift) => {
-    (shift.segments ?? []).forEach((segment) => {
-      const flight = Math.max(0, segment.flightMinutes || 0);
-      total.flight += flight;
-      total.night += Math.max(0, segment.nightMinutes || 0);
-      if (segment.seat?.toLocaleLowerCase("ru-RU").includes("инструктор")) total.instructor += flight;
-    });
-    return total;
-  }, { flight: 0, night: 0, instructor: 0 });
-  const opening = sumSegments(personShifts.filter((shift) => shift.date < dateFrom));
-  const entries = personShifts
-    .filter((shift) => shift.date >= dateFrom && shift.date <= dateTo)
-    .flatMap((shift) => (shift.segments ?? []).map((segment) => ({ shift, segment })));
-  const running = { ...opening };
-  const rows: TableCell[][] = entries.map(({ shift, segment }) => {
-    const flight = Math.max(0, segment.flightMinutes || 0);
-    const night = Math.max(0, segment.nightMinutes || 0);
-    const instructor = segment.seat?.toLocaleLowerCase("ru-RU").includes("инструктор") ? flight : 0;
-    running.flight += flight;
-    running.night += night;
-    running.instructor += instructor;
-    return [
-      { text: displayDate(shift.date) },
-      { text: person ? reportAircraftType(person, segment) : segment.aircraftType || "Тип не указан" },
-      { text: segment.aircraft || "—" },
-      { text: segment.seat || "КВС" },
-      { text: formatMinutes(flight), alignment: "right" },
-      { text: night ? formatMinutes(night) : "—", alignment: "right" },
-      { text: formatMinutes(running.flight), alignment: "right", bold: true },
-      { text: running.night ? formatMinutes(running.night) : "—", alignment: "right" },
-      { text: running.instructor ? formatMinutes(running.instructor) : "—", alignment: "right" },
-    ];
-  });
-  const content: Content[] = [
-    ...reportHeader("Отчёт по нарастающему налёту", dateFrom, dateTo, logoDataUrl),
-    { text: person?.name ?? "Сотрудник не найден", style: "personName" },
-    { text: person?.position || "Должность не указана", style: "position" },
-    metrics(opening.flight, opening.night, "ИНСТРУКТОРОМ ДО ПЕРИОДА", opening.instructor ? formatMinutes(opening.instructor) : "—"),
-    {
-      table: {
-        headerRows: 1,
-        widths: [50, 48, 63, 62, 43, 43, 58, 58, 65],
-        body: [
-          [
-            { text: "Дата", style: "tableHeader" },
-            { text: "Тип ВС", style: "tableHeader" },
-            { text: "Бортовой №", style: "tableHeader" },
-            { text: "Кресло", style: "tableHeader" },
-            { text: "Налёт", style: "tableHeader", alignment: "right" },
-            { text: "Ночь", style: "tableHeader", alignment: "right" },
-            { text: "Нарастающий налёт", style: "tableHeader", alignment: "right" },
-            { text: "Нарастающая ночь", style: "tableHeader", alignment: "right" },
-            { text: "Нарастающий инструктор", style: "tableHeader", alignment: "right" },
-          ],
-          ...(rows.length ? rows : [[{ text: "В выбранном периоде новых полётов нет; исходный итог сохранён.", colSpan: 9, color: "#71818b", italics: true }, {}, {}, {}, {}, {}, {}, {}, {}]]),
-        ],
-      },
-      layout: "lightHorizontalLines",
-      margin: [0, 16, 0, 0],
-    },
-    { text: `Исходный итог рассчитан по всем полётам до ${displayDate(dateFrom)} из данных сайта.`, style: "note", margin: [0, 10, 0, 0] },
-  ];
-  return {
-    pageSize: "A4",
-    pageOrientation: "landscape",
-    pageMargins: [36, 42, 36, 38],
-    info: {
-      title: `Нарастающий налёт ${person?.name ?? ""} за ${periodLabel(dateFrom, dateTo)}`,
-      author: "ШТАБ ЛС - Центр авиации «Солярис»",
-      subject: "Отчёт по нарастающему налёту",
-    },
-    content,
-    footer: reportFooter,
-    defaultStyle: { font: "Roboto", fontSize: 8.5, color: "#334b59", lineHeight: 1.15 },
-    styles: commonStyles(),
-  };
-}
-
 function groupReportSegments(segments: FlightReportSegment[]): FlightReportSegment[][] {
   const groups: FlightReportSegment[][] = [];
   const handled = new Set<string>();
@@ -735,16 +648,4 @@ export async function downloadSummaryFlightReport(
   const scope = personId ? "pilot" : "all";
   pdfMake.createPdf(buildSummaryFlightReport(dateFrom, dateTo, people, shifts, personId, logoDataUrl))
     .download(`itogovaya-spravka-nalet-${dateFrom}-${dateTo}-${scope}.pdf`);
-}
-
-export async function downloadCumulativeFlightReport(
-  dateFrom: string,
-  dateTo: string,
-  people: FlightReportPerson[],
-  shifts: FlightReportShift[],
-  personId: string,
-) {
-  const [pdfMake, logoDataUrl] = await Promise.all([getPdfMake(), getReportLogo()]);
-  pdfMake.createPdf(buildCumulativeFlightReport(dateFrom, dateTo, people, shifts, personId, logoDataUrl))
-    .download(`narastayushchiy-nalet-${dateFrom}-${dateTo}-pilot.pdf`);
 }

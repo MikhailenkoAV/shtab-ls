@@ -2,7 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { downloadControlJournalExcel } from "./control-journal-export";
-import { ControlKind, ControlRow, isControlAttention } from "./control-journal-rules";
+import {
+  ControlKind,
+  ControlRow,
+  isControlJournalVisible,
+} from "./control-journal-rules";
 
 const kindLabels: Record<ControlKind, string> = {
   type: "Тип",
@@ -35,13 +39,12 @@ export function ControlJournalView({
   const [exporting, setExporting] = useState(false);
 
   const counts = useMemo(() => ({
-    type: rows.filter((row) => row.kind === "type" && isControlAttention(row)).length,
-    night: rows.filter((row) => row.kind === "night" && isControlAttention(row)).length,
-    certification: rows.filter((row) => row.kind === "certification" && isControlAttention(row)).length,
+    type: rows.filter((row) => isControlJournalVisible(row, "type")).length,
+    night: rows.filter((row) => isControlJournalVisible(row, "night")).length,
+    certification: rows.filter((row) => isControlJournalVisible(row, "certification")).length,
   }), [rows]);
   const visible = useMemo(() => rows.filter((row) =>
-    row.kind === kind
-    && isControlAttention(row)
+    isControlJournalVisible(row, kind)
     && `${row.personName} ${row.subject} ${row.aircraftType}`.toLocaleLowerCase("ru-RU")
       .includes(query.trim().toLocaleLowerCase("ru-RU"))), [kind, query, rows]);
 
@@ -67,14 +70,18 @@ export function ControlJournalView({
       <button key={item} className={kind === item ? "active" : ""} onClick={() => setKind(item)} role="tab" aria-selected={kind === item}><span>{kindLabels[item]}</span><i>{counts[item]}</i></button>)}</div>
     <div className="records-toolbar control-journal-toolbar">
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по сотруднику, типу или документу…" />
-      <span className="control-attention-note">Показаны только записи, требующие внимания</span>
+      <span className="control-attention-note">{kind === "certification"
+        ? "Показаны только записи, требующие внимания"
+        : "Показаны все сотрудники с соответствующим допуском"}</span>
     </div>
     <div className="control-journal-note">{kind === "type"
       ? "Срок 90 дней рассчитывается от последнего полёта сотрудника на каждом допущенном типе ВС."
       : kind === "night"
         ? "Показываются только типы ВС, для которых в карточке сотрудника установлен допуск к полётам ночью."
         : "Сроки документов берутся из личных дел и обновляются после импорта из Авиабит."}</div>
-    {!visible.length ? <div className="panel-empty tall">В этом разделе нет записей, требующих внимания.</div> : <div className="table-scroll"><table className="control-journal-table"><thead><tr><th>Сотрудник</th><th>{kind === "certification" ? "Документ" : "Тип ВС"}</th><th>{kind === "certification" ? "Начало" : "Последний полёт"}</th><th>Срок</th><th>Осталось</th><th>Состояние</th></tr></thead><tbody>{visible.map((row) =>
+    {!visible.length ? <div className="panel-empty tall">{kind === "certification"
+      ? "В этом разделе нет записей, требующих внимания."
+      : "Сотрудники с соответствующим допуском не найдены."}</div> : <div className="table-scroll"><table className="control-journal-table"><thead><tr><th>Сотрудник</th><th>{kind === "certification" ? "Документ" : "Тип ВС"}</th><th>{kind === "certification" ? "Начало" : "Последний полёт"}</th><th>Срок</th><th>Осталось</th><th>Состояние</th></tr></thead><tbody>{visible.map((row) =>
       <tr key={row.id}><td><strong>{row.personName}</strong></td><td><strong>{kind === "certification" ? row.subject : row.aircraftType}</strong>{kind === "certification" && row.aircraftType && <small>{row.aircraftType}</small>}</td><td>{displayDate(row.referenceDate)}</td><td>{displayDate(row.dueDate)}</td><td>{row.daysLeft === null ? "—" : row.daysLeft < 0 ? `−${Math.abs(row.daysLeft)} дн.` : `${row.daysLeft} дн.`}</td><td><span className={`expiry-pill ${row.status}`}>{row.statusLabel}</span></td></tr>)}</tbody></table></div>}
   </section>;
 }
