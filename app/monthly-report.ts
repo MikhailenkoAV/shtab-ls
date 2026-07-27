@@ -1,4 +1,5 @@
-import type { Content, StyleDictionary, TDocumentDefinitions } from "pdfmake/interfaces";
+import type { Content, StyleDictionary, TableCell, TDocumentDefinitions } from "pdfmake/interfaces";
+import { crewDutyMinutes } from "./crew-rules.ts";
 
 export type FlightReportPerson = {
   id: string;
@@ -31,7 +32,13 @@ export type FlightReportShift = {
 };
 
 type Totals = { flight: number; night: number };
-type FlightDetail = Totals & { seat: string; aircraftType: string; purpose: string };
+type FlightDetail = Totals & {
+  seat: string;
+  aircraftType: string;
+  aircraft: string;
+  purpose: string;
+  splitShift: boolean;
+};
 type PersonTotals = Totals & { shiftCount: number; details: Map<string, FlightDetail> };
 
 const activityLabels: Record<string, string> = {
@@ -73,7 +80,7 @@ function datesBetween(dateFrom: string, dateTo: string): string[] {
 }
 
 function addDetail(target: Map<string, FlightDetail>, detail: FlightDetail) {
-  const key = [detail.seat, detail.aircraftType, detail.purpose].join("\u0001");
+  const key = [detail.seat, detail.aircraftType, detail.aircraft, detail.purpose, detail.splitShift ? "1" : "0"].join("\u0001");
   const current = target.get(key);
   target.set(key, current
     ? { ...current, flight: current.flight + detail.flight, night: current.night + detail.night }
@@ -95,10 +102,19 @@ function collectPersonTotals(person: FlightReportPerson, shifts: FlightReportShi
       || (person.aircraftTypes.length === 1 ? person.aircraftTypes[0] : "")
       || "Тип не указан";
     const seat = segment.seat?.trim() || "КВС";
+    const aircraft = segment.aircraft?.trim() || "Борт не указан";
     const purpose = segment.purpose?.trim() || "Цель не указана";
     flight += segmentFlight;
     night += segmentNight;
-    addDetail(details, { seat, aircraftType, purpose, flight: segmentFlight, night: segmentNight });
+    addDetail(details, {
+      seat,
+      aircraftType,
+      aircraft,
+      purpose,
+      splitShift: Boolean(segment.splitShift),
+      flight: segmentFlight,
+      night: segmentNight,
+    });
   }));
   const shiftCount = shifts.reduce((sum, shift) => {
     const segments = shift.segments ?? [];
@@ -112,29 +128,34 @@ function collectPersonTotals(person: FlightReportPerson, shifts: FlightReportShi
 
 function flightDetailsTable(title: string, details: Map<string, FlightDetail>): Content {
   const rows = [...details.values()].sort((left, right) =>
-    `${left.seat}\u0001${left.aircraftType}\u0001${left.purpose}`.localeCompare(`${right.seat}\u0001${right.aircraftType}\u0001${right.purpose}`, "ru-RU"));
+    `${left.seat}\u0001${left.aircraftType}\u0001${left.aircraft}\u0001${left.purpose}\u0001${left.splitShift}`
+      .localeCompare(`${right.seat}\u0001${right.aircraftType}\u0001${right.aircraft}\u0001${right.purpose}\u0001${right.splitShift}`, "ru-RU"));
   return {
     stack: [
       { text: title, style: "sectionTitle" },
       {
         table: {
           headerRows: 1,
-          widths: [90, 76, "*", 62, 68],
+          widths: [68, 54, 72, "*", 24, 48, 54],
           body: [
             [
               { text: "Кресло", style: "tableHeader" },
               { text: "Тип ВС", style: "tableHeader" },
+              { text: "Бортовой №", style: "tableHeader" },
               { text: "Цель", style: "tableHeader" },
+              { text: "РС", style: "tableHeader", alignment: "center" },
               { text: "Налёт", style: "tableHeader", alignment: "right" },
               { text: "Из них ночь", style: "tableHeader", alignment: "right" },
             ],
             ...(rows.length ? rows.map((row) => [
               { text: row.seat },
               { text: row.aircraftType },
+              { text: row.aircraft },
               { text: row.purpose },
+              { text: row.splitShift ? "✓" : "—", alignment: "center" as const },
               { text: formatMinutes(row.flight), alignment: "right" as const },
               { text: row.night ? formatMinutes(row.night) : "—", alignment: "right" as const },
-            ]) : [[{ text: "Нет данных о налёте", colSpan: 5, color: "#7b8b93", italics: true }, {}, {}, {}, {}]]),
+            ]) : [[{ text: "Нет данных о налёте", colSpan: 7, color: "#7b8b93", italics: true }, {}, {}, {}, {}, {}, {}]]),
           ],
         },
         layout: "lightHorizontalLines",
@@ -301,50 +322,92 @@ export function buildFlightReport(
   };
 }
 
+function groupReportSegments(segments: FlightReportSegment[]): FlightReportSegment[][] {
+  const groups: FlightReportSegment[][] = [];
+  const handled = new Set<string>();
+  segments.forEach((segment, index) => {
+    const groupId = segment.splitShift ? segment.splitGroupId : "";
+    if (!groupId) {
+      groups.push([segment]);
+      return;
+    }
+    if (handled.has(groupId)) return;
+    handled.add(groupId);
+    groups.push(segments.filter((candidate) => candidate.splitGroupId === groupId));
+    if (!groups.at(-1)?.length) groups.push([segments[index]]);
+  });
+  return groups;
+}
+
 function employmentPersonSection(person: FlightReportPerson, dates: string[], shifts: FlightReportShift[], pageBreak: boolean): Content {
-  const activityLabel = (shift: FlightReportShift): string => {
-    const label = activityLabels[shift.activity] ?? shift.activity;
-    if (shift.activity !== "flight") return label;
-    const aircraftTypes = [...new Set((shift.segments ?? [])
-      .map((segment) => segment.aircraftType?.trim())
-      .filter((value): value is string => Boolean(value)))];
-    if (!aircraftTypes.length && person.aircraftTypes.length === 1) aircraftTypes.push(person.aircraftTypes[0]);
-    return aircraftTypes.length ? `${label} (${aircraftTypes.join(", ")})` : label;
-  };
-  const flightTime = (shift: FlightReportShift, kind: "total" | "instructor" | "night"): string => {
-    if (shift.activity !== "flight") return "—";
-    const minutes = (shift.segments ?? []).reduce((sum, segment) => {
-      if (kind === "night") return sum + Math.max(0, segment.nightMinutes || 0);
-      if (kind === "instructor" && !segment.seat?.toLocaleLowerCase("ru-RU").includes("инструктор")) return sum;
-      return sum + Math.max(0, segment.flightMinutes || 0);
-    }, 0);
-    return minutes ? formatMinutes(minutes) : "—";
-  };
-  const rows = dates.map((date) => {
-    const dayShifts = shifts.filter((shift) => shift.personId === person.id && shift.date === date)
+  const personShifts = shifts.filter((shift) => shift.personId === person.id);
+  const minuteText = (minutes: number) => minutes > 0 ? formatMinutes(minutes) : "—";
+  const summary = personShifts.reduce((total, shift) => {
+    total.work += Math.max(0, shift.workMinutes || 0);
+    (shift.segments ?? []).forEach((segment) => {
+      const flight = Math.max(0, segment.flightMinutes || 0);
+      total.flight += flight;
+      total.night += Math.max(0, segment.nightMinutes || 0);
+      if (segment.seat?.toLocaleLowerCase("ru-RU").includes("инструктор")) total.instructor += flight;
+    });
+    return total;
+  }, { work: 0, flight: 0, instructor: 0, night: 0 });
+
+  const rows: TableCell[][] = dates.flatMap((date): TableCell[][] => {
+    const dayShifts = personShifts.filter((shift) => shift.date === date)
       .sort((left, right) => (left.start ?? "").localeCompare(right.start ?? ""));
     const weekday = new Intl.DateTimeFormat("ru-RU", { weekday: "short" }).format(new Date(`${date}T12:00:00`));
-    if (!dayShifts.length) return [
+    if (!dayShifts.length) return [[
       { text: displayDate(date) },
       { text: weekday },
       { text: "Нет записи", color: "#89979e", italics: true },
+      { text: "—" },
+      { text: "—" },
+      { text: "—", alignment: "center" as const },
       { text: "—", alignment: "right" as const },
       { text: "—", alignment: "right" as const },
       { text: "—", alignment: "right" as const },
       { text: "—", alignment: "right" as const },
       { text: "—" },
-    ];
-    return [
-      { text: displayDate(date) },
-      { text: weekday },
-      { text: dayShifts.map(activityLabel).join("\n") },
-      { text: dayShifts.map((shift) => shift.workMinutes ? formatMinutes(shift.workMinutes) : "—").join("\n"), alignment: "right" as const },
-      { text: dayShifts.map((shift) => flightTime(shift, "total")).join("\n"), alignment: "right" as const },
-      { text: dayShifts.map((shift) => flightTime(shift, "instructor")).join("\n"), alignment: "right" as const },
-      { text: dayShifts.map((shift) => flightTime(shift, "night")).join("\n"), alignment: "right" as const },
-      { text: dayShifts.map((shift) => shift.note?.trim() || "—").join("\n") },
-    ];
+    ]];
+
+    return dayShifts.flatMap((shift) => {
+      const segments = shift.segments ?? [];
+      const groups = shift.activity === "flight" && segments.length ? groupReportSegments(segments) : [[]];
+      return groups.map((group) => {
+        const flight = group.reduce((sum, segment) => sum + Math.max(0, segment.flightMinutes || 0), 0);
+        const instructor = group.reduce((sum, segment) =>
+          sum + (segment.seat?.toLocaleLowerCase("ru-RU").includes("инструктор") ? Math.max(0, segment.flightMinutes || 0) : 0), 0);
+        const night = group.reduce((sum, segment) => sum + Math.max(0, segment.nightMinutes || 0), 0);
+        const work = group.length ? crewDutyMinutes(group) : Math.max(0, shift.workMinutes || 0);
+        const aircraftTypes = [...new Set(group.map((segment) => segment.aircraftType?.trim()).filter((value): value is string => Boolean(value)))];
+        if (!aircraftTypes.length && shift.activity === "flight" && person.aircraftTypes.length === 1) aircraftTypes.push(person.aircraftTypes[0]);
+        const aircraft = [...new Set(group.map((segment) => segment.aircraft?.trim()).filter(Boolean))];
+        return [
+          { text: displayDate(date) },
+          { text: weekday },
+          { text: activityLabels[shift.activity] ?? shift.activity },
+          { text: aircraftTypes.join(", ") || "—" },
+          { text: aircraft.join(", ") || "—" },
+          { text: group.some((segment) => segment.splitShift) ? "✓" : "—", alignment: "center" as const },
+          { text: minuteText(work), alignment: "right" as const },
+          { text: minuteText(flight), alignment: "right" as const },
+          { text: minuteText(instructor), alignment: "right" as const },
+          { text: minuteText(night), alignment: "right" as const },
+          { text: shift.note?.trim() || "—" },
+        ];
+      });
+    });
   });
+  const totalRow: TableCell[] = [
+    { text: "ИТОГО ПО СОТРУДНИКУ", colSpan: 6, bold: true, color: "#17384c", fillColor: "#e7f1f2" },
+    {}, {}, {}, {}, {},
+    { text: formatMinutes(summary.work), alignment: "right" as const, bold: true, fillColor: "#e7f1f2" },
+    { text: formatMinutes(summary.flight), alignment: "right" as const, bold: true, fillColor: "#e7f1f2" },
+    { text: formatMinutes(summary.instructor), alignment: "right" as const, bold: true, fillColor: "#e7f1f2" },
+    { text: formatMinutes(summary.night), alignment: "right" as const, bold: true, fillColor: "#e7f1f2" },
+    { text: "часы:минуты", color: "#71818b", italics: true, fillColor: "#e7f1f2" },
+  ];
   return {
     stack: [
       { text: person.name, style: "personName" },
@@ -352,12 +415,15 @@ function employmentPersonSection(person: FlightReportPerson, dates: string[], sh
       {
         table: {
           headerRows: 1,
-          widths: [58, 34, 150, 56, 58, 68, 52, "*"],
+          widths: [50, 25, 92, 43, 58, 22, 46, 46, 54, 44, "*"],
           body: [
             [
               { text: "Дата", style: "tableHeader" },
               { text: "День", style: "tableHeader" },
               { text: "Вид занятости", style: "tableHeader" },
+              { text: "Тип ВС", style: "tableHeader" },
+              { text: "Бортовой №", style: "tableHeader" },
+              { text: "РС", style: "tableHeader", alignment: "center" },
               { text: "Рабочее", style: "tableHeader", alignment: "right" },
               { text: "Полётное время", style: "tableHeader", alignment: "right" },
               { text: "Из них инструктором", style: "tableHeader", alignment: "right" },
@@ -365,11 +431,12 @@ function employmentPersonSection(person: FlightReportPerson, dates: string[], sh
               { text: "Примечание", style: "tableHeader" },
             ],
             ...rows,
+            totalRow,
           ],
         },
         layout: "lightHorizontalLines",
       },
-      { text: "Отчёт содержит каждый календарный день выбранного периода, включая дни без записей.", style: "note", margin: [0, 10, 0, 0] },
+      { text: "Каждая полётная смена выводится отдельной строкой; РС — разделённая смена. Отчёт содержит и дни без записей.", style: "note", margin: [0, 10, 0, 0] },
     ],
     pageBreak: pageBreak ? "before" : undefined,
   };

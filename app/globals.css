@@ -343,6 +343,9 @@ td strong { color: #314956; }
 .split-pill.active { color: #81571f; background: #fff0cf; }
 .journal-activity, .aircraft-cell, .flight-cell { display: grid; gap: 4px; }
 .journal-activity { justify-items: start; }
+.rest-cell { display: grid; min-width: 92px; gap: 2px; }
+.rest-cell strong { font-size: 9px; font-weight: 800; }
+.rest-cell small { color: #7d8d96; font-size: 7px; line-height: 1.25; white-space: nowrap; }
 .journal-date-cell { vertical-align: top; color: #284b5c; background: #f4f8f9; font-weight: 800; white-space: nowrap; }
 .aircraft-cell strong, .flight-cell strong { color: #314956; font-size: 10px; }
 .aircraft-cell small, .flight-cell small { color: #82919a; font-size: 9px; }

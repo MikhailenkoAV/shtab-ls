@@ -27,7 +27,7 @@ test("period report aggregates chair, aircraft type, purpose, total and night fl
     "2026-07-20",
     [{ id: "pilot", name: "Иванов Иван Иванович", position: "Командир ВС", aircraftTypes: ["Ми-8"], active: true }],
     [
-      { personId: "pilot", date: "2026-07-10", activity: "flight", segments: [{ aircraft: "RA-00001", aircraftType: "Ми-8", seat: "Пилот-инструктор", purpose: "АОН (УТП)", flightMinutes: 185, nightMinutes: 45 }] },
+      { personId: "pilot", date: "2026-07-10", activity: "flight", segments: [{ aircraft: "RA-00001", aircraftType: "Ми-8", seat: "Пилот-инструктор", purpose: "АОН (УТП)", flightMinutes: 185, nightMinutes: 45, splitShift: true, splitGroupId: "split" }] },
       { personId: "pilot", date: "2026-08-01", activity: "flight", segments: [{ aircraft: "RA-00001", aircraftType: "Ми-8", seat: "КВС", purpose: "АОН", flightMinutes: 600, nightMinutes: 0 }] },
     ],
     "pilot",
@@ -41,6 +41,9 @@ test("period report aggregates chair, aircraft type, purpose, total and night fl
   assert.match(serialized, /АОН \(УТП\)/);
   assert.match(serialized, /Кресло/);
   assert.match(serialized, /Тип ВС/);
+  assert.match(serialized, /Бортовой №/);
+  assert.match(serialized, /RA-00001/);
+  assert.match(serialized, /РС/);
   assert.match(serialized, /Цель/);
   assert.match(serialized, /Налёт/);
   assert.match(serialized, /Из них ночь/);
@@ -64,8 +67,8 @@ test("monthly report contains every calendar day, aircraft types and flight-time
         workMinutes: 480,
         note: "Два полёта",
         segments: [
-          { aircraft: "RA-00001", aircraftType: "AW139", seat: "КВС", purpose: "АОН", flightMinutes: 120, nightMinutes: 30 },
-          { aircraft: "RA-00002", aircraftType: "AS350", seat: "Пилот-инструктор", purpose: "КВП", flightMinutes: 90, nightMinutes: 15 },
+          { id: "one", aircraft: "RA-00001", aircraftType: "AW139", seat: "КВС", purpose: "АОН", dutyStart: "08:00", dutyEnd: "12:00", flightMinutes: 120, nightMinutes: 30 },
+          { id: "two", aircraft: "RA-00002", aircraftType: "AS350", seat: "Пилот-инструктор", purpose: "КВП", dutyStart: "13:00", dutyEnd: "17:00", flightMinutes: 90, nightMinutes: 15, splitShift: true, splitGroupId: "split" },
         ],
       },
       { personId: "pilot", date: "2026-07-12", activity: "periodic_training", workMinutes: 480, note: "АУЦ", segments: [] },
@@ -80,7 +83,13 @@ test("monthly report contains every calendar day, aircraft types and flight-time
   assert.match(serialized, /13\.07\.2026/);
   assert.match(serialized, /Командировка/);
   assert.match(serialized, /Периодическая подготовка/);
-  assert.match(serialized, /Полётная смена \(AW139, AS350\)/);
+  assert.equal([...serialized.matchAll(/Полётная смена/g)].length, 2);
+  assert.match(serialized, /AW139/);
+  assert.match(serialized, /AS350/);
+  assert.match(serialized, /RA-00001/);
+  assert.match(serialized, /RA-00002/);
+  assert.match(serialized, /Бортовой №/);
+  assert.match(serialized, /РС/);
   assert.match(serialized, /Полётное время/);
   assert.match(serialized, /Из них инструктором/);
   assert.match(serialized, /Из них ночь/);
@@ -90,6 +99,7 @@ test("monthly report contains every calendar day, aircraft types and flight-time
   assert.match(serialized, /Нет записи/);
   assert.match(serialized, /8:00/);
   assert.match(serialized, /Москва/);
+  assert.match(serialized, /ИТОГО ПО СОТРУДНИКУ/);
 });
 
 test("overall report includes a shared summary and individual employees", () => {
