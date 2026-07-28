@@ -197,19 +197,13 @@ export function PersonalFilesView({
 
       {mode === "overview" ? <section className="pilot-frame-grid">
         <PilotDataFrame person={person} profile={profile} onEdit={() => setProfileEditing("pilot")} />
-        <FlightSummaryFrame flightBook={flightBook} />
-        <MeteoFrame person={person} profile={profile} onEdit={() => setProfileEditing("meteo")} />
-        <TrainingFrame
-          flightRecords={recordsByGroup("flight_training")}
-          periodicRecords={recordsByGroup("periodic_training")}
-          onAdd={(group) => setRecordEditing({ record: null, group })}
-          onEdit={(record, group) => setRecordEditing({ record, group })}
-        />
+        <PersonalInfoFrame profile={profile} onEdit={() => setProfileEditing("personal")} />
         <LicenceFrame
           records={recordsByGroup("licence")}
           onAdd={() => setRecordEditing({ record: null, group: "licence" })}
           onEdit={(record) => setRecordEditing({ record, group: "licence" })}
         />
+        <FlightSummaryFrame flightBook={flightBook} />
         <MedicalFrame
           profile={profile}
           importedRecords={recordsByGroup("medical")}
@@ -222,7 +216,13 @@ export function PersonalFilesView({
             onProfileChange(person.id, { ...profile, medical: { ...profile.medical, periodicChecks } });
           }}
         />
-        <PersonalInfoFrame profile={profile} onEdit={() => setProfileEditing("personal")} />
+        <MeteoFrame person={person} profile={profile} onEdit={() => setProfileEditing("meteo")} />
+        <TrainingFrame
+          flightRecords={recordsByGroup("flight_training")}
+          periodicRecords={recordsByGroup("periodic_training")}
+          onAdd={(group) => setRecordEditing({ record: null, group })}
+          onEdit={(record, group) => setRecordEditing({ record, group })}
+        />
         {person.qualifications.some((item) => item.operators.length > 0) && <AviationWorksFrame person={person} profile={profile} onEdit={() => setProfileEditing("aviation")} />}
       </section> : <FlightBookView
         person={person}
