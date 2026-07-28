@@ -1,5 +1,7 @@
 import type { Content, StyleDictionary, TableCell, TDocumentDefinitions } from "pdfmake/interfaces";
+import { aircraftNumbersByType } from "./aircraft-rules.ts";
 import { crewDutyMinutes } from "./crew-rules.ts";
+import { aircraftTypeForNumber, planBusyLabels, planRoleLabels } from "./monthly-plan-rules.ts";
 
 export type FlightReportPerson = {
   id: string;
@@ -37,6 +39,24 @@ export type FlightReportShift = {
   linkedPrimaryPersonId?: string;
 };
 
+export type EmploymentPlanAssignment = {
+  id?: string;
+  personId: string;
+  date: string;
+  aircraft: string;
+  role: "primary" | "reserve";
+  activity?: "flight" | "standby";
+};
+
+export type EmploymentPlanBusyEntry = {
+  id?: string;
+  personId: string;
+  dateFrom: string;
+  dateTo: string;
+  activity: string;
+  note?: string;
+};
+
 type Totals = { flight: number; night: number };
 type FlightDetail = Totals & {
   seat: string;
@@ -58,6 +78,8 @@ const activityLabels: Record<string, string> = {
   dayoff: "Выходной",
   duty: "Ожидание полёта",
   training: "Периодическая подготовка",
+  auc_work: "Работа в АУЦ",
+  auc_study: "Учёба в АУЦ",
 };
 
 function formatMinutes(minutes: number): string {
@@ -545,10 +567,70 @@ function employmentPersonSection(person: FlightReportPerson, dates: string[], sh
         },
         layout: "lightHorizontalLines",
       },
-      { text: "Каждая полётная смена выводится отдельной строкой. РС — разделение полётной смены на части; знак «+» означает наличие разделения. Отчёт содержит и дни без записей.", style: "note", margin: [0, 10, 0, 0] },
+      { text: "Каждая фактическая полётная смена выводится отдельной строкой. РС — разделение полётной смены на части; знак «+» означает наличие разделения. При отсутствии фактической записи используется месячный план, а полностью незаполненный день отмечается как выходной.", style: "note", margin: [0, 10, 0, 0] },
     ],
     pageBreak: pageBreak ? "before" : undefined,
   };
+}
+
+function plannedEmploymentFallback(
+  people: FlightReportPerson[],
+  dates: string[],
+  actualShifts: FlightReportShift[],
+  assignments: EmploymentPlanAssignment[],
+  busyEntries: EmploymentPlanBusyEntry[],
+): FlightReportShift[] {
+  const actualDates = new Set(actualShifts.map((shift) => `${shift.personId}\u0001${shift.date}`));
+  return people.flatMap((person) => dates.flatMap((date) => {
+    if (actualDates.has(`${person.id}\u0001${date}`)) return [];
+    const busy = busyEntries.find((entry) =>
+      entry.personId === person.id && date >= entry.dateFrom && date <= entry.dateTo);
+    if (busy) {
+      return [{
+        id: `plan-busy-${busy.id ?? busy.activity}-${person.id}-${date}`,
+        personId: person.id,
+        date,
+        activity: busy.activity,
+        workMinutes: 0,
+        note: busy.note?.trim() || `${planBusyLabels[busy.activity as keyof typeof planBusyLabels] ?? busy.activity} · месячный план`,
+        segments: [],
+      }];
+    }
+    const dayAssignments = assignments.filter((assignment) =>
+      assignment.personId === person.id && assignment.date === date);
+    if (dayAssignments.length) {
+      return dayAssignments.map((assignment) => {
+        const activity = assignment.activity === "standby" ? "standby" : "flight";
+        const aircraftType = aircraftTypeForNumber(assignment.aircraft, aircraftNumbersByType);
+        return {
+          id: `plan-assignment-${assignment.id ?? assignment.aircraft}-${person.id}-${date}`,
+          personId: person.id,
+          date,
+          activity,
+          workMinutes: 0,
+          note: `Месячный план · ${assignment.aircraft} · ${planRoleLabels[assignment.role]}`,
+          segments: activity === "flight" ? [{
+            id: `plan-segment-${assignment.id ?? assignment.aircraft}-${date}`,
+            aircraft: assignment.aircraft,
+            aircraftType,
+            seat: planRoleLabels[assignment.role],
+            purpose: "План",
+            flightMinutes: 0,
+            nightMinutes: 0,
+          }] : [],
+        };
+      });
+    }
+    return [{
+      id: `automatic-dayoff-${person.id}-${date}`,
+      personId: person.id,
+      date,
+      activity: "dayoff",
+      workMinutes: 0,
+      note: "Автоматически: в месячном плане нет назначения или иной занятости",
+      segments: [],
+    }];
+  }));
 }
 
 export function buildEmploymentReport(
@@ -558,6 +640,8 @@ export function buildEmploymentReport(
   shifts: FlightReportShift[],
   personId: string | null = null,
   logoDataUrl?: string,
+  assignments: EmploymentPlanAssignment[] = [],
+  busyEntries: EmploymentPlanBusyEntry[] = [],
 ): TDocumentDefinitions {
   const periodShifts = shifts.filter((shift) => shift.date >= dateFrom && shift.date <= dateTo);
   const peopleWithEntries = new Set(periodShifts.map((shift) => shift.personId));
@@ -565,9 +649,13 @@ export function buildEmploymentReport(
     .filter((person) => personId ? person.id === personId : person.active || peopleWithEntries.has(person.id))
     .sort((left, right) => left.name.localeCompare(right.name, "ru-RU"));
   const dates = datesBetween(dateFrom, dateTo);
+  const reportShifts = [
+    ...periodShifts,
+    ...plannedEmploymentFallback(includedPeople, dates, periodShifts, assignments, busyEntries),
+  ];
   const content: Content[] = reportHeader("Отчёт о занятости", dateFrom, dateTo, logoDataUrl);
   if (!includedPeople.length) content.push({ text: "В составе нет сотрудников для формирования отчёта.", style: "empty" });
-  includedPeople.forEach((person, index) => content.push(employmentPersonSection(person, dates, periodShifts, index > 0)));
+  includedPeople.forEach((person, index) => content.push(employmentPersonSection(person, dates, reportShifts, index > 0)));
 
   return {
     pageSize: "A4",
@@ -631,10 +719,12 @@ export async function downloadEmploymentReport(
   people: FlightReportPerson[],
   shifts: FlightReportShift[],
   personId: string | null = null,
+  assignments: EmploymentPlanAssignment[] = [],
+  busyEntries: EmploymentPlanBusyEntry[] = [],
 ) {
   const [pdfMake, logoDataUrl] = await Promise.all([getPdfMake(), getReportLogo()]);
   const scope = personId ? "pilot" : "all";
-  pdfMake.createPdf(buildEmploymentReport(dateFrom, dateTo, people, shifts, personId, logoDataUrl)).download(`mesyachnyy-otchet-${dateFrom}-${dateTo}-${scope}.pdf`);
+  pdfMake.createPdf(buildEmploymentReport(dateFrom, dateTo, people, shifts, personId, logoDataUrl, assignments, busyEntries)).download(`mesyachnyy-otchet-${dateFrom}-${dateTo}-${scope}.pdf`);
 }
 
 export async function downloadSummaryFlightReport(

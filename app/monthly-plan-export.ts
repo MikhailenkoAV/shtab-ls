@@ -1,6 +1,7 @@
 import { aircraftNumbersByType } from "./aircraft-rules.ts";
 import {
   aircraftTypeForNumber,
+  automaticDayOffPersonIds,
   dateInPlanEntry,
   monthDates,
   planBusyActivities,
@@ -92,6 +93,9 @@ export function buildMonthlyPlanMatrix(
           ...actualBusy
             .filter((entry) => entry.activity === activity && entry.date === date)
             .map((entry) => entry.personId),
+          ...(activity === "dayoff"
+            ? automaticDayOffPersonIds(people, date, assignments, busyEntries, shifts)
+            : []),
         ]);
         return [...personIds]
           .map((personId) => peopleById.get(personId))

@@ -3,7 +3,9 @@ import test from "node:test";
 import { aircraftNumbersByType } from "../app/aircraft-rules.ts";
 import {
   aircraftTypeForNumber,
+  assignmentDateWarning,
   assignmentBlockReason,
+  automaticDayOffPersonIds,
   availablePeopleForAssignment,
   busyBlockReason,
   datesInRange,
@@ -82,6 +84,29 @@ test("a qualified pilot may be assigned to another aircraft on the same date", (
     "RA-OTHER",
   );
   assert.deepEqual(available.map((person) => person.id), ["one", "two"]);
+  assert.match(
+    assignmentDateWarning(assignments, "one", "2026-07-15", ["RA-OTHER"]) ?? "",
+    /RA-01902 · Основной/,
+  );
+});
+
+test("active unassigned pilots automatically fall into the day-off row", () => {
+  const people = [
+    { id: "free", aircraftTypes: ["AW109"], active: true },
+    { id: "assigned", aircraftTypes: ["AW109"], active: true },
+    { id: "training", aircraftTypes: ["AW109"], active: true },
+    { id: "inactive", aircraftTypes: ["AW109"], active: false },
+  ];
+  assert.deepEqual(
+    automaticDayOffPersonIds(
+      people,
+      "2026-07-15",
+      [{ id: "assignment", personId: "assigned", date: "2026-07-15", aircraft: "RA-01902", role: "primary" }],
+      [{ id: "busy", personId: "training", dateFrom: "2026-07-15", dateTo: "2026-07-15", activity: "periodic_training", note: "" }],
+      [],
+    ),
+    ["free"],
+  );
 });
 
 test("a day off returns a specific blocking reason for a flight", () => {
@@ -120,4 +145,16 @@ test("standby is placed in an aircraft row and removed from the lower employment
   const aircraftRow = matrix.rows.find((row) => row.aircraft === "RA-01902" && row.role === "primary");
   assert.match(aircraftRow?.cells[14] ?? "", /Ожидание/);
   assert.equal(matrix.rows.some((row) => row.kind === "busy" && row.activity === "standby"), false);
+});
+
+test("monthly plan export shows automatically inferred days off", () => {
+  const matrix = buildMonthlyPlanMatrix(
+    "2026-07",
+    [{ id: "one", name: "Иванов Иван Иванович", aircraftTypes: ["AW109"], active: true }],
+    [],
+    [],
+    [],
+  );
+  const dayOffRow = matrix.rows.find((row) => row.kind === "busy" && row.activity === "dayoff");
+  assert.match(dayOffRow?.cells[0] ?? "", /Иванов И\.И\./);
 });

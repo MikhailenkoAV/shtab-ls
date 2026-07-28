@@ -4,8 +4,10 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { aircraftNumbersByType } from "./aircraft-rules";
 import {
   ActualBusyInput,
+  assignmentDateWarning,
   assignmentBlockReason,
   aircraftTypeForNumber,
+  automaticDayOffPersonIds,
   availablePeopleForAssignment,
   busyBlockReason,
   dateInPlanEntry,
@@ -107,6 +109,7 @@ export function MonthlyPlanView({
       : null,
   );
   const [busyModal, setBusyModal] = useState<PlanBusyEntry | "new" | null>(requestedBusy ?? null);
+  const [busyDraft, setBusyDraft] = useState<{ activity: PlanBusyActivity; date: string } | null>(null);
   const [employmentModal, setEmploymentModal] = useState(false);
   const [exporting, setExporting] = useState(false);
   const dates = useMemo(() => monthDates(month), [month]);
@@ -183,20 +186,43 @@ export function MonthlyPlanView({
               {dates.map((date) => {
                 const planned = busyEntries.filter((entry) => entry.activity === activity && dateInPlanEntry(date, entry));
                 const actual = actualBusy.filter((entry) => entry.activity === activity && entry.date === date);
-                const uniquePeople = [...new Set([...planned.map((entry) => entry.personId), ...actual.map((entry) => entry.personId)])];
+                const automaticDayOffs = activity === "dayoff"
+                  ? automaticDayOffPersonIds(people, date, assignments, busyEntries, shifts)
+                  : [];
+                const uniquePeople = [...new Set([
+                  ...planned.map((entry) => entry.personId),
+                  ...actual.map((entry) => entry.personId),
+                  ...automaticDayOffs,
+                ])];
                 return <td className={dayMeta(date).weekend ? "weekend" : ""} key={date}>
                   <div className="plan-busy-cell">{uniquePeople.map((personId) => {
                     const person = people.find((item) => item.id === personId);
                     const editable = planned.find((entry) => entry.personId === personId);
-                    return person ? <button type="button" title={editable ? "Изменить плановую занятость" : "Запись из журнала смен"} onClick={() => editable && setBusyModal(editable)} className={editable ? "editable" : "actual"} key={personId}>{planPersonShortName(person.name)}</button> : null;
-                  })}</div>
+                    const automatic = automaticDayOffs.includes(personId);
+                    return person ? <button
+                      type="button"
+                      title={editable ? "Изменить плановую занятость" : automatic ? "Автоматически: сотрудник не назначен и другая занятость не указана" : "Запись из журнала смен"}
+                      onClick={() => editable && setBusyModal(editable)}
+                      className={editable ? "editable" : automatic ? "automatic" : "actual"}
+                      key={personId}
+                    >{planPersonShortName(person.name)}</button> : null;
+                  })}<button
+                    type="button"
+                    className="plan-busy-add"
+                    title={`Добавить: ${planBusyLabels[activity]} · ${new Intl.DateTimeFormat("ru-RU").format(new Date(`${date}T12:00:00`))}`}
+                    aria-label={`Добавить ${planBusyLabels[activity]}`}
+                    onClick={() => {
+                      setBusyDraft({ activity, date });
+                      setBusyModal("new");
+                    }}
+                  >+</button></div>
                 </td>;
               })}
             </tr>)}
           </tbody>
         </table>
       </div>
-      <div className="plan-legend"><span><i className="primary" />Основной экипаж</span><span><i className="reserve" />Резерв</span><span><i className="busy" />Занятость блокирует назначение на полёт</span></div>
+      <div className="plan-legend"><span><i className="primary" />Основной экипаж</span><span><i className="reserve" />Резерв</span><span><i className="busy" />Занятость блокирует назначение на полёт</span><span>«+» в нижней части — добавить или изменить занятость</span></div>
     </section>
     {assignmentCell && <AssignmentModal
       cell={assignmentCell}
@@ -215,13 +241,15 @@ export function MonthlyPlanView({
     {busyModal && <BusyModal
       people={people}
       entry={busyModal === "new" ? null : busyModal}
+      initialActivity={busyModal === "new" ? busyDraft?.activity : undefined}
+      initialDate={busyModal === "new" ? busyDraft?.date : undefined}
       month={month}
       assignments={assignments}
       busyEntries={busyEntries}
       actualBusy={shifts}
-      onClose={() => setBusyModal(null)}
-      onSave={(entry) => { onSaveBusy(entry); setBusyModal(null); }}
-      onDelete={busyModal === "new" ? undefined : () => { onDeleteBusy(busyModal.id); setBusyModal(null); }}
+      onClose={() => { setBusyModal(null); setBusyDraft(null); }}
+      onSave={(entry) => { onSaveBusy(entry); setBusyModal(null); setBusyDraft(null); }}
+      onDelete={busyModal === "new" ? undefined : () => { onDeleteBusy(busyModal.id); setBusyModal(null); setBusyDraft(null); }}
     />}
     {employmentModal && <EmploymentPlannerModal
       people={people}
@@ -280,6 +308,8 @@ function AssignmentModal({
 function BusyModal({
   people,
   entry,
+  initialActivity,
+  initialDate,
   month,
   assignments,
   busyEntries,
@@ -290,6 +320,8 @@ function BusyModal({
 }: {
   people: PlanPerson[];
   entry: PlanBusyEntry | null;
+  initialActivity?: PlanBusyActivity;
+  initialDate?: string;
   month: string;
   assignments: PlanAssignment[];
   busyEntries: PlanBusyEntry[];
@@ -300,9 +332,9 @@ function BusyModal({
 }) {
   const firstDate = `${month}-01`;
   const [personId, setPersonId] = useState(entry?.personId ?? "");
-  const [activity, setActivity] = useState<PlanBusyActivity>(entry?.activity ?? "vacation");
-  const [dateFrom, setDateFrom] = useState(entry?.dateFrom ?? firstDate);
-  const [dateTo, setDateTo] = useState(entry?.dateTo ?? firstDate);
+  const [activity, setActivity] = useState<PlanBusyActivity>(entry?.activity ?? initialActivity ?? "vacation");
+  const [dateFrom, setDateFrom] = useState(entry?.dateFrom ?? initialDate ?? firstDate);
+  const [dateTo, setDateTo] = useState(entry?.dateTo ?? initialDate ?? firstDate);
   const [note, setNote] = useState(entry?.note ?? "");
   const [error, setError] = useState("");
 
@@ -399,6 +431,11 @@ function EmploymentPlannerModal({
     return null;
   }
 
+  function dateAssignmentWarning(date: string): string | null {
+    if (!person || !usesAircraftPlacement) return null;
+    return assignmentDateWarning(assignments, person.id, date, selectedAircraft);
+  }
+
   const readyDates = selectedDates.filter((date) => dates.includes(date) && !dateBlockReason(date));
 
   function submit(event: FormEvent) {
@@ -471,24 +508,25 @@ function EmploymentPlannerModal({
       </section>}
       <section className="employment-days">
         <div className="section-label"><strong>Дни применения</strong><span>{readyDates.length} из {dates.length}</span></div>
-        <div className="planner-hint">Нажмите день, чтобы включить или исключить его. Недоступный день отмечен красным; наведите курсор, чтобы увидеть причину.</div>
+        <div className="planner-hint">Нажмите день, чтобы включить или исключить его. Красный день недоступен; жёлтый означает, что сотрудник уже запланирован на другом борту. Наведите курсор, чтобы увидеть подробности.</div>
         <div className="employment-day-grid">{dates.map((date) => {
           const reason = dateBlockReason(date);
+          const warning = reason ? null : dateAssignmentWarning(date);
           const selected = selectedDates.includes(date) && !reason;
           const meta = dayMeta(date);
           return <button
             type="button"
             key={date}
-            className={`${selected ? "selected" : ""} ${reason ? "blocked" : ""}`}
-            title={reason ?? (selected ? "Включено в запись" : "Исключено из записи")}
+            className={`${selected ? "selected" : ""} ${reason ? "blocked" : ""} ${warning ? "warning" : ""}`}
+            title={reason ?? warning ?? (selected ? "Включено в запись" : "Исключено из записи")}
             disabled={Boolean(reason)}
             onClick={() => setSelectedDates((current) =>
               current.includes(date) ? current.filter((item) => item !== date) : [...current, date])}
-          ><strong>{String(meta.day).padStart(2, "0")}</strong><span>{meta.weekday}</span>{reason && <i>!</i>}</button>;
+          ><strong>{String(meta.day).padStart(2, "0")}</strong><span>{meta.weekday}</span>{(reason || warning) && <i className={warning ? "warning" : ""}>!</i>}</button>;
         })}</div>
       </section>
       {!usesAircraftPlacement && <label className="field"><span>Примечание</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Место, программа, основание…" /></label>}
-      <div className="report-scope-note">{activity === "standby" ? "Ожидание полёта будет показано непосредственно в строке выбранного борта и экипажа." : "Запись сразу появится в месячном плане и в разделе «Полётные смены». Фактическое время и налёт по выполненному полёту затем вносятся обычной записью смены."}</div>
+      <div className="report-scope-note">{activity === "standby" ? "Ожидание полёта будет показано непосредственно в строке выбранного борта и экипажа." : "Запись появится в месячном плане и будет использована в отчёте о занятости. В единый журнал попадают только фактически внесённые смены."}</div>
       {error && <div className="form-error">{error}</div>}
       <div className="form-actions"><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button">Применить занятость</button></div>
     </form>

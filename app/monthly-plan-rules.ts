@@ -125,6 +125,40 @@ export function isPersonBusyOnDate(
       entry.personId === personId && entry.date === date && entry.activity !== "flight");
 }
 
+export function automaticDayOffPersonIds<T extends PlanPersonInput>(
+  people: T[],
+  date: string,
+  assignments: PlanAssignment[],
+  busyEntries: PlanBusyEntry[],
+  actualEntries: ActualBusyInput[],
+): string[] {
+  return people
+    .filter((person) => person.active)
+    .filter((person) => !assignments.some((assignment) =>
+      assignment.personId === person.id && assignment.date === date))
+    .filter((person) => !busyEntries.some((entry) =>
+      entry.personId === person.id && dateInPlanEntry(date, entry)))
+    .filter((person) => !actualEntries.some((entry) =>
+      entry.personId === person.id && entry.date === date))
+    .map((person) => person.id);
+}
+
+export function assignmentDateWarning(
+  assignments: PlanAssignment[],
+  personId: string,
+  date: string,
+  selectedAircraft: string[] = [],
+): string | null {
+  const existing = assignments.filter((assignment) =>
+    assignment.personId === personId
+    && assignment.date === date
+    && !selectedAircraft.includes(assignment.aircraft));
+  if (!existing.length) return null;
+  const details = existing.map((assignment) =>
+    `${assignment.aircraft} · ${planRoleLabels[assignment.role]}${assignment.activity === "standby" ? " · ожидание полёта" : ""}`);
+  return `Уже запланировано: ${details.join("; ")}. Назначение на другой борт разрешено.`;
+}
+
 export function assignmentBlockReason({
   person,
   assignments,

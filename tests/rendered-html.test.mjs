@@ -103,10 +103,37 @@ test("monthly report contains every calendar day, aircraft types and flight-time
   assert.match(serialized, /3:30/);
   assert.match(serialized, /1:30/);
   assert.match(serialized, /0:45/);
-  assert.match(serialized, /Нет записи/);
+  assert.match(serialized, /Выходной/);
+  assert.doesNotMatch(serialized, /Нет записи/);
   assert.match(serialized, /8:00/);
   assert.match(serialized, /Москва/);
   assert.match(serialized, /ИТОГО ПО СОТРУДНИКУ/);
+});
+
+test("employment report uses monthly plan only when an actual record is absent", () => {
+  const report = buildEmploymentReport(
+    "2026-07-10",
+    "2026-07-13",
+    [{ id: "pilot", name: "Иванов Иван Иванович", position: "Командир ВС", aircraftTypes: ["AW109"], active: true }],
+    [
+      { personId: "pilot", date: "2026-07-10", activity: "office", workMinutes: 480, note: "Фактическая запись", segments: [] },
+    ],
+    "pilot",
+    undefined,
+    [
+      { id: "ignored-plan", personId: "pilot", date: "2026-07-10", aircraft: "RA-01902", role: "primary", activity: "flight" },
+      { id: "flight-plan", personId: "pilot", date: "2026-07-11", aircraft: "RA-01902", role: "primary", activity: "flight" },
+      { id: "standby-plan", personId: "pilot", date: "2026-07-12", aircraft: "RA-01902", role: "reserve", activity: "standby" },
+    ],
+    [],
+  );
+  const serialized = JSON.stringify(report);
+  assert.match(serialized, /Фактическая запись/);
+  assert.match(serialized, /Полётная смена/);
+  assert.match(serialized, /Ожидание полёта/);
+  assert.match(serialized, /RA-01902/);
+  assert.match(serialized, /Выходной/);
+  assert.equal([...serialized.matchAll(/ignored-plan/g)].length, 0);
 });
 
 test("summary and common cumulative reports use the requested flight totals", () => {

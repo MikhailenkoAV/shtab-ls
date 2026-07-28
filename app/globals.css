@@ -416,6 +416,9 @@ td strong { color: #314956; }
 .plan-busy-cell button { overflow: hidden; padding: 1px 2px !important; border: 0; color: #173d4b !important; background: transparent !important; text-overflow: ellipsis; white-space: nowrap; font-size: 7px !important; font-weight: 700; }
 .plan-busy-cell button.editable:hover { text-decoration: underline; }
 .plan-busy-cell button.actual { cursor: default; }
+.plan-busy-cell button.automatic { color: #246b80 !important; cursor: help; font-style: italic; }
+.plan-busy-cell button.plan-busy-add { position: sticky; bottom: 0; min-height: 15px; border: 1px dashed rgba(23, 61, 75, .32) !important; border-radius: 4px; color: #173d4b !important; background: rgba(255, 255, 255, .52) !important; font-size: 10px !important; line-height: 1; cursor: pointer; }
+.plan-busy-cell button.plan-busy-add:hover { border-color: #23887f !important; background: rgba(255, 255, 255, .88) !important; }
 .plan-legend { display: flex; flex-wrap: wrap; gap: 16px; padding: 12px 18px; color: #6f8089; background: #fbfcfc; font-size: 9px; }
 .plan-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .plan-legend i { width: 13px; height: 13px; border: 1px solid #cbd4d8; border-radius: 3px; }
@@ -478,7 +481,10 @@ td strong { color: #314956; }
 .employment-day-grid button.selected { border-color: #3c9e94; color: #1b6d65; background: #e2f3f0; box-shadow: inset 0 0 0 1px #3c9e94; }
 .employment-day-grid button.blocked { border-color: #e3b0ad; color: #a65a54; background: #fcebea; cursor: not-allowed; opacity: 1; }
 .employment-day-grid button.blocked strong { color: #9d4944; }
+.employment-day-grid button.warning:not(.blocked) { border-color: #cf9d2e; background: #fff4ce; box-shadow: inset 0 0 0 1px rgba(207, 157, 46, .28); }
+.employment-day-grid button.warning:not(.blocked) strong { color: #8b6516; }
 .employment-day-grid button i { position: absolute; top: 3px; right: 5px; color: #b43f38; font-size: 9px; font-style: normal; font-weight: 900; }
+.employment-day-grid button i.warning { color: #9a6e13; }
 .toast { position: fixed; z-index: 80; right: 25px; bottom: 25px; padding: 13px 17px; border-radius: 10px; color: white; background: #173b4f; box-shadow: 0 14px 35px rgba(10,32,45,.24); font-size: 11px; font-weight: 700; animation: toast-in .2s ease; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 

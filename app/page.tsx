@@ -16,7 +16,6 @@ import { MonthlyPlanView, PlanEditRequest } from "./monthly-plan";
 import { ActualPlanView } from "./actual-plan";
 import {
   aircraftTypeForNumber,
-  datesInRange,
   planBusyLabels,
   planRoleLabels,
   PlanAssignment,
@@ -774,7 +773,7 @@ export default function Home() {
     setToast("Занятость удалена");
   }
   function exportBackup() {
-    download(`shtab-ls-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ version: 10, exportedAt: new Date().toISOString(), data }, null, 2));
+    download(`shtab-ls-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ version: 11, exportedAt: new Date().toISOString(), data }, null, 2));
     setToast("Резервная копия сохранена");
   }
   function importBackup(event: ChangeEvent<HTMLInputElement>) {
@@ -952,19 +951,13 @@ function ShiftsView({
       ? shift.segments.map((segment, segmentIndex) => ({ kind: "actual" as const, date: shift.date, personId: shift.personId, shift, sourceShift, segment, segmentIndex }))
       : [{ kind: "actual" as const, date: shift.date, personId: shift.personId, shift, sourceShift, segment: null, segmentIndex: 0 }];
   });
-  const plannedRows = [
-    ...assignments
-      .filter((assignment) => (!dateFrom || assignment.date >= dateFrom) && (!dateTo || assignment.date <= dateTo) && (!personId || assignment.personId === personId))
-      .map((assignment) => ({ kind: "assignment" as const, date: assignment.date, personId: assignment.personId, assignment })),
-    ...busyEntries.flatMap((entry) => datesInRange(entry.dateFrom, entry.dateTo)
-      .filter((date) => (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo) && (!personId || entry.personId === personId))
-      .map((date) => ({ kind: "busy" as const, date, personId: entry.personId, entry }))),
-  ].sort((left, right) => right.date.localeCompare(left.date)
-    || people.find((item) => item.id === left.personId)?.name.localeCompare(people.find((item) => item.id === right.personId)?.name ?? "", "ru-RU") || 0);
-  const sourceOrder = { actual: 0, assignment: 1, busy: 2 } as const;
-  const journalRows = [...actualRows, ...plannedRows].sort((left, right) => right.date.localeCompare(left.date)
+  const journalRows: Array<
+    (typeof actualRows)[number]
+    | { kind: "assignment"; date: string; personId: string; assignment: PlanAssignment }
+    | { kind: "busy"; date: string; personId: string; entry: PlanBusyEntry }
+  > = [...actualRows].sort((left, right) => right.date.localeCompare(left.date)
     || people.find((item) => item.id === left.personId)?.name.localeCompare(people.find((item) => item.id === right.personId)?.name ?? "", "ru-RU") || 0
-    || sourceOrder[left.kind] - sourceOrder[right.kind]);
+  );
   const dateCells = groupedDateCells(journalRows.map((row) => ({ date: row.date })));
   function showCurrentMonth() {
     setDateFrom(localIsoDate(new Date(today.getFullYear(), today.getMonth(), 1)));
@@ -1009,7 +1002,7 @@ function ShiftsView({
       }
       return <tr className="planned-row" key={`busy-${row.entry.id}-${row.date}`}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{planBusyLabels[row.entry.activity]}<span className="source-pill">Из месячного плана</span></span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td className="note-cell">{row.entry.note || "Из месячного плана"}</td><td><div className="row-actions"><button onClick={() => onEditPlan({ kind: "busy", id: row.entry.id })}>Изменить</button><button className="delete" onClick={() => { if (window.confirm(`Удалить занятость «${planBusyLabels[row.entry.activity]}» за ${formatDate(row.date)}?`)) onDeletePlanBusy(row.entry.id); }}>Удалить</button></div></td></tr>;
     })}</tbody></table></div>}
-  </section>{reportOpen && <FlightReportModal people={people} shifts={shifts} onClose={() => setReportOpen(false)} onNotify={onNotify} />}{importOpen && <WorkTimeImportModal people={people} shifts={shifts} onClose={() => setImportOpen(false)} onSubmit={(records) => { onImport(records); setImportOpen(false); }} />}</>;
+  </section>{reportOpen && <FlightReportModal people={people} shifts={shifts} assignments={assignments} busyEntries={busyEntries} onClose={() => setReportOpen(false)} onNotify={onNotify} />}{importOpen && <WorkTimeImportModal people={people} shifts={shifts} onClose={() => setImportOpen(false)} onSubmit={(records) => { onImport(records); setImportOpen(false); }} />}</>;
 }
 
 function RestCell({
@@ -1044,7 +1037,7 @@ function RestCell({
   </span>;
 }
 
-function FlightReportModal({ people, shifts, onClose, onNotify }: { people: Person[]; shifts: Shift[]; onClose: () => void; onNotify: (message: string) => void }) {
+function FlightReportModal({ people, shifts, assignments, busyEntries, onClose, onNotify }: { people: Person[]; shifts: Shift[]; assignments: PlanAssignment[]; busyEntries: PlanBusyEntry[]; onClose: () => void; onNotify: (message: string) => void }) {
   const today = new Date();
   const reportShifts = useMemo(() => expandLinkedCrewShifts(shifts), [shifts]);
   type ReportType = "flight" | "employment" | "cumulative" | "summary";
@@ -1060,7 +1053,7 @@ function FlightReportModal({ people, shifts, onClose, onNotify }: { people: Pers
     setExporting(true); setError("");
     try {
       if (reportType === "flight") await downloadFlightReport(dateFrom, dateTo, people, reportShifts, personId || null);
-      else if (reportType === "employment") await downloadEmploymentReport(dateFrom, dateTo, people, reportShifts, personId || null);
+      else if (reportType === "employment") await downloadEmploymentReport(dateFrom, dateTo, people, reportShifts, personId || null, assignments, busyEntries);
       else if (reportType === "cumulative") await downloadCumulativeFlightExcel(dateTo, people, reportShifts);
       else await downloadSummaryFlightReport(dateFrom, dateTo, people, reportShifts, personId || null);
       onNotify(reportType === "cumulative" ? "Excel-отчёт сформирован" : "PDF-отчёт сформирован"); onClose();
@@ -1073,7 +1066,7 @@ function FlightReportModal({ people, shifts, onClose, onNotify }: { people: Pers
   const reportHint = reportType === "flight"
     ? "Справка показывает налёт по креслу, типу ВС, бортовому номеру, цели полёта и отмечает разделённые смены."
     : reportType === "employment"
-      ? "Каждая смена выводится отдельной строкой. Для каждого сотрудника добавляется итог по рабочему, полётному, инструкторскому и ночному времени."
+      ? "Фактические смены имеют приоритет. Если их нет, отчёт использует занятость из месячного плана; полностью незаполненный день отмечается как выходной."
       : reportType === "cumulative"
         ? "Общий Excel-отчёт включает исходные данные из файла «Баркову С.В.» за январь–июнь 2026 года и дополняет листы «ВС» и «КВС» всеми полётами сайта с 01.07.2026 по выбранную дату."
         : "Итоговая справка: пилот, тип ВС, общий налёт, ночь и инструкторский налёт — без разделения по эксплуатантам.";
