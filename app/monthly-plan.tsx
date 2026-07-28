@@ -13,6 +13,8 @@ import {
   busyBlockReason,
   dateInPlanEntry,
   datesInRange,
+  isMonthlyPlanAircraft,
+  isMonthlyPlanPerson,
   monthDates,
   planBusyActivities,
   planBusyLabels,
@@ -38,7 +40,7 @@ export type PlanEditRequest =
   | { kind: "assignment"; id: string }
   | { kind: "busy"; id: string };
 
-const aircraftNumbers = Object.values(aircraftNumbersByType).flat();
+const aircraftNumbers = Object.values(aircraftNumbersByType).flat().filter(isMonthlyPlanAircraft);
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 function localMonth(): string {
@@ -114,17 +116,26 @@ export function MonthlyPlanView({
   const [employmentModal, setEmploymentModal] = useState(false);
   const [exporting, setExporting] = useState(false);
   const dates = useMemo(() => monthDates(month), [month]);
+  const planPeople = useMemo(() => people.filter(isMonthlyPlanPerson), [people]);
+  const planPersonIds = useMemo(() => new Set(planPeople.map((person) => person.id)), [planPeople]);
+  const planAssignments = useMemo(() => assignments.filter((item) =>
+    planPersonIds.has(item.personId) && isMonthlyPlanAircraft(item.aircraft)), [assignments, planPersonIds]);
+  const planBusyEntries = useMemo(() => busyEntries.filter((item) =>
+    planPersonIds.has(item.personId)
+    && item.activity !== "standby"
+    && item.activity !== "ground_training"), [busyEntries, planPersonIds]);
+  const planShifts = useMemo(() => shifts.filter((item) => planPersonIds.has(item.personId)), [shifts, planPersonIds]);
   const automaticPlanActivities = useMemo(
-    () => buildAutomaticPlanActivityMap(people, dates, assignments, busyEntries, shifts),
-    [people, dates, assignments, busyEntries, shifts],
+    () => buildAutomaticPlanActivityMap(planPeople, dates, planAssignments, planBusyEntries, planShifts),
+    [planPeople, dates, planAssignments, planBusyEntries, planShifts],
   );
-  const actualBusy = useMemo(() => shifts.filter((shift) => shift.activity !== "flight"), [shifts]);
-  const monthAssignments = assignments.filter((assignment) => assignment.date.startsWith(month));
+  const actualBusy = useMemo(() => planShifts.filter((shift) => shift.activity !== "flight"), [planShifts]);
+  const monthAssignments = planAssignments.filter((assignment) => assignment.date.startsWith(month));
   const monthBusyEntries = dates.length
-    ? busyEntries.filter((entry) => entry.dateFrom <= dates.at(-1)! && entry.dateTo >= dates[0])
+    ? planBusyEntries.filter((entry) => entry.dateFrom <= dates.at(-1)! && entry.dateTo >= dates[0])
     : [];
   const assignment = assignmentCell
-    ? assignments.find((item) => item.date === assignmentCell.date && item.aircraft === assignmentCell.aircraft && item.role === assignmentCell.role)
+    ? planAssignments.find((item) => item.date === assignmentCell.date && item.aircraft === assignmentCell.aircraft && item.role === assignmentCell.role)
     : undefined;
   const busyCount = new Set([
     ...monthBusyEntries.map((entry) => entry.personId),
@@ -178,40 +189,21 @@ export function MonthlyPlanView({
                 {roleIndex === 0 && <th className="plan-aircraft-name" rowSpan={2}><strong>{aircraft}</strong><span>{aircraftType}</span></th>}
                 <th className="plan-role-name">{planRoleLabels[role]}</th>
                 {dates.map((date) => {
-                  const current = assignments.find((item) => item.date === date && item.aircraft === aircraft && item.role === role);
-                  const person = people.find((item) => item.id === current?.personId);
+                  const current = planAssignments.find((item) => item.date === date && item.aircraft === aircraft && item.role === role);
+                  const person = planPeople.find((item) => item.id === current?.personId);
                   const weekend = dayMeta(date).weekend;
-                  return <td className={weekend ? "weekend" : ""} key={date}><button type="button" title={current?.activity === "standby" ? "Ожидание полёта" : undefined} className={`${current ? "filled" : ""} ${current?.activity === "standby" ? "standby" : ""}`} onClick={() => setAssignmentCell({ date, aircraft, role })}>{person ? <>{planPersonShortName(person.name)}{current?.activity === "standby" && <small>ожидание</small>}</> : "+"}</button></td>;
+                  return <td className={weekend ? "weekend" : ""} key={date}><button type="button" className={current ? "filled" : ""} onClick={() => setAssignmentCell({ date, aircraft, role })}>{person ? planPersonShortName(person.name) : "+"}</button></td>;
                 })}
               </tr>;
             }))}
             <tr className="plan-divider"><td colSpan={dates.length + 2}>Занятость вне полётного плана</td></tr>
-            <tr className="plan-busy-row standby automatic-standby">
-              <th className="plan-busy-name" colSpan={2}>Ожидание полёта <small>автоматически</small></th>
-              {dates.map((date) => {
-                const personIds = people
-                  .filter((person) => automaticPlanActivities.get(automaticPlanActivityKey(person.id, date)) === "standby")
-                  .map((person) => person.id);
-                return <td className={dayMeta(date).weekend ? "weekend" : ""} key={date}>
-                  <div className="plan-busy-cell">{personIds.map((personId) => {
-                    const person = people.find((item) => item.id === personId);
-                    return person ? <button
-                      type="button"
-                      title="Автоматически: сотрудник свободен, лимит 6 рабочих дней подряд не достигнут"
-                      className="automatic"
-                      key={personId}
-                    >{planPersonShortName(person.name)}</button> : null;
-                  })}</div>
-                </td>;
-              })}
-            </tr>
             {planBusyActivities.map((activity) => <tr className={`plan-busy-row ${activity}`} key={activity}>
               <th className="plan-busy-name" colSpan={2}>{planBusyLabels[activity]}</th>
               {dates.map((date) => {
-                const planned = busyEntries.filter((entry) => entry.activity === activity && dateInPlanEntry(date, entry));
+                const planned = planBusyEntries.filter((entry) => entry.activity === activity && dateInPlanEntry(date, entry));
                 const actual = actualBusy.filter((entry) => entry.activity === activity && entry.date === date);
                 const automaticDayOffs = activity === "dayoff"
-                  ? people
+                  ? planPeople
                     .filter((person) => automaticPlanActivities.get(automaticPlanActivityKey(person.id, date)) === "dayoff")
                     .map((person) => person.id)
                   : [];
@@ -222,7 +214,7 @@ export function MonthlyPlanView({
                 ])];
                 return <td className={dayMeta(date).weekend ? "weekend" : ""} key={date}>
                   <div className="plan-busy-cell">{uniquePeople.map((personId) => {
-                    const person = people.find((item) => item.id === personId);
+                    const person = planPeople.find((item) => item.id === personId);
                     const editable = planned.find((entry) => entry.personId === personId);
                     const automatic = automaticDayOffs.includes(personId);
                     return person ? <button
@@ -248,41 +240,41 @@ export function MonthlyPlanView({
           </tbody>
         </table>
       </div>
-      <div className="plan-legend"><span><i className="primary" />Основной экипаж</span><span><i className="reserve" />Резерв</span><span><i className="busy" />Автоматически: ожидание до 6 рабочих дней, затем выходной</span><span>«+» в нижней части — добавить или изменить занятость</span></div>
+      <div className="plan-legend"><span><i className="primary" />Основной экипаж</span><span><i className="reserve" />Резерв</span><span><i className="busy" />После 6 рабочих дней автоматически отмечается выходной</span><span>«+» в нижней части — добавить или изменить занятость</span></div>
     </section>
     {assignmentCell && <AssignmentModal
       cell={assignmentCell}
       assignment={assignment}
-      people={people}
-      assignments={assignments}
-      busyEntries={busyEntries}
-      actualBusy={shifts}
+      people={planPeople}
+      assignments={planAssignments}
+      busyEntries={planBusyEntries}
+      actualBusy={planShifts}
       onClose={() => setAssignmentCell(null)}
       onSave={(personId) => {
-        onSaveAssignment({ id: assignment?.id ?? uid(), ...assignmentCell, personId, activity: assignment?.activity ?? "flight" });
+        onSaveAssignment({ id: assignment?.id ?? uid(), ...assignmentCell, personId, activity: "flight" });
         setAssignmentCell(null);
       }}
       onDelete={assignment ? () => { onDeleteAssignment(assignment.id); setAssignmentCell(null); } : undefined}
     />}
     {busyModal && <BusyModal
-      people={people}
+      people={planPeople}
       entry={busyModal === "new" ? null : busyModal}
       initialActivity={busyModal === "new" ? busyDraft?.activity : undefined}
       initialDate={busyModal === "new" ? busyDraft?.date : undefined}
       month={month}
-      assignments={assignments}
-      busyEntries={busyEntries}
-      actualBusy={shifts}
+      assignments={planAssignments}
+      busyEntries={planBusyEntries}
+      actualBusy={planShifts}
       onClose={() => { setBusyModal(null); setBusyDraft(null); }}
       onSave={(entry) => { onSaveBusy(entry); setBusyModal(null); setBusyDraft(null); }}
       onDelete={busyModal === "new" ? undefined : () => { onDeleteBusy(busyModal.id); setBusyModal(null); setBusyDraft(null); }}
     />}
     {employmentModal && <EmploymentPlannerModal
-      people={people}
+      people={planPeople}
       month={month}
-      assignments={assignments}
-      busyEntries={busyEntries}
-      actualBusy={shifts}
+      assignments={planAssignments}
+      busyEntries={planBusyEntries}
+      actualBusy={planShifts}
       onClose={() => setEmploymentModal(false)}
       onSaveAssignments={(items) => {
         onSaveAssignments(items);
@@ -363,6 +355,9 @@ function BusyModal({
   const [dateTo, setDateTo] = useState(entry?.dateTo ?? initialDate ?? firstDate);
   const [note, setNote] = useState(entry?.note ?? "");
   const [error, setError] = useState("");
+  const legacyActivity = entry && !(planBusyActivities as readonly PlanBusyActivity[]).includes(entry.activity)
+    ? entry.activity
+    : null;
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -380,7 +375,7 @@ function BusyModal({
   return <PlanModal title={entry ? "Изменение занятости" : "Новая занятость"} subtitle="Занятость исключает сотрудника из назначения на полёты" onClose={onClose}>
     <form className="form-stack" onSubmit={submit}>
       <label className="field"><span>Сотрудник</span><select required autoFocus value={personId} onChange={(event) => setPersonId(event.target.value)}><option value="">Выберите сотрудника</option>{people.filter((person) => person.active).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
-      <label className="field"><span>Вид занятости</span><select value={activity} onChange={(event) => setActivity(event.target.value as PlanBusyActivity)}>{entry?.activity === "standby" && <option value="standby">{planBusyLabels.standby} · прежняя запись</option>}{planBusyActivities.map((item) => <option key={item} value={item}>{planBusyLabels[item]}</option>)}</select></label>
+      <label className="field"><span>Вид занятости</span><select value={activity} onChange={(event) => setActivity(event.target.value as PlanBusyActivity)}>{legacyActivity && <option value={legacyActivity}>{planBusyLabels[legacyActivity]} · прежняя запись</option>}{planBusyActivities.map((item) => <option key={item} value={item}>{planBusyLabels[item]}</option>)}</select></label>
       <div className="form-grid two"><label className="field"><span>Период с</span><input required type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); if (dateTo < event.target.value) setDateTo(event.target.value); }} /></label><label className="field"><span>Период по</span><input required type="date" min={dateFrom} value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label></div>
       <label className="field"><span>Примечание</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Подразделение, программа подготовки, место командировки…" /></label>
       {error && <div className="form-error">{error}</div>}
@@ -422,7 +417,7 @@ function EmploymentPlannerModal({
   const [error, setError] = useState("");
   const person = people.find((item) => item.id === personId);
   const dates = datesInRange(dateFrom, dateTo);
-  const usesAircraftPlacement = activity === "flight" || activity === "standby";
+  const usesAircraftPlacement = activity === "flight";
   const allowedAircraft = aircraftNumbers.filter((aircraft) =>
     person?.aircraftTypes.includes(aircraftTypeForNumber(aircraft, aircraftNumbersByType)));
 
@@ -489,7 +484,7 @@ function EmploymentPlannerModal({
         date,
         aircraft,
         role,
-        activity,
+        activity: "flight",
       }))));
       return;
     }
@@ -514,7 +509,7 @@ function EmploymentPlannerModal({
         <label className="field"><span>Вид занятости</span><select value={activity} onChange={(event) => {
           setActivity(event.target.value as EmploymentActivity);
           setError("");
-        }}><option value="flight">Полётная смена</option><option value="standby">{planBusyLabels.standby}</option>{planBusyActivities.map((item) => <option key={item} value={item}>{planBusyLabels[item]}</option>)}</select></label>
+        }}><option value="flight">Полётная смена</option>{planBusyActivities.map((item) => <option key={item} value={item}>{planBusyLabels[item]}</option>)}</select></label>
       </div>
       <div className="form-grid two">
         <label className="field"><span>Период с</span><input required type="date" value={dateFrom} onChange={(event) => {
@@ -544,6 +539,7 @@ function EmploymentPlannerModal({
             type="button"
             key={date}
             className={`${selected ? "selected" : ""} ${reason ? "blocked" : ""} ${warning ? "warning" : ""}`}
+            aria-pressed={selected}
             title={reason ?? warning ?? (selected ? "Включено в запись" : "Исключено из записи")}
             disabled={Boolean(reason)}
             onClick={() => setSelectedDates((current) =>
@@ -552,7 +548,7 @@ function EmploymentPlannerModal({
         })}</div>
       </section>
       {!usesAircraftPlacement && <label className="field"><span>Примечание</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Место, программа, основание…" /></label>}
-      <div className="report-scope-note">{activity === "standby" ? "Ожидание полёта будет показано непосредственно в строке выбранного борта и экипажа." : "Запись появится в месячном плане и будет использована в отчёте о занятости. В единый журнал попадают только фактически внесённые смены."}</div>
+      <div className="report-scope-note">Запись появится в месячном плане и будет использована в отчёте о занятости. В единый журнал попадают только фактически внесённые смены.</div>
       {error && <div className="form-error">{error}</div>}
       <div className="form-actions"><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button">Применить занятость</button></div>
     </form>

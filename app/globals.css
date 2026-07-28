@@ -451,6 +451,8 @@ td strong { color: #314956; }
 .actual-entry.standby { background: #d6e7e4; }
 .actual-entry.vacation { background: #ffd8a5; }
 .actual-entry.dayoff { background: #6fcde9; }
+.actual-day-add { width: 100%; min-height: 22px; border: 1px dashed #9bb2ba; border-radius: 5px; color: #47717d; background: rgba(247, 250, 251, .82); font-size: 11px; font-weight: 800; line-height: 1; }
+.actual-day-add:hover { border-color: #23887f; color: #0e6f67; background: #e7f4f1; }
 .actual-plan-legend { display: flex; flex-wrap: wrap; gap: 10px 15px; padding: 12px 18px; color: #6f8089; background: #fbfcfc; font-size: 8px; }
 .actual-plan-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .actual-plan-legend i { width: 12px; height: 12px; border: 1px solid #c5d0d4; border-radius: 3px; background: #edf3f5; }
@@ -484,6 +486,8 @@ td strong { color: #314956; }
 .employment-day-grid button.blocked strong { color: #9d4944; }
 .employment-day-grid button.warning:not(.blocked) { border-color: #cf9d2e; background: #fff4ce; box-shadow: inset 0 0 0 1px rgba(207, 157, 46, .28); }
 .employment-day-grid button.warning:not(.blocked) strong { color: #8b6516; }
+.employment-day-grid button.warning.selected:not(.blocked) { border-color: #9a6700; color: #5c430c; background: #f2c860; box-shadow: inset 0 0 0 3px #fff4ce, 0 0 0 2px #9a6700; }
+.employment-day-grid button.warning.selected:not(.blocked) strong { color: #493300; }
 .employment-day-grid button i { position: absolute; top: 3px; right: 5px; color: #b43f38; font-size: 9px; font-style: normal; font-weight: 900; }
 .employment-day-grid button i.warning { color: #9a6e13; }
 .toast { position: fixed; z-index: 80; right: 25px; bottom: 25px; padding: 13px 17px; border-radius: 10px; color: white; background: #173b4f; box-shadow: 0 14px 35px rgba(10,32,45,.24); font-size: 11px; font-weight: 700; animation: toast-in .2s ease; }

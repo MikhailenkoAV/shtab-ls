@@ -523,6 +523,7 @@ export default function Home() {
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
   const [personModal, setPersonModal] = useState<Person | "new" | null>(null);
   const [shiftModal, setShiftModal] = useState<Shift | "new" | null>(null);
+  const [newShiftDefaults, setNewShiftDefaults] = useState<{ personId: string; date: string } | null>(null);
   const [aviabitModal, setAviabitModal] = useState(false);
   const [planEditRequest, setPlanEditRequest] = useState<PlanEditRequest | null>(null);
   const [toast, setToast] = useState("");
@@ -594,6 +595,19 @@ export default function Home() {
   const monthSortedShifts = useMemo(() => [...monthShifts].sort((a, b) => `${b.date}${b.start}`.localeCompare(`${a.date}${a.start}`)), [monthShifts]);
   const totalWork = monthShifts.reduce((sum, shift) => sum + shift.workMinutes, 0);
   const totalFlight = monthShifts.reduce((sum, shift) => sum + shift.segments.reduce((inner, segment) => inner + segment.flightMinutes, 0), 0);
+
+  function openNewShift(defaults?: { personId: string; date: string }) {
+    setNewShiftDefaults(defaults ?? null);
+    setShiftModal("new");
+  }
+  function openShiftForEdit(shift: Shift) {
+    setNewShiftDefaults(null);
+    setShiftModal(shift);
+  }
+  function closeShiftModal() {
+    setShiftModal(null);
+    setNewShiftDefaults(null);
+  }
 
   function savePerson(person: Omit<Person, "id" | "active">) {
     if (personModal && personModal !== "new") setData((current) => ({ ...current, people: current.people.map((item) => item.id === personModal.id ? { ...item, ...person } : item) }));
@@ -676,12 +690,12 @@ export default function Home() {
         shifts: [...kept, ...records],
       };
     });
-    setShiftModal(null); setToast(hasPeriod ? `Период сохранён: ${dates.length} дн.` : "Запись сохранена");
+    closeShiftModal(); setToast(hasPeriod ? `Период сохранён: ${dates.length} дн.` : "Запись сохранена");
   }
   function deleteShift(shift: Shift) {
     const periodText = shift.periodId && shift.periodStart && shift.periodEnd ? ` весь период ${formatDate(shift.periodStart)} — ${formatDate(shift.periodEnd)}` : ` запись ${formatDate(shift.date)}`;
     if (!window.confirm(`Удалить${periodText}?`)) return;
-    setData((current) => ({ ...current, shifts: current.shifts.filter((item) => shift.periodId ? item.periodId !== shift.periodId : item.id !== shift.id) })); setShiftModal(null); setToast(shift.periodId ? "Период удалён" : "Запись удалена");
+    setData((current) => ({ ...current, shifts: current.shifts.filter((item) => shift.periodId ? item.periodId !== shift.periodId : item.id !== shift.id) })); closeShiftModal(); setToast(shift.periodId ? "Период удалён" : "Запись удалена");
   }
   function deleteFlight(shift: Shift, segmentId: string) {
     const selectedSegment = shift.segments.find((segment) => segment.id === segmentId);
@@ -823,7 +837,7 @@ export default function Home() {
         <div className="top-actions"><span className={`save-state ${saveState}`}>{saveState === "saved" ? "Сохранено" : saveState === "saving" ? "Сохраняю…" : "Ошибка сохранения"}</span></div>
       </header>
       {!hydrated ? <Loading /> : view === "dashboard"
-        ? <Dashboard people={data.people} shifts={monthSortedShifts} alerts={alerts} totalWork={totalWork} totalFlight={totalFlight} restMap={restMap} assumedCompliantRestIds={assumedCompliantRestIds} onAddPerson={() => setPersonModal("new")} onAddShift={() => setShiftModal("new")} />
+        ? <Dashboard people={data.people} shifts={monthSortedShifts} alerts={alerts} totalWork={totalWork} totalFlight={totalFlight} restMap={restMap} assumedCompliantRestIds={assumedCompliantRestIds} onAddPerson={() => setPersonModal("new")} onAddShift={() => openNewShift()} />
         : view === "shifts"
           ? <ShiftsView
             people={data.people}
@@ -832,8 +846,8 @@ export default function Home() {
             busyEntries={data.planBusyEntries}
             restMap={restMap}
             assumedCompliantRestIds={assumedCompliantRestIds}
-            onAdd={() => setShiftModal("new")}
-            onEdit={setShiftModal}
+            onAdd={() => openNewShift()}
+            onEdit={openShiftForEdit}
             onDelete={deleteShift}
             onDeleteFlight={deleteFlight}
             onEditPlan={(request) => { setPlanEditRequest(request); setView("planning"); }}
@@ -853,9 +867,10 @@ export default function Home() {
                     people={data.people}
                     shifts={expandedShifts}
                     onNotify={setToast}
+                    onAdd={(personId, date) => openNewShift({ personId, date })}
                     onEdit={(selected) => {
                       const source = data.shifts.find((item) => item.id === selected.linkedSourceShiftId);
-                      setShiftModal(source ?? selected as Shift);
+                      openShiftForEdit(source ?? selected as Shift);
                     }}
                   />
                   : <MonthlyPlanView
@@ -875,7 +890,15 @@ export default function Home() {
               />}
     </main>
     {personModal && <PersonModal person={personModal === "new" ? null : personModal} onClose={() => setPersonModal(null)} onSubmit={savePerson} onDelete={personModal === "new" ? undefined : () => deletePerson(personModal)} />}
-    {shiftModal && <ShiftModal people={data.people} shift={shiftModal === "new" ? null : shiftModal} onClose={() => setShiftModal(null)} onSubmit={saveShift} onDelete={shiftModal === "new" ? undefined : () => deleteShift(shiftModal)} />}
+    {shiftModal && <ShiftModal
+      people={data.people}
+      shift={shiftModal === "new" ? null : shiftModal}
+      initialPersonId={shiftModal === "new" ? newShiftDefaults?.personId : undefined}
+      initialDate={shiftModal === "new" ? newShiftDefaults?.date : undefined}
+      onClose={closeShiftModal}
+      onSubmit={saveShift}
+      onDelete={shiftModal === "new" ? undefined : () => deleteShift(shiftModal)}
+    />}
     {aviabitModal && <ImportAviabitModal people={data.people} onClose={() => setAviabitModal(false)} onSubmit={importAviabit} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>;
@@ -1302,11 +1325,27 @@ function groupSegmentDrafts(segments: SegmentDraft[]): SegmentDraft[][] {
   return result;
 }
 
-function ShiftModal({ people, shift, onClose, onSubmit, onDelete }: { people: Person[]; shift: Shift | null; onClose: () => void; onSubmit: (shift: ShiftDraft) => void; onDelete?: () => void }) {
-  const initialDate = shift?.periodStart ?? shift?.date ?? localIsoDate(new Date());
-  const [personId, setPersonId] = useState(shift?.personId ?? "");
-  const [date, setDate] = useState(initialDate);
-  const [dateTo, setDateTo] = useState(shift?.periodEnd ?? initialDate);
+function ShiftModal({
+  people,
+  shift,
+  initialPersonId,
+  initialDate,
+  onClose,
+  onSubmit,
+  onDelete,
+}: {
+  people: Person[];
+  shift: Shift | null;
+  initialPersonId?: string;
+  initialDate?: string;
+  onClose: () => void;
+  onSubmit: (shift: ShiftDraft) => void;
+  onDelete?: () => void;
+}) {
+  const resolvedInitialDate = shift?.periodStart ?? shift?.date ?? initialDate ?? localIsoDate(new Date());
+  const [personId, setPersonId] = useState(shift?.personId ?? initialPersonId ?? "");
+  const [date, setDate] = useState(resolvedInitialDate);
+  const [dateTo, setDateTo] = useState(shift?.periodEnd ?? resolvedInitialDate);
   const [activity, setActivity] = useState<Activity>(shift?.periodActivity ?? shift?.activity ?? "flight");
   const [start, setStart] = useState(shift?.start ?? "08:00");
   const [work, setWork] = useState(shift ? durationValue(shift.workMinutes) : "08:00");

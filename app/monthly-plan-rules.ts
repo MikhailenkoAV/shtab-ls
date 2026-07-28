@@ -47,7 +47,26 @@ export const planBusyLabels: Record<PlanBusyActivity, string> = {
 };
 
 export const planBusyActivities = (Object.keys(planBusyLabels) as PlanBusyActivity[])
-  .filter((activity) => activity !== "standby");
+  .filter((activity) => activity !== "standby" && activity !== "ground_training");
+
+export const monthlyPlanExcludedAircraft = new Set(["RA-01619", "RA-05828"]);
+export const monthlyPlanExcludedSurnames = new Set([
+  "волков",
+  "левочкин",
+  "герасимов",
+  "болдырев",
+  "мареев",
+  "ганжа",
+]);
+
+export function isMonthlyPlanAircraft(aircraft: string): boolean {
+  return !monthlyPlanExcludedAircraft.has(aircraft.trim().toUpperCase());
+}
+
+export function isMonthlyPlanPerson(person: { name: string }): boolean {
+  const surname = person.name.trim().split(/\s+/)[0]?.toLocaleLowerCase("ru-RU") ?? "";
+  return !monthlyPlanExcludedSurnames.has(surname);
+}
 
 export type PlanPersonInput = {
   id: string;
@@ -230,7 +249,7 @@ export function assignmentDateWarning(
     && !selectedAircraft.includes(assignment.aircraft));
   if (!existing.length) return null;
   const details = existing.map((assignment) =>
-    `${assignment.aircraft} · ${planRoleLabels[assignment.role]}${assignment.activity === "standby" ? " · ожидание полёта" : ""}`);
+    `${assignment.aircraft} · ${planRoleLabels[assignment.role]}`);
   return `Уже запланировано: ${details.join("; ")}. Назначение на другой борт разрешено.`;
 }
 

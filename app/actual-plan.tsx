@@ -87,11 +87,13 @@ function shiftTitle(shift: ActualPlanShift): string {
 export function ActualPlanView({
   people,
   shifts,
+  onAdd,
   onEdit,
   onNotify,
 }: {
   people: ActualPlanPerson[];
   shifts: ActualPlanShift[];
+  onAdd: (personId: string, date: string) => void;
   onEdit: (shift: ActualPlanShift) => void;
   onNotify: (message: string) => void;
 }) {
@@ -132,7 +134,7 @@ export function ActualPlanView({
       <strong>{monthLabel(month)}</strong>
       <span>Фактических записей: {monthShifts.length}</span>
       <span>Занятых человеко-дней: {occupiedDays}</span>
-      <span>Нажмите запись, чтобы открыть её для редактирования.</span>
+      <span>«+» добавляет запись в журнал; существующая запись открывается для редактирования.</span>
     </div>
     {!includedPeople.length ? <div className="panel-empty tall">В личном составе пока нет сотрудников.</div> : <div className="actual-plan-scroll">
       <table className="actual-plan-table">
@@ -151,7 +153,13 @@ export function ActualPlanView({
                 className={`actual-entry ${shift.activity}`}
                 title={shiftTitle(shift)}
                 onClick={() => onEdit(shift)}
-              ><strong>{shift.activity === "flight" ? flightLabel(shift) : activityLabels[shift.activity] ?? shift.activity}</strong>{shift.start && <span>{shift.start}</span>}</button>)}</div>
+              ><strong>{shift.activity === "flight" ? flightLabel(shift) : activityLabels[shift.activity] ?? shift.activity}</strong>{shift.start && <span>{shift.start}</span>}</button>)}<button
+                type="button"
+                className="actual-day-add"
+                title={`Добавить фактическую занятость · ${person.name} · ${new Intl.DateTimeFormat("ru-RU").format(new Date(`${date}T12:00:00`))}`}
+                aria-label={`Добавить запись: ${person.name}, ${date}`}
+                onClick={() => onAdd(person.id, date)}
+              >+</button></div>
             </td>;
           })}
         </tr>)}</tbody>

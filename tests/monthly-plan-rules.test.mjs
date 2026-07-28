@@ -10,6 +10,8 @@ import {
   buildAutomaticPlanActivityMap,
   busyBlockReason,
   datesInRange,
+  isMonthlyPlanAircraft,
+  isMonthlyPlanPerson,
   isPersonBusyOnDate,
   monthDates,
   planBusyActivities,
@@ -134,8 +136,9 @@ test("non-flight employment cannot replace an existing aircraft assignment", () 
   assert.equal(reason, "На эту дату уже назначен полёт на RA-01902.");
 });
 
-test("manual standby stays on an aircraft while automatic standby has its own export row", () => {
+test("monthly plan shows aircraft assignments only as pilot names", () => {
   assert.equal(planBusyActivities.includes("standby"), false);
+  assert.equal(planBusyActivities.includes("ground_training"), false);
   const matrix = buildMonthlyPlanMatrix(
     "2026-07",
     [{ id: "one", name: "Иванов Иван Иванович", aircraftTypes: ["AW109"], active: true }],
@@ -144,11 +147,12 @@ test("manual standby stays on an aircraft while automatic standby has its own ex
     [],
   );
   const aircraftRow = matrix.rows.find((row) => row.aircraft === "RA-01902" && row.role === "primary");
-  assert.match(aircraftRow?.cells[14] ?? "", /Ожидание/);
-  assert.equal(matrix.rows.filter((row) => row.kind === "busy" && row.activity === "standby").length, 1);
+  assert.equal(aircraftRow?.cells[14], "Иванов И.И.");
+  assert.equal(matrix.rows.some((row) => row.kind === "busy" && row.activity === "standby"), false);
+  assert.equal(matrix.rows.some((row) => row.kind === "busy" && row.activity === "ground_training"), false);
 });
 
-test("monthly plan export alternates automatic standby with a day off after six work days", () => {
+test("monthly plan export keeps automatic day off without a standby row", () => {
   const matrix = buildMonthlyPlanMatrix(
     "2026-07",
     [{ id: "one", name: "Иванов Иван Иванович", aircraftTypes: ["AW109"], active: true }],
@@ -157,7 +161,30 @@ test("monthly plan export alternates automatic standby with a day off after six 
     [],
   );
   const dayOffRow = matrix.rows.find((row) => row.kind === "busy" && row.activity === "dayoff");
-  const standbyRow = matrix.rows.find((row) => row.kind === "busy" && row.activity === "standby");
-  assert.match(standbyRow?.cells[0] ?? "", /Иванов И\.И\./);
   assert.match(dayOffRow?.cells[4] ?? "", /Иванов И\.И\./);
+  assert.equal(matrix.rows.some((row) => row.kind === "busy" && row.activity === "standby"), false);
+});
+
+test("monthly plan hides selected aircraft and surnames without changing the common roster", () => {
+  assert.equal(isMonthlyPlanAircraft("RA-01619"), false);
+  assert.equal(isMonthlyPlanAircraft("RA-05828"), false);
+  assert.equal(isMonthlyPlanAircraft("RA-01902"), true);
+  assert.equal(isMonthlyPlanPerson({ name: "Волков Иван Иванович" }), false);
+  assert.equal(isMonthlyPlanPerson({ name: "Иванов Иван Иванович" }), true);
+  const matrix = buildMonthlyPlanMatrix(
+    "2026-07",
+    [
+      { id: "excluded", name: "Волков Иван Иванович", aircraftTypes: ["AW109"], active: true },
+      { id: "included", name: "Иванов Иван Иванович", aircraftTypes: ["AW109"], active: true },
+    ],
+    [],
+    [
+      { id: "hidden-person", personId: "excluded", date: "2026-07-15", aircraft: "RA-01902", role: "primary" },
+      { id: "hidden-aircraft", personId: "included", date: "2026-07-15", aircraft: "RA-01619", role: "primary" },
+    ],
+    [],
+  );
+  assert.equal(matrix.rows.some((row) => row.aircraft === "RA-01619"), false);
+  const aircraftRow = matrix.rows.find((row) => row.aircraft === "RA-01902" && row.role === "primary");
+  assert.equal(aircraftRow?.cells[14], "");
 });
