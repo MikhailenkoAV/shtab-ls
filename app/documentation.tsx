@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   downloadPilotAppendixWord,
-  downloadQualificationCheckExcel,
+  downloadQualificationCheckPdf,
   downloadTrainingRequestWord,
   TrainingRequestRow,
 } from "./document-exports";
@@ -121,6 +121,8 @@ export function DocumentationView({
   const [pilotIssueDate, setPilotIssueDate] = useState(localIsoDate());
   const [pilotOperator, setPilotOperator] = useState(company.shortName || company.fullName);
   const [pilotSignatory, setPilotSignatory] = useState(company.chiefOfStaff);
+  const [pilotLicenceKind, setPilotLicenceKind] = useState(() => resolvedProfile(activePeople[0]?.id ?? "").pilotLicenceKind);
+  const [pilotLicenceNumber, setPilotLicenceNumber] = useState(() => resolvedProfile(activePeople[0]?.id ?? "").pilotLicenceNumber);
 
   const [trainingSelected, setTrainingSelected] = useState<string[]>([]);
   const [trainingRows, setTrainingRows] = useState<Record<string, TrainingRequestRow>>({});
@@ -143,7 +145,31 @@ export function DocumentationView({
     result: "Зачёт",
     examinerName: "",
     examinerLicence: "",
+    examinerRole: "Пилот-инструктор",
   });
+  const selectedProgramHours = settings.trainingProgramHours?.[trainingForm.programName] ?? [];
+
+  function updateTrainingProgram(index: number, nextName: string) {
+    const previousName = settings.trainingPrograms[index];
+    const trainingPrograms = settings.trainingPrograms.map((item, itemIndex) =>
+      itemIndex === index ? nextName : item);
+    const trainingProgramHours = { ...(settings.trainingProgramHours ?? {}) };
+    if (previousName !== nextName) {
+      trainingProgramHours[nextName] = trainingProgramHours[previousName] ?? [];
+      delete trainingProgramHours[previousName];
+    }
+    onSettingsChange({ trainingPrograms, trainingProgramHours });
+  }
+
+  function deleteTrainingProgram(index: number) {
+    const name = settings.trainingPrograms[index];
+    const trainingProgramHours = { ...(settings.trainingProgramHours ?? {}) };
+    delete trainingProgramHours[name];
+    onSettingsChange({
+      trainingPrograms: settings.trainingPrograms.filter((_, itemIndex) => itemIndex !== index),
+      trainingProgramHours,
+    });
+  }
 
   function makeTrainingRow(personId: string): TrainingRequestRow {
     const person = activePeople.find((item) => item.id === personId);
@@ -181,7 +207,7 @@ export function DocumentationView({
     <article className="panel documentation-intro"><div><p className="eyebrow">Документы лётной службы</p><h2>Документационный контур</h2><p>Реестр перенесён из вашей рабочей книги. Формы заполняются из личных дел, а незаполненные поля можно исправить прямо перед выгрузкой.</p></div><span>Локальная база</span></article>
     <nav className="documentation-tabs panel" aria-label="Разделы документации">
       <button className={tab === "registry" ? "active" : ""} onClick={() => setTab("registry")}><strong>Реестр</strong><small>{registry.length} записей</small></button>
-      <button className={tab === "forms" ? "active" : ""} onClick={() => setTab("forms")}><strong>Формирование</strong><small>Word и Excel</small></button>
+      <button className={tab === "forms" ? "active" : ""} onClick={() => setTab("forms")}><strong>Формирование</strong><small>Word и PDF</small></button>
       <button className={tab === "profiles" ? "active" : ""} onClick={() => setTab("profiles")}><strong>Анкетные данные</strong><small>Для автозаполнения</small></button>
       <button className={tab === "references" ? "active" : ""} onClick={() => setTab("references")}><strong>Справочники</strong><small>АУЦ и программы</small></button>
     </nav>
@@ -234,7 +260,20 @@ export function DocumentationView({
           <ProfileField label="Наименование АУЦ" value={settings.trainingCenterName} onChange={(value) => onSettingsChange({ trainingCenterName: value })} />
           <ProfileField label="Руководитель / адресат" value={settings.trainingCenterHead} onChange={(value) => onSettingsChange({ trainingCenterHead: value })} />
         </div>
-        <label className="field"><span>Программы обучения — по одной в строке</span><textarea value={settings.trainingPrograms.join("\n")} onChange={(event) => onSettingsChange({ trainingPrograms: event.target.value.split("\n").map((item) => item.trim()).filter(Boolean) })} placeholder="Подготовка пилотов на тип ВС…" /></label>
+        <div className="training-program-settings">
+          <div className="training-program-settings-head"><strong>Программы и количество часов</strong><button className="secondary-button compact" type="button" onClick={() => onSettingsChange({ trainingPrograms: [...settings.trainingPrograms, "Новая программа"] })}>+ Добавить программу</button></div>
+          {settings.trainingPrograms.map((program, index) => <article key={`${program}-${index}`}>
+            <label className="field"><span>Наименование программы</span><input value={program} onChange={(event) => updateTrainingProgram(index, event.target.value)} /></label>
+            <label className="field"><span>Варианты часов — через запятую</span><input value={(settings.trainingProgramHours?.[program] ?? []).join(", ")} onChange={(event) => onSettingsChange({
+              trainingProgramHours: {
+                ...(settings.trainingProgramHours ?? {}),
+                [program]: event.target.value.split(",").map((item) => item.trim()).filter(Boolean),
+              },
+            })} placeholder="40, 72" /></label>
+            <button type="button" className="danger-button compact" onClick={() => deleteTrainingProgram(index)}>Удалить</button>
+          </article>)}
+          {!settings.trainingPrograms.length && <div className="panel-empty">Добавьте первую программу обучения.</div>}
+        </div>
         <div className="form-grid two">
           <ProfileField label="E-mail отправителя" value={settings.senderEmail} onChange={(value) => onSettingsChange({ senderEmail: value })} />
           <ProfileField label="Телефон отправителя" value={settings.senderPhone} onChange={(value) => onSettingsChange({ senderPhone: value })} />
@@ -247,20 +286,29 @@ export function DocumentationView({
       <aside className="panel document-form-menu">{([
         ["pilot", "Приложение к пилотскому", "Word · данные личного дела"],
         ["training", "Заявка в АУЦ", "Word · ручная проверка полей"],
-        ["qualification", "Вкладыш проверки", "Excel · квалификационная проверка"],
+        ["qualification", "Вкладыш проверки", "PDF · формат 1/2 А5"],
       ] as const).map(([kind, title, detail]) => <button key={kind} className={formKind === kind ? "active" : ""} onClick={() => setFormKind(kind)}><strong>{title}</strong><small>{detail}</small></button>)}
-        <div className="template-downloads"><span>Исходные образцы</span><a href="document-templates/pilot-licence-appendix.rtf" download>Приложение RTF</a><a href="document-templates/qualification-check-insert.xlsx" download>Вкладыш Excel</a><a href="document-templates/training-request-template.docx" download>Заявка Word</a><a href="document-templates/registry-ls.xlsx" download>Реестр Excel</a></div>
       </aside>
 
       {formKind === "pilot" && <article className="panel documentation-workspace">
         <div className="panel-heading"><div><p className="eyebrow">Word-документ</p><h2>Приложение к пилотскому свидетельству</h2></div></div>
         <div className="document-profile-form form-stack">
           {!activePeople.length ? <div className="panel-empty">Добавьте сотрудников для формирования документа.</div> : <>
-            <label className="field"><span>Сотрудник</span><select value={pilotPersonId} onChange={(event) => setPilotPersonId(event.target.value)}>{activePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+            <label className="field"><span>Сотрудник</span><select value={pilotPersonId} onChange={(event) => {
+              const personId = event.target.value;
+              const nextProfile = resolvedProfile(personId);
+              setPilotPersonId(personId);
+              setPilotLicenceKind(nextProfile.pilotLicenceKind);
+              setPilotLicenceNumber(nextProfile.pilotLicenceNumber);
+            }}>{activePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
             <div className="form-grid three">
               <ProfileField label="Дата оформления" type="date" value={pilotIssueDate} onChange={setPilotIssueDate} />
               <ProfileField label="Эксплуатант" value={pilotOperator} onChange={setPilotOperator} />
               <ProfileField label="Подписант" value={pilotSignatory} onChange={setPilotSignatory} />
+            </div>
+            <div className="form-grid two">
+              <ProfileField label="Вид свидетельства" value={pilotLicenceKind} onChange={setPilotLicenceKind} />
+              <ProfileField label="Номер свидетельства" value={pilotLicenceNumber} onChange={setPilotLicenceNumber} />
             </div>
             <AutofillStatus profile={resolvedProfile(pilotPersonId)} />
             <div className="form-actions"><button className="primary-button" onClick={() => {
@@ -268,7 +316,7 @@ export function DocumentationView({
               if (!person) return;
               void runExport(() => downloadPilotAppendixWord({
                 personName: person.name,
-                profile: resolvedProfile(pilotPersonId),
+                profile: { ...resolvedProfile(pilotPersonId), pilotLicenceKind, pilotLicenceNumber },
                 issueDate: pilotIssueDate,
                 operator: pilotOperator,
                 signatory: pilotSignatory,
@@ -288,8 +336,14 @@ export function DocumentationView({
           </div>
           <div className="form-grid three">
             <ProfileField label="Дата заявки" type="date" value={trainingForm.requestDate} onChange={(value) => setTrainingForm((current) => ({ ...current, requestDate: value }))} />
-            <label className="field"><span>Программа</span><input list="training-programs" value={trainingForm.programName} onChange={(event) => setTrainingForm((current) => ({ ...current, programName: event.target.value }))} /><datalist id="training-programs">{settings.trainingPrograms.map((program) => <option key={program} value={program} />)}</datalist></label>
-            <ProfileField label="Количество часов" value={trainingForm.hours} onChange={(value) => setTrainingForm((current) => ({ ...current, hours: value }))} />
+            <label className="field"><span>Программа</span><select value={trainingForm.programName} onChange={(event) => {
+              const programName = event.target.value;
+              const hours = settings.trainingProgramHours?.[programName]?.[0] ?? "";
+              setTrainingForm((current) => ({ ...current, programName, hours }));
+            }}><option value="">Выберите программу</option>{settings.trainingPrograms.map((program) => <option key={program} value={program}>{program}</option>)}</select></label>
+            {selectedProgramHours.length > 0
+              ? <label className="field"><span>Количество часов</span><select value={trainingForm.hours} onChange={(event) => setTrainingForm((current) => ({ ...current, hours: event.target.value }))}>{selectedProgramHours.map((hours) => <option key={hours} value={hours}>{hours}</option>)}</select></label>
+              : <ProfileField label="Количество часов" value={trainingForm.hours} onChange={(value) => setTrainingForm((current) => ({ ...current, hours: value }))} />}
           </div>
           <div className="form-grid two">
             <ProfileField label="Начало обучения" type="date" value={trainingForm.dateFrom} onChange={(value) => setTrainingForm((current) => ({ ...current, dateFrom: value }))} />
@@ -320,7 +374,7 @@ export function DocumentationView({
       </article>}
 
       {formKind === "qualification" && <article className="panel documentation-workspace">
-        <div className="panel-heading"><div><p className="eyebrow">Excel-документ</p><h2>Вкладыш квалификационной проверки</h2></div></div>
+        <div className="panel-heading"><div><p className="eyebrow">PDF · 1/2 А5</p><h2>Вкладыш квалификационной проверки</h2></div></div>
         <div className="document-profile-form form-stack">
           <label className="field"><span>Сотрудник</span><select value={qualificationPersonId} onChange={(event) => {
             const personId = event.target.value;
@@ -342,17 +396,18 @@ export function DocumentationView({
             <ProfileField label="Проверяющий" value={qualificationForm.examinerName} onChange={(value) => setQualificationForm((current) => ({ ...current, examinerName: value }))} />
             <ProfileField label="№ свидетельства проверяющего" value={qualificationForm.examinerLicence} onChange={(value) => setQualificationForm((current) => ({ ...current, examinerLicence: value }))} />
           </div>
+          <label className="field"><span>Должность проверяющего</span><select value={qualificationForm.examinerRole} onChange={(event) => setQualificationForm((current) => ({ ...current, examinerRole: event.target.value }))}><option>Пилот-инструктор</option><option>Пилот-инструктор-экзаменатор</option></select></label>
           <div className="form-actions"><button className="primary-button" disabled={!qualificationPersonId} onClick={() => {
             const person = activePeople.find((item) => item.id === qualificationPersonId);
             if (!person) return;
             const selectedProfile = resolvedProfile(qualificationPersonId);
-            void runExport(() => downloadQualificationCheckExcel({
+            void runExport(() => downloadQualificationCheckPdf({
               personName: person.name,
               licenceKind: selectedProfile.pilotLicenceKind,
               licenceNumber: selectedProfile.pilotLicenceNumber,
               ...qualificationForm,
             }), "Вкладыш проверки сформирован");
-          }}>Выгрузить в Excel</button></div>
+          }}>Выгрузить в PDF</button></div>
         </div>
       </article>}
     </section>}

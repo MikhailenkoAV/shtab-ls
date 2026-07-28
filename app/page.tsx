@@ -21,7 +21,8 @@ import {
   PlanAssignment,
   PlanBusyEntry,
 } from "./monthly-plan-rules";
-import { CertificationRecord, ImportAviabitModal, ImportPayload, PersonalFilesView } from "./personal-files";
+import { CertificationRecord, ImportAviabitModal, ImportPayload } from "./personal-files";
+import { PersonalFilesView } from "./personal-overview";
 import {
   calculateRestIssues,
   isSundayDate,
@@ -52,6 +53,12 @@ import {
   EMPTY_DOCUMENT_SETTINGS,
 } from "./documentation-rules";
 import { FlightBookBaseline } from "./flight-book-rules";
+import {
+  DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
+  normalizePilotPersonalProfile,
+  PersonalDocumentDefinition,
+  PilotPersonalProfile,
+} from "./pilot-profile-rules";
 
 type View = "dashboard" | "shifts" | "people" | "personal" | "control" | "planning" | "actual" | "documentation" | "settings";
 type Activity = "flight" | "trip" | "office" | "periodic_training" | "ground_training" | "standby" | "vacation" | "dayoff";
@@ -111,6 +118,8 @@ type AppData = {
   documentProfiles: Record<string, DocumentPersonProfile>;
   documentSettings: DocumentSettings;
   flightBookBaselines: FlightBookBaseline[];
+  personalProfiles: Record<string, PilotPersonalProfile>;
+  personalDocumentDefinitions: PersonalDocumentDefinition[];
 };
 const REGISTRY_SEED = registrySeedJson as DocumentRegistryRecord[];
 
@@ -137,6 +146,8 @@ const EMPTY_DATA: AppData = {
   documentProfiles: {},
   documentSettings: EMPTY_DOCUMENT_SETTINGS,
   flightBookBaselines: [],
+  personalProfiles: {},
+  personalDocumentDefinitions: DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
 };
 const DB_NAME = "shtab-ls";
 const STORE_NAME = "workspace";
@@ -284,6 +295,11 @@ async function loadData(): Promise<AppData> {
         documentProfiles: stored?.documentProfiles ?? {},
         documentSettings: { ...EMPTY_DOCUMENT_SETTINGS, ...(stored?.documentSettings ?? {}) },
         flightBookBaselines: stored?.flightBookBaselines ?? [],
+        personalProfiles: Object.fromEntries(Object.entries(stored?.personalProfiles ?? {})
+          .map(([personId, profile]) => [personId, normalizePilotPersonalProfile(profile)])),
+        personalDocumentDefinitions: stored?.personalDocumentDefinitions?.length
+          ? stored.personalDocumentDefinitions
+          : DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
       });
     };
     request.onerror = () => reject(request.error);
@@ -699,6 +715,7 @@ export default function Home() {
       planBusyEntries: current.planBusyEntries.filter((entry) => entry.personId !== person.id),
       documentProfiles: Object.fromEntries(Object.entries(current.documentProfiles).filter(([personId]) => personId !== person.id)),
       flightBookBaselines: current.flightBookBaselines.filter((baseline) => baseline.personId !== person.id),
+      personalProfiles: Object.fromEntries(Object.entries(current.personalProfiles).filter(([personId]) => personId !== person.id)),
     }));
     setPersonModal(null); setToast("Сотрудник удалён");
   }
@@ -825,6 +842,32 @@ export default function Home() {
     }));
     setToast("Контрольная точка удалена");
   }
+  function savePilotPersonalProfile(personId: string, profile: PilotPersonalProfile) {
+    const passportParts = profile.personalInfo.passportSeriesNumber.trim().split(/\s+/);
+    const educationParts = profile.personalInfo.educationSeriesNumber.trim().split(/\s+/);
+    setData((current) => ({
+      ...current,
+      personalProfiles: { ...current.personalProfiles, [personId]: profile },
+      documentProfiles: {
+        ...current.documentProfiles,
+        [personId]: {
+          ...EMPTY_DOCUMENT_PROFILE,
+          ...(current.documentProfiles[personId] ?? {}),
+          birthDate: profile.birthDate,
+          snils: profile.personalInfo.snils,
+          passportSeries: passportParts[0] ?? "",
+          passportNumber: passportParts.slice(1).join(" "),
+          educationDocumentSeries: educationParts[0] ?? "",
+          educationDocumentNumber: educationParts.slice(1).join(" "),
+          educationQualification: profile.personalInfo.specialty,
+          educationLevel: profile.personalInfo.educationLevel,
+          email: profile.email,
+          phone: profile.phone,
+        },
+      },
+    }));
+    setToast("Личное дело обновлено");
+  }
   function upsertRegistryRecord(record: DocumentRegistryRecord) {
     setData((current) => ({
       ...current,
@@ -889,7 +932,7 @@ export default function Home() {
   }
   function exportBackup() {
     const now = new Date();
-    download(backupFileName(now), JSON.stringify({ version: 14, exportedAt: now.toISOString(), data }, null, 2));
+    download(backupFileName(now), JSON.stringify({ version: 15, exportedAt: now.toISOString(), data }, null, 2));
     setToast("Резервная копия сохранена");
   }
   function importBackup(event: ChangeEvent<HTMLInputElement>) {
@@ -909,6 +952,11 @@ export default function Home() {
         documentProfiles: restored.documentProfiles ?? {},
         documentSettings: { ...EMPTY_DOCUMENT_SETTINGS, ...(restored.documentSettings ?? {}) },
         flightBookBaselines: restored.flightBookBaselines ?? [],
+        personalProfiles: Object.fromEntries(Object.entries(restored.personalProfiles ?? {})
+          .map(([personId, profile]) => [personId, normalizePilotPersonalProfile(profile)])),
+        personalDocumentDefinitions: restored.personalDocumentDefinitions?.length
+          ? restored.personalDocumentDefinitions
+          : DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
       }); setToast("Резервная копия восстановлена");
     }).catch(() => setToast("Не удалось прочитать резервную копию"));
     event.target.value = "";
@@ -994,11 +1042,16 @@ export default function Home() {
                 shifts={expandedShifts}
                 records={data.certifications}
                 baselines={data.flightBookBaselines}
+                profiles={data.personalProfiles}
+                documentDefinitions={data.personalDocumentDefinitions}
                 onImportClick={() => setAviabitModal(true)}
                 onUpsert={upsertCertification}
                 onDelete={deleteCertification}
                 onUpsertBaseline={upsertFlightBookBaseline}
                 onDeleteBaseline={deleteFlightBookBaseline}
+                onProfileChange={savePilotPersonalProfile}
+                onDefinitionsChange={(definitions) => setData((current) => ({ ...current, personalDocumentDefinitions: definitions }))}
+                onNotify={setToast}
               />
               : view === "control"
                 ? <ControlJournalView rows={controlRows} alerts={alerts} onNotify={setToast} />

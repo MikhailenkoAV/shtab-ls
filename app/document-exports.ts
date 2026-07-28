@@ -8,6 +8,7 @@ import {
   ImageRun,
   Packer,
   Paragraph,
+  SectionType,
   Table,
   TableCell,
   TableRow,
@@ -15,11 +16,9 @@ import {
   VerticalAlign,
   WidthType,
 } from "docx";
-import {
-  DocumentPersonProfile,
-  safeFilePart,
-  splitPersonName,
-} from "./documentation-rules";
+import { safeFilePart, splitPersonName } from "./documentation-rules.ts";
+import type { DocumentPersonProfile } from "./documentation-rules.ts";
+import type { TDocumentDefinitions } from "pdfmake/interfaces";
 
 export type DocumentCertificationRef = {
   category: string;
@@ -84,6 +83,7 @@ export type QualificationCheckPayload = {
   result: string;
   examinerName: string;
   examinerLicence: string;
+  examinerRole: string;
 };
 
 function displayDate(value: string): string {
@@ -184,34 +184,76 @@ export async function downloadPilotAppendixWord(payload: PilotAppendixPayload): 
   const proficiency = matches(/квалиф|провер|экзам/); proficiency.forEach((item) => usedIds.add(item));
   const lowVisibility = matches(/видим|минимум|lvto|cat/); lowVisibility.forEach((item) => usedIds.add(item));
   const special = payload.certifications.filter((item) => !usedIds.has(item));
+  const page = { page: { margin: { top: 720, right: 720, bottom: 720, left: 720 } }, type: SectionType.NEXT_PAGE };
+  const appendixTitle = (ru: string, en: string) => new Paragraph({
+    alignment: AlignmentType.CENTER,
+    children: [
+      new TextRun({ text: ru, bold: true, size: 24 }),
+      new TextRun({ text: `\n${en}`, bold: true, size: 17, color: "4F6570" }),
+    ],
+    spacing: { after: 180 },
+  });
   const doc = new Document({
-    sections: [{
-      properties: { page: { margin: { top: 900, right: 900, bottom: 900, left: 900 } } },
-      children: [
-        await logoParagraph(),
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          children: [
-            new TextRun({ text: "ПРИЛОЖЕНИЕ К СВИДЕТЕЛЬСТВУ", bold: true, size: 30 }),
-            new TextRun({ text: "\nATTACHMENT TO THE LICENCE", bold: true, size: 22, color: "4F6570" }),
-          ],
-          spacing: { after: 260 },
-        }),
-        detailsTable([
-          ["Фамилия / Last name", lastName],
-          ["Имя, отчество / First name", [firstName, patronymic].filter(Boolean).join(" ")],
-          ["Вид свидетельства / Licence kind", payload.profile.pilotLicenceKind],
-          ["Номер свидетельства / Licence number", payload.profile.pilotLicenceNumber],
-          ["Дата оформления / Issue date", displayDate(payload.issueDate)],
-          ["Эксплуатант / Operator", payload.operator],
-          ["Подписант / Signatory", payload.signatory],
-        ]),
-        ...qualificationTable("Проверки на тренажёре / Simulator checks", simulator),
-        ...qualificationTable("Особые отметки / Special ratings", special),
-        ...qualificationTable("Квалификационные проверки / Proficiency checks", proficiency),
-        ...qualificationTable("Полёты в условиях ограниченной видимости / Low visibility operations", lowVisibility),
-      ],
-    }],
+    sections: [
+      {
+        properties: page,
+        children: [
+          appendixTitle("ПРОВЕРКИ НА ТРЕНАЖЁРЕ", "SIMULATOR CHECKS"),
+          ...qualificationTable("Тренажёрная подготовка / Simulator training", simulator),
+          ...qualificationTable("Специальная подготовка и допуски / Special training and ratings", special),
+          new Paragraph({
+            spacing: { before: 260 },
+            children: [
+              new TextRun({ text: "Подпись уполномоченного лица / Authorized signature: ", bold: true, size: 18 }),
+              new TextRun({ text: payload.signatory || "____________________", size: 18 }),
+            ],
+          }),
+        ],
+      },
+      {
+        properties: page,
+        children: [
+          await logoParagraph(),
+          appendixTitle("ПРИЛОЖЕНИЕ К СВИДЕТЕЛЬСТВУ", "ATTACHMENT TO THE LICENCE"),
+          detailsTable([
+            ["Фамилия / Last name", lastName],
+            ["Имя / First name", firstName],
+            ["Отчество / Patronymic", patronymic],
+            ["Вид свидетельства / Licence kind", payload.profile.pilotLicenceKind],
+            ["Номер свидетельства / Licence number", payload.profile.pilotLicenceNumber],
+            ["Дата оформления / Issue date", displayDate(payload.issueDate)],
+            ["Эксплуатант / Operator", payload.operator],
+          ]),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 520, after: 180 },
+            children: [new TextRun({ text: "Настоящее приложение действительно только вместе со свидетельством.", italics: true, size: 18 })],
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [
+              new TextRun({ text: "Подписант / Signatory\n", bold: true, size: 18 }),
+              new TextRun({ text: payload.signatory || "____________________", size: 20 }),
+            ],
+          }),
+        ],
+      },
+      {
+        properties: page,
+        children: [
+          appendixTitle("КВАЛИФИКАЦИОННЫЕ ПРОВЕРКИ", "PROFICIENCY CHECKS"),
+          ...qualificationTable("Квалификационные проверки / Proficiency checks", proficiency),
+          ...qualificationTable("Допуски к полётам в условиях ограниченной видимости / Low visibility operations", lowVisibility),
+          new Paragraph({
+            spacing: { before: 260 },
+            children: [
+              new TextRun({ text: "Номер свидетельства / Licence number: ", bold: true, size: 18 }),
+              new TextRun({ text: payload.profile.pilotLicenceNumber || "____________________", size: 18 }),
+            ],
+          }),
+        ],
+      },
+    ],
   });
   downloadBlob(await Packer.toBlob(doc), `Приложение_к_свидетельству_${safeFilePart(payload.personName)}.docx`);
 }
@@ -265,16 +307,22 @@ export async function downloadTrainingRequestWord(payload: TrainingRequestPayloa
             ] })),
           ],
         }),
-        new Paragraph({ spacing: { before: 260 }, children: [
-          new TextRun({ text: `${payload.senderTitle}: `, bold: true }),
-          new TextRun({ text: payload.senderName }),
+        new Paragraph({ spacing: { before: 220 }, children: [
+          new TextRun({ text: "Оплату обучения гарантируем. Условия оплаты и реквизиты определяются действующим договором с АУЦ.", size: 18 }),
         ] }),
-        new Paragraph({ children: [new TextRun({ text: `E-mail: ${payload.senderEmail} · Телефон: ${payload.senderPhone}`, size: 19 })] }),
-        new Paragraph({ spacing: { before: 220 }, children: [new TextRun({
-          text: "Перед направлением приложите требуемые АУЦ копии документов работников.",
+        detailsTable([
+          ["Руководитель организации", payload.senderName],
+          ["Должность", payload.senderTitle],
+          ["Подпись", ""],
+          ["Дата", displayDate(payload.requestDate)],
+        ]),
+        new Paragraph({ spacing: { before: 170 }, children: [new TextRun({ text: `Контактное лицо: ${payload.senderName}`, bold: true, size: 18 })] }),
+        new Paragraph({ children: [new TextRun({ text: `E-mail: ${payload.senderEmail} · Телефон: ${payload.senderPhone}`, size: 18 })] }),
+        new Paragraph({ spacing: { before: 170 }, children: [new TextRun({
+          text: "К заявке прилагаются копии документов работников в составе, установленном АУЦ.",
           italics: true,
           color: "5F7079",
-          size: 18,
+          size: 17,
         })] }),
       ],
     }],
@@ -282,47 +330,107 @@ export async function downloadTrainingRequestWord(payload: TrainingRequestPayloa
   downloadBlob(await Packer.toBlob(doc), `Заявка_в_АУЦ_${safeFilePart(payload.programName || payload.requestDate)}.docx`);
 }
 
-export async function downloadQualificationCheckExcel(payload: QualificationCheckPayload): Promise<void> {
-  const XLSX = await import("xlsx-js-style");
-  const rows = [
-    ["СПРАВКА", "", "", ""],
-    ["о прохождении проверки навыков в полёте", "", "", ""],
-    ["Ф. И. О.", payload.personName, "Дата проверки", displayDate(payload.checkDate)],
-    ["Свидетельство", `${payload.licenceKind} № ${payload.licenceNumber}`.trim(), "Место", payload.checkPlace],
-    ["Тип ВС", payload.aircraftType, "Бортовой номер", payload.aircraftNumber],
-    ["Полётное время", payload.flightTime, "Количество посадок", payload.landings],
-    ["Результат", payload.result, "", ""],
-    ["Проверяющий", payload.examinerName, "№ свидетельства", payload.examinerLicence],
-    ["Подпись", "", "", ""],
-  ];
-  const sheet = XLSX.utils.aoa_to_sheet(rows);
-  sheet["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
-    { s: { r: 1, c: 0 }, e: { r: 1, c: 3 } },
-    { s: { r: 6, c: 1 }, e: { r: 6, c: 3 } },
-  ];
-  sheet["!cols"] = [{ wch: 22 }, { wch: 34 }, { wch: 22 }, { wch: 28 }];
-  sheet["!rows"] = rows.map((_, index) => ({ hpt: index < 2 ? 24 : 22 }));
-  const range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1:D9");
-  for (let row = range.s.r; row <= range.e.r; row += 1) {
-    for (let column = range.s.c; column <= range.e.c; column += 1) {
-      const address = XLSX.utils.encode_cell({ r: row, c: column });
-      const item = sheet[address] ?? { t: "s", v: "" };
-      item.s = {
-        font: { name: "Arial", sz: row < 2 ? 13 : 10, bold: row === 0 || column % 2 === 0 },
-        alignment: { vertical: "center", horizontal: row < 2 ? "center" : "left", wrapText: true },
-        border: row >= 2 ? {
-          top: { style: "thin", color: { rgb: "8EA3AE" } },
-          bottom: { style: "thin", color: { rgb: "8EA3AE" } },
-          left: { style: "thin", color: { rgb: "8EA3AE" } },
-          right: { style: "thin", color: { rgb: "8EA3AE" } },
-        } : undefined,
-        fill: column % 2 === 0 && row >= 2 ? { fgColor: { rgb: "EAF3F2" } } : undefined,
-      };
-      sheet[address] = item;
-    }
-  }
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, sheet, "Вкладыш");
-  XLSX.writeFile(workbook, `Вкладыш_квалификационной_проверки_${safeFilePart(payload.personName)}.xlsx`);
+export function buildQualificationCheckPdf(payload: QualificationCheckPayload): TDocumentDefinitions {
+  const line = (label: string, value: string) => ({
+    columns: [
+      { width: 80, text: label, color: "#36434a" },
+      { width: "*", text: value || " ", bold: true, decoration: "underline" as const },
+    ],
+    columnGap: 4,
+    margin: [0, 2.5, 0, 2.5] as [number, number, number, number],
+  });
+  return {
+    pageSize: { width: 297.64, height: 419.53 },
+    pageMargins: [13, 12, 13, 12],
+    info: {
+      title: `Вкладыш квалификационной проверки — ${payload.personName}`,
+      author: "ШТАБ ЛС — АО ЦА «Солярис»",
+    },
+    content: [
+      { text: "КВАЛИФИКАЦИОННАЯ ПРОВЕРКА", alignment: "center", bold: true, fontSize: 9.5, margin: [0, 0, 0, 2] },
+      { text: "вкладыш в свидетельство авиационного специалиста", alignment: "center", fontSize: 6.2, color: "#4b555a", margin: [0, 0, 0, 7] },
+      line("Фамилия, имя, отчество", payload.personName),
+      line("Свидетельство", [payload.licenceKind, payload.licenceNumber && `№ ${payload.licenceNumber}`].filter(Boolean).join(" ")),
+      {
+        table: {
+          widths: [48, "*", 52, "*"],
+          body: [
+            [
+              { text: "Тип ВС", bold: true },
+              { text: payload.aircraftType || " " },
+              { text: "Бортовой №", bold: true },
+              { text: payload.aircraftNumber || " " },
+            ],
+            [
+              { text: "Дата", bold: true },
+              { text: displayDate(payload.checkDate) || " " },
+              { text: "Место", bold: true },
+              { text: payload.checkPlace || " " },
+            ],
+            [
+              { text: "Полётное время", bold: true },
+              { text: payload.flightTime || " " },
+              { text: "Посадки", bold: true },
+              { text: payload.landings || " " },
+            ],
+          ],
+        },
+        layout: {
+          hLineWidth: () => 0.6,
+          vLineWidth: () => 0.6,
+          hLineColor: () => "#1f2f37",
+          vLineColor: () => "#1f2f37",
+          paddingLeft: () => 3,
+          paddingRight: () => 3,
+          paddingTop: () => 3,
+          paddingBottom: () => 3,
+        },
+        margin: [0, 5, 0, 6],
+      },
+      { text: "РЕЗУЛЬТАТ ПРОВЕРКИ", bold: true, alignment: "center", fontSize: 7.5, margin: [0, 1, 0, 3] },
+      {
+        table: {
+          widths: ["*"],
+          heights: [29],
+          body: [[{ text: payload.result || " ", bold: true, alignment: "center", margin: [3, 8, 3, 8] }]],
+        },
+        layout: {
+          hLineWidth: () => 0.7,
+          vLineWidth: () => 0.7,
+          hLineColor: () => "#1f2f37",
+          vLineColor: () => "#1f2f37",
+        },
+        margin: [0, 0, 0, 6],
+      },
+      line("Проверяющий", payload.examinerName),
+      line("Должность", payload.examinerRole),
+      line("№ свидетельства", payload.examinerLicence),
+      {
+        columns: [
+          { width: "*", text: "Подпись проверяющего ____________________", margin: [0, 10, 0, 0] },
+          { width: 70, text: "М. П.", alignment: "center", margin: [0, 10, 0, 0] },
+        ],
+      },
+      { text: "Размер страницы: 1/2 формата А5 (105 × 148 мм)", fontSize: 5.2, color: "#6c777c", alignment: "right", margin: [0, 10, 0, 0] },
+    ],
+    defaultStyle: {
+      font: "Roboto",
+      fontSize: 6.6,
+      color: "#111111",
+      lineHeight: 1.05,
+    },
+  };
+}
+
+export async function downloadQualificationCheckPdf(payload: QualificationCheckPayload): Promise<void> {
+  const [pdfMakeModule, fontModule] = await Promise.all([
+    import("pdfmake/build/pdfmake"),
+    import("pdfmake/build/vfs_fonts"),
+  ]);
+  const pdfMakePackage = pdfMakeModule as unknown as { default?: typeof pdfMakeModule };
+  const fontPackage = fontModule as unknown as { default?: Record<string, string>; vfs?: Record<string, string> };
+  const pdfMake = (pdfMakePackage.default ?? pdfMakeModule) as typeof pdfMakeModule;
+  pdfMake.vfs = fontPackage.default ?? fontPackage.vfs ?? {};
+  pdfMake.createPdf(buildQualificationCheckPdf(payload))
+    .download(`Вкладыш_квалификационной_проверки_${safeFilePart(payload.personName)}.pdf`);
 }

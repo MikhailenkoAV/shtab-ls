@@ -28,6 +28,7 @@ export type DocumentSettings = {
   trainingCenterName: string;
   trainingCenterHead: string;
   trainingPrograms: string[];
+  trainingProgramHours: Record<string, string[]>;
   senderEmail: string;
   senderPhone: string;
 };
@@ -51,6 +52,7 @@ export const EMPTY_DOCUMENT_SETTINGS: DocumentSettings = {
   trainingCenterName: "",
   trainingCenterHead: "",
   trainingPrograms: [],
+  trainingProgramHours: {},
   senderEmail: "",
   senderPhone: "",
 };
