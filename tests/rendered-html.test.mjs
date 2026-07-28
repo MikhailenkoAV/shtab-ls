@@ -136,6 +136,19 @@ test("employment report uses monthly plan only when an actual record is absent",
   assert.equal([...serialized.matchAll(/ignored-plan/g)].length, 0);
 });
 
+test("employment report automatically schedules six standby days followed by a day off", () => {
+  const report = buildEmploymentReport(
+    "2026-07-13",
+    "2026-07-19",
+    [{ id: "pilot", name: "Иванов Иван Иванович", position: "Командир ВС", aircraftTypes: ["AW109"], active: true }],
+    [],
+    "pilot",
+  );
+  const serialized = JSON.stringify(report);
+  assert.equal([...serialized.matchAll(/Автоматически: ожидание полёта, сотрудник не назначен/g)].length, 6);
+  assert.equal([...serialized.matchAll(/Автоматически: выходной после 6 рабочих дней подряд/g)].length, 1);
+});
+
 test("summary and common cumulative reports use the requested flight totals", () => {
   const people = [
     { id: "barkov", name: "Барков Сергей Владимирович", position: "Командир ВС", aircraftTypes: ["R44"], active: true },

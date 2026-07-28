@@ -411,6 +411,7 @@ td strong { color: #314956; }
 .plan-busy-row.auc_study td, .plan-busy-row.auc_study .plan-busy-name { background-color: #f4b480 !important; }
 .plan-busy-row.office td, .plan-busy-row.office .plan-busy-name { background-color: #a9daf3 !important; }
 .plan-busy-row.standby td, .plan-busy-row.standby .plan-busy-name { background-color: #cce1de !important; }
+.plan-busy-row.automatic-standby .plan-busy-name small { display: block; margin-top: 2px; color: #46736f; font-size: 7px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .plan-busy-row.vacation td, .plan-busy-row.vacation .plan-busy-name { background-color: #ffd8a5 !important; }
 .plan-busy-cell { display: grid; gap: 2px; max-height: 36px; overflow: auto; padding: 2px; }
 .plan-busy-cell button { overflow: hidden; padding: 1px 2px !important; border: 0; color: #173d4b !important; background: transparent !important; text-overflow: ellipsis; white-space: nowrap; font-size: 7px !important; font-weight: 700; }

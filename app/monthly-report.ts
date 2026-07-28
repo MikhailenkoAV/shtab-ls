@@ -1,7 +1,13 @@
 import type { Content, StyleDictionary, TableCell, TDocumentDefinitions } from "pdfmake/interfaces";
 import { aircraftNumbersByType } from "./aircraft-rules.ts";
 import { crewDutyMinutes } from "./crew-rules.ts";
-import { aircraftTypeForNumber, planBusyLabels, planRoleLabels } from "./monthly-plan-rules.ts";
+import {
+  aircraftTypeForNumber,
+  automaticPlanActivityKey,
+  buildAutomaticPlanActivityMap,
+  planBusyLabels,
+  planRoleLabels,
+} from "./monthly-plan-rules.ts";
 
 export type FlightReportPerson = {
   id: string;
@@ -567,7 +573,7 @@ function employmentPersonSection(person: FlightReportPerson, dates: string[], sh
         },
         layout: "lightHorizontalLines",
       },
-      { text: "Каждая фактическая полётная смена выводится отдельной строкой. РС — разделение полётной смены на части; знак «+» означает наличие разделения. При отсутствии фактической записи используется месячный план, а полностью незаполненный день отмечается как выходной.", style: "note", margin: [0, 10, 0, 0] },
+      { text: "Каждая фактическая полётная смена выводится отдельной строкой. РС — разделение полётной смены на части; знак «+» означает наличие разделения. При отсутствии фактической или ручной плановой записи день автоматически отмечается как «Ожидание полёта», а после 6 рабочих дней подряд — как «Выходной».", style: "note", margin: [0, 10, 0, 0] },
     ],
     pageBreak: pageBreak ? "before" : undefined,
   };
@@ -579,8 +585,16 @@ function plannedEmploymentFallback(
   actualShifts: FlightReportShift[],
   assignments: EmploymentPlanAssignment[],
   busyEntries: EmploymentPlanBusyEntry[],
+  allActualShifts: FlightReportShift[],
 ): FlightReportShift[] {
   const actualDates = new Set(actualShifts.map((shift) => `${shift.personId}\u0001${shift.date}`));
+  const automaticPlanActivities = buildAutomaticPlanActivityMap(
+    people,
+    dates,
+    assignments,
+    busyEntries,
+    allActualShifts,
+  );
   return people.flatMap((person) => dates.flatMap((date) => {
     if (actualDates.has(`${person.id}\u0001${date}`)) return [];
     const busy = busyEntries.find((entry) =>
@@ -621,13 +635,18 @@ function plannedEmploymentFallback(
         };
       });
     }
+    const automaticActivity = automaticPlanActivities.get(
+      automaticPlanActivityKey(person.id, date),
+    ) ?? "dayoff";
     return [{
-      id: `automatic-dayoff-${person.id}-${date}`,
+      id: `automatic-${automaticActivity}-${person.id}-${date}`,
       personId: person.id,
       date,
-      activity: "dayoff",
+      activity: automaticActivity,
       workMinutes: 0,
-      note: "Автоматически: в месячном плане нет назначения или иной занятости",
+      note: automaticActivity === "dayoff"
+        ? "Автоматически: выходной после 6 рабочих дней подряд"
+        : "Автоматически: ожидание полёта, сотрудник не назначен",
       segments: [],
     }];
   }));
@@ -651,7 +670,7 @@ export function buildEmploymentReport(
   const dates = datesBetween(dateFrom, dateTo);
   const reportShifts = [
     ...periodShifts,
-    ...plannedEmploymentFallback(includedPeople, dates, periodShifts, assignments, busyEntries),
+    ...plannedEmploymentFallback(includedPeople, dates, periodShifts, assignments, busyEntries, shifts),
   ];
   const content: Content[] = reportHeader("Отчёт о занятости", dateFrom, dateTo, logoDataUrl);
   if (!includedPeople.length) content.push({ text: "В составе нет сотрудников для формирования отчёта.", style: "empty" });

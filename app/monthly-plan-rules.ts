@@ -61,6 +61,8 @@ export type ActualBusyInput = {
   activity: string;
 };
 
+export type AutomaticPlanActivity = "standby" | "dayoff";
+
 export type AssignmentBlockReasonInput = {
   person: PlanPersonInput | undefined;
   assignments: PlanAssignment[];
@@ -125,6 +127,78 @@ export function isPersonBusyOnDate(
       entry.personId === personId && entry.date === date && entry.activity !== "flight");
 }
 
+function isNonWorkingActivity(activity: string): boolean {
+  return activity === "dayoff" || activity === "vacation";
+}
+
+function mondayOnOrBeforeYearStart(year: number): Date {
+  const yearStart = new Date(year, 0, 1, 12, 0, 0);
+  const daysSinceMonday = (yearStart.getDay() + 6) % 7;
+  yearStart.setDate(yearStart.getDate() - daysSinceMonday);
+  return yearStart;
+}
+
+function localDateValue(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+export function automaticPlanActivityKey(personId: string, date: string): string {
+  return `${personId}\u0001${date}`;
+}
+
+export function buildAutomaticPlanActivityMap<T extends PlanPersonInput>(
+  people: T[],
+  dates: string[],
+  assignments: Array<Pick<PlanAssignment, "personId" | "date">>,
+  busyEntries: Array<{ personId: string; dateFrom: string; dateTo: string; activity: string }>,
+  actualEntries: ActualBusyInput[],
+): Map<string, AutomaticPlanActivity> {
+  const requestedDates = [...new Set(dates)].filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort();
+  const result = new Map<string, AutomaticPlanActivity>();
+  if (!requestedDates.length) return result;
+  const endDate = requestedDates.at(-1)!;
+  const earliestRelevant = [
+    requestedDates[0],
+    ...assignments.filter((item) => item.date <= endDate).map((item) => item.date),
+    ...busyEntries.filter((item) => item.dateFrom <= endDate).map((item) => item.dateFrom),
+    ...actualEntries.filter((item) => item.date <= endDate).map((item) => item.date),
+  ].filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)).sort()[0] ?? requestedDates[0];
+  const start = mondayOnOrBeforeYearStart(Number(earliestRelevant.slice(0, 4)));
+  const end = new Date(`${endDate}T12:00:00`);
+  const requested = new Set(requestedDates);
+
+  people.filter((person) => person.active).forEach((person) => {
+    let consecutiveWorkDays = 0;
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      const date = localDateValue(cursor);
+      const actual = actualEntries.filter((entry) => entry.personId === person.id && entry.date === date);
+      const plannedBusy = busyEntries.find((entry) =>
+        entry.personId === person.id && date >= entry.dateFrom && date <= entry.dateTo);
+      const assigned = assignments.some((assignment) =>
+        assignment.personId === person.id && assignment.date === date);
+
+      if (actual.length) {
+        consecutiveWorkDays = actual.some((entry) => !isNonWorkingActivity(entry.activity))
+          ? consecutiveWorkDays + 1
+          : 0;
+      } else if (plannedBusy) {
+        consecutiveWorkDays = isNonWorkingActivity(plannedBusy.activity)
+          ? 0
+          : consecutiveWorkDays + 1;
+      } else if (assigned) {
+        consecutiveWorkDays += 1;
+      } else {
+        const activity: AutomaticPlanActivity = consecutiveWorkDays >= 6 ? "dayoff" : "standby";
+        if (requested.has(date)) result.set(automaticPlanActivityKey(person.id, date), activity);
+        consecutiveWorkDays = activity === "dayoff" ? 0 : consecutiveWorkDays + 1;
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  });
+  return result;
+}
+
 export function automaticDayOffPersonIds<T extends PlanPersonInput>(
   people: T[],
   date: string,
@@ -132,14 +206,15 @@ export function automaticDayOffPersonIds<T extends PlanPersonInput>(
   busyEntries: PlanBusyEntry[],
   actualEntries: ActualBusyInput[],
 ): string[] {
+  const activities = buildAutomaticPlanActivityMap(
+    people,
+    [date],
+    assignments,
+    busyEntries,
+    actualEntries,
+  );
   return people
-    .filter((person) => person.active)
-    .filter((person) => !assignments.some((assignment) =>
-      assignment.personId === person.id && assignment.date === date))
-    .filter((person) => !busyEntries.some((entry) =>
-      entry.personId === person.id && dateInPlanEntry(date, entry)))
-    .filter((person) => !actualEntries.some((entry) =>
-      entry.personId === person.id && entry.date === date))
+    .filter((person) => activities.get(automaticPlanActivityKey(person.id, date)) === "dayoff")
     .map((person) => person.id);
 }
 

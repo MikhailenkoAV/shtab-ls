@@ -5,8 +5,9 @@ import {
   aircraftTypeForNumber,
   assignmentDateWarning,
   assignmentBlockReason,
-  automaticDayOffPersonIds,
+  automaticPlanActivityKey,
   availablePeopleForAssignment,
+  buildAutomaticPlanActivityMap,
   busyBlockReason,
   datesInRange,
   isPersonBusyOnDate,
@@ -90,23 +91,23 @@ test("a qualified pilot may be assigned to another aircraft on the same date", (
   );
 });
 
-test("active unassigned pilots automatically fall into the day-off row", () => {
+test("automatic distribution counts actual work and inserts a day off after six days", () => {
   const people = [
-    { id: "free", aircraftTypes: ["AW109"], active: true },
-    { id: "assigned", aircraftTypes: ["AW109"], active: true },
-    { id: "training", aircraftTypes: ["AW109"], active: true },
+    { id: "pilot", aircraftTypes: ["AW109"], active: true },
     { id: "inactive", aircraftTypes: ["AW109"], active: false },
   ];
-  assert.deepEqual(
-    automaticDayOffPersonIds(
-      people,
-      "2026-07-15",
-      [{ id: "assignment", personId: "assigned", date: "2026-07-15", aircraft: "RA-01902", role: "primary" }],
-      [{ id: "busy", personId: "training", dateFrom: "2026-07-15", dateTo: "2026-07-15", activity: "periodic_training", note: "" }],
-      [],
-    ),
-    ["free"],
+  const actualWork = datesInRange("2026-07-13", "2026-07-18")
+    .map((date) => ({ personId: "pilot", date, activity: "office" }));
+  const automatic = buildAutomaticPlanActivityMap(
+    people,
+    ["2026-07-19", "2026-07-20"],
+    [],
+    [],
+    actualWork,
   );
+  assert.equal(automatic.get(automaticPlanActivityKey("pilot", "2026-07-19")), "dayoff");
+  assert.equal(automatic.get(automaticPlanActivityKey("pilot", "2026-07-20")), "standby");
+  assert.equal(automatic.has(automaticPlanActivityKey("inactive", "2026-07-19")), false);
 });
 
 test("a day off returns a specific blocking reason for a flight", () => {
@@ -133,7 +134,7 @@ test("non-flight employment cannot replace an existing aircraft assignment", () 
   assert.equal(reason, "На эту дату уже назначен полёт на RA-01902.");
 });
 
-test("standby is placed in an aircraft row and removed from the lower employment rows", () => {
+test("manual standby stays on an aircraft while automatic standby has its own export row", () => {
   assert.equal(planBusyActivities.includes("standby"), false);
   const matrix = buildMonthlyPlanMatrix(
     "2026-07",
@@ -144,10 +145,10 @@ test("standby is placed in an aircraft row and removed from the lower employment
   );
   const aircraftRow = matrix.rows.find((row) => row.aircraft === "RA-01902" && row.role === "primary");
   assert.match(aircraftRow?.cells[14] ?? "", /Ожидание/);
-  assert.equal(matrix.rows.some((row) => row.kind === "busy" && row.activity === "standby"), false);
+  assert.equal(matrix.rows.filter((row) => row.kind === "busy" && row.activity === "standby").length, 1);
 });
 
-test("monthly plan export shows automatically inferred days off", () => {
+test("monthly plan export alternates automatic standby with a day off after six work days", () => {
   const matrix = buildMonthlyPlanMatrix(
     "2026-07",
     [{ id: "one", name: "Иванов Иван Иванович", aircraftTypes: ["AW109"], active: true }],
@@ -156,5 +157,7 @@ test("monthly plan export shows automatically inferred days off", () => {
     [],
   );
   const dayOffRow = matrix.rows.find((row) => row.kind === "busy" && row.activity === "dayoff");
-  assert.match(dayOffRow?.cells[0] ?? "", /Иванов И\.И\./);
+  const standbyRow = matrix.rows.find((row) => row.kind === "busy" && row.activity === "standby");
+  assert.match(standbyRow?.cells[0] ?? "", /Иванов И\.И\./);
+  assert.match(dayOffRow?.cells[4] ?? "", /Иванов И\.И\./);
 });

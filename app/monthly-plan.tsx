@@ -7,8 +7,9 @@ import {
   assignmentDateWarning,
   assignmentBlockReason,
   aircraftTypeForNumber,
-  automaticDayOffPersonIds,
+  automaticPlanActivityKey,
   availablePeopleForAssignment,
+  buildAutomaticPlanActivityMap,
   busyBlockReason,
   dateInPlanEntry,
   datesInRange,
@@ -113,6 +114,10 @@ export function MonthlyPlanView({
   const [employmentModal, setEmploymentModal] = useState(false);
   const [exporting, setExporting] = useState(false);
   const dates = useMemo(() => monthDates(month), [month]);
+  const automaticPlanActivities = useMemo(
+    () => buildAutomaticPlanActivityMap(people, dates, assignments, busyEntries, shifts),
+    [people, dates, assignments, busyEntries, shifts],
+  );
   const actualBusy = useMemo(() => shifts.filter((shift) => shift.activity !== "flight"), [shifts]);
   const monthAssignments = assignments.filter((assignment) => assignment.date.startsWith(month));
   const monthBusyEntries = dates.length
@@ -181,13 +186,34 @@ export function MonthlyPlanView({
               </tr>;
             }))}
             <tr className="plan-divider"><td colSpan={dates.length + 2}>Занятость вне полётного плана</td></tr>
+            <tr className="plan-busy-row standby automatic-standby">
+              <th className="plan-busy-name" colSpan={2}>Ожидание полёта <small>автоматически</small></th>
+              {dates.map((date) => {
+                const personIds = people
+                  .filter((person) => automaticPlanActivities.get(automaticPlanActivityKey(person.id, date)) === "standby")
+                  .map((person) => person.id);
+                return <td className={dayMeta(date).weekend ? "weekend" : ""} key={date}>
+                  <div className="plan-busy-cell">{personIds.map((personId) => {
+                    const person = people.find((item) => item.id === personId);
+                    return person ? <button
+                      type="button"
+                      title="Автоматически: сотрудник свободен, лимит 6 рабочих дней подряд не достигнут"
+                      className="automatic"
+                      key={personId}
+                    >{planPersonShortName(person.name)}</button> : null;
+                  })}</div>
+                </td>;
+              })}
+            </tr>
             {planBusyActivities.map((activity) => <tr className={`plan-busy-row ${activity}`} key={activity}>
               <th className="plan-busy-name" colSpan={2}>{planBusyLabels[activity]}</th>
               {dates.map((date) => {
                 const planned = busyEntries.filter((entry) => entry.activity === activity && dateInPlanEntry(date, entry));
                 const actual = actualBusy.filter((entry) => entry.activity === activity && entry.date === date);
                 const automaticDayOffs = activity === "dayoff"
-                  ? automaticDayOffPersonIds(people, date, assignments, busyEntries, shifts)
+                  ? people
+                    .filter((person) => automaticPlanActivities.get(automaticPlanActivityKey(person.id, date)) === "dayoff")
+                    .map((person) => person.id)
                   : [];
                 const uniquePeople = [...new Set([
                   ...planned.map((entry) => entry.personId),
@@ -201,7 +227,7 @@ export function MonthlyPlanView({
                     const automatic = automaticDayOffs.includes(personId);
                     return person ? <button
                       type="button"
-                      title={editable ? "Изменить плановую занятость" : automatic ? "Автоматически: сотрудник не назначен и другая занятость не указана" : "Запись из журнала смен"}
+                      title={editable ? "Изменить плановую занятость" : automatic ? "Автоматически: после 6 рабочих дней подряд назначен выходной" : "Запись из журнала смен"}
                       onClick={() => editable && setBusyModal(editable)}
                       className={editable ? "editable" : automatic ? "automatic" : "actual"}
                       key={personId}
@@ -222,7 +248,7 @@ export function MonthlyPlanView({
           </tbody>
         </table>
       </div>
-      <div className="plan-legend"><span><i className="primary" />Основной экипаж</span><span><i className="reserve" />Резерв</span><span><i className="busy" />Занятость блокирует назначение на полёт</span><span>«+» в нижней части — добавить или изменить занятость</span></div>
+      <div className="plan-legend"><span><i className="primary" />Основной экипаж</span><span><i className="reserve" />Резерв</span><span><i className="busy" />Автоматически: ожидание до 6 рабочих дней, затем выходной</span><span>«+» в нижней части — добавить или изменить занятость</span></div>
     </section>
     {assignmentCell && <AssignmentModal
       cell={assignmentCell}

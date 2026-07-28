@@ -1,7 +1,8 @@
 import { aircraftNumbersByType } from "./aircraft-rules.ts";
 import {
   aircraftTypeForNumber,
-  automaticDayOffPersonIds,
+  automaticPlanActivityKey,
+  buildAutomaticPlanActivityMap,
   dateInPlanEntry,
   monthDates,
   planBusyActivities,
@@ -64,6 +65,13 @@ export function buildMonthlyPlanMatrix(
   const dates = monthDates(month);
   const peopleById = new Map(people.map((person) => [person.id, person]));
   const actualBusy = shifts.filter((shift) => shift.activity !== "flight");
+  const automaticPlanActivities = buildAutomaticPlanActivityMap(
+    people,
+    dates,
+    assignments,
+    busyEntries,
+    shifts,
+  );
   const rows: MonthlyPlanMatrixRow[] = aircraftNumbers.flatMap((aircraft) =>
     (["primary", "reserve"] as PlanRole[]).map((role) => ({
       kind: "assignment" as const,
@@ -80,22 +88,27 @@ export function buildMonthlyPlanMatrix(
       standbyCells: dates.map((date) => assignments.some((item) =>
         item.date === date && item.aircraft === aircraft && item.role === role && item.activity === "standby")),
     })));
-  planBusyActivities.forEach((activity) => {
+  const addBusyRow = (
+    activity: PlanBusyActivity,
+    label = planBusyLabels[activity],
+    automaticOnly = false,
+  ) => {
     rows.push({
       kind: "busy",
-      label: planBusyLabels[activity],
+      label,
       activity,
       cells: dates.map((date) => {
         const personIds = new Set([
-          ...busyEntries
+          ...(automaticOnly ? [] : busyEntries
             .filter((entry) => entry.activity === activity && dateInPlanEntry(date, entry))
-            .map((entry) => entry.personId),
-          ...actualBusy
+            .map((entry) => entry.personId)),
+          ...(automaticOnly ? [] : actualBusy
             .filter((entry) => entry.activity === activity && entry.date === date)
-            .map((entry) => entry.personId),
-          ...(activity === "dayoff"
-            ? automaticDayOffPersonIds(people, date, assignments, busyEntries, shifts)
-            : []),
+            .map((entry) => entry.personId)),
+          ...people
+            .filter((person) =>
+              automaticPlanActivities.get(automaticPlanActivityKey(person.id, date)) === activity)
+            .map((person) => person.id),
         ]);
         return [...personIds]
           .map((personId) => peopleById.get(personId))
@@ -104,6 +117,10 @@ export function buildMonthlyPlanMatrix(
           .join("\n");
       }),
     });
+  };
+  planBusyActivities.forEach((activity) => {
+    addBusyRow(activity);
+    if (activity === "dayoff") addBusyRow("standby", "Ожидание полёта (автоматически)", true);
   });
   return { dates, rows };
 }
