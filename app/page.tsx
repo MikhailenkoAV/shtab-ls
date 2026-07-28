@@ -41,8 +41,9 @@ import {
 } from "./control-journal-rules";
 import { expandLinkedCrewShifts } from "./crew-rules";
 import { dashboardRows } from "./dashboard-rules";
+import { backupFileName } from "./backup-rules";
 
-type View = "dashboard" | "shifts" | "people" | "personal" | "control" | "planning" | "actual";
+type View = "dashboard" | "shifts" | "people" | "personal" | "control" | "planning" | "actual" | "documentation" | "settings";
 type Activity = "flight" | "trip" | "office" | "periodic_training" | "ground_training" | "standby" | "vacation" | "dayoff";
 type Seat = "КВС" | "Пилот-инструктор";
 
@@ -70,15 +71,54 @@ type Shift = {
   linkedSourceShiftId?: string; linkedPrimaryPersonId?: string;
 };
 type ShiftDraft = Omit<Shift, "id" | "createdAt" | "periodId" | "periodStart" | "periodEnd" | "periodActivity" | "periodNote"> & { dateTo?: string };
+type CompanySettings = {
+  fullName: string;
+  shortName: string;
+  inn: string;
+  kpp: string;
+  ogrn: string;
+  legalAddress: string;
+  actualAddress: string;
+  chiefOfStaff: string;
+  deputyFlightOperations: string;
+  generalDirector: string;
+};
+type DashboardAlert = {
+  id: string;
+  severity: "danger" | "warning";
+  title: string;
+  detail: string;
+  sortDate: string;
+};
 type AppData = {
   people: Person[];
   shifts: Shift[];
   certifications: CertificationRecord[];
   planAssignments: PlanAssignment[];
   planBusyEntries: PlanBusyEntry[];
+  settings: CompanySettings;
 };
 
-const EMPTY_DATA: AppData = { people: [], shifts: [], certifications: [], planAssignments: [], planBusyEntries: [] };
+const EMPTY_SETTINGS: CompanySettings = {
+  fullName: "",
+  shortName: "",
+  inn: "",
+  kpp: "",
+  ogrn: "",
+  legalAddress: "",
+  actualAddress: "",
+  chiefOfStaff: "",
+  deputyFlightOperations: "",
+  generalDirector: "",
+};
+const EMPTY_DATA: AppData = {
+  people: [],
+  shifts: [],
+  certifications: [],
+  planAssignments: [],
+  planBusyEntries: [],
+  settings: EMPTY_SETTINGS,
+};
 const DB_NAME = "shtab-ls";
 const STORE_NAME = "workspace";
 const STATE_KEY = "primary";
@@ -220,6 +260,7 @@ async function loadData(): Promise<AppData> {
         certifications: stored?.certifications ?? [],
         planAssignments: stored?.planAssignments ?? [],
         planBusyEntries: stored?.planBusyEntries ?? [],
+        settings: { ...EMPTY_SETTINGS, ...(stored?.settings ?? {}) },
       });
     };
     request.onerror = () => reject(request.error);
@@ -559,7 +600,7 @@ export default function Home() {
     [data.people, expandedShifts, data.certifications, todayIso],
   );
   const alerts = useMemo(() => {
-    const result: { id: string; severity: "danger" | "warning"; title: string; detail: string; sortDate: string }[] = [];
+    const result: DashboardAlert[] = [];
     restIssues.filter((issue) => issue.date.startsWith(monthKey) && isRestIssueVisible(issue)).forEach((issue) => {
       const person = data.people.find((item) => item.id === issue.personId);
       result.push({
@@ -787,7 +828,8 @@ export default function Home() {
     setToast("Занятость удалена");
   }
   function exportBackup() {
-    download(`shtab-ls-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ version: 11, exportedAt: new Date().toISOString(), data }, null, 2));
+    const now = new Date();
+    download(backupFileName(now), JSON.stringify({ version: 12, exportedAt: now.toISOString(), data }, null, 2));
     setToast("Резервная копия сохранена");
   }
   function importBackup(event: ChangeEvent<HTMLInputElement>) {
@@ -802,42 +844,54 @@ export default function Home() {
         certifications: restored.certifications ?? [],
         planAssignments: restored.planAssignments ?? [],
         planBusyEntries: restored.planBusyEntries ?? [],
+        settings: { ...EMPTY_SETTINGS, ...(restored.settings ?? {}) },
       }); setToast("Резервная копия восстановлена");
     }).catch(() => setToast("Не удалось прочитать резервную копию"));
     event.target.value = "";
   }
 
   return <div className="app-shell">
-    <aside className="sidebar">
+    <header className="app-header">
       <div className="brand"><div className="brand-mark">
         {/* The public asset must stay relative so it also works under the GitHub Pages repository path. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="sidebar-icon.png" alt="" />
       </div><div><strong>ШТАБ ЛС</strong><span>Рабочий контур</span></div></div>
-      <nav className="main-nav" aria-label="Основная навигация">
+      <nav className="quick-nav" aria-label="Быстрый доступ">
         <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")} label="Главная" glyph="⌂" />
-        <NavButton active={view === "shifts"} onClick={() => setView("shifts")} label="Полётные смены" glyph="◷" />
-        <NavButton active={view === "people"} onClick={() => setView("people")} label="Личный состав" glyph="◎" />
-        <NavButton active={view === "personal"} onClick={() => setView("personal")} label="Личные дела" glyph="▤" />
-        <NavButton active={view === "control"} onClick={() => setView("control")} label="Контрольный журнал" glyph="✓" />
-        <NavButton active={view === "planning"} onClick={() => setView("planning")} label="Месячный план" glyph="▦" />
-        <NavButton active={view === "actual"} onClick={() => setView("actual")} label="Фактический план" glyph="▦" />
+        <NavButton active={view === "documentation"} onClick={() => setView("documentation")} label="Документация" glyph="▤" />
+        <NavButton active={view === "settings"} onClick={() => setView("settings")} label="Настройки" glyph="⚙" />
       </nav>
-      <div className="local-card"><span className="status-dot" /><div><strong>Локальная база</strong><span>Данные только на этом устройстве</span></div></div>
-      <div className="sidebar-actions"><button className="text-button" onClick={exportBackup}>Скачать резервную копию</button><button className="text-button" onClick={() => importRef.current?.click()}>Восстановить из файла</button><input ref={importRef} hidden type="file" accept="application/json,.json" onChange={importBackup} /></div>
-      <div className="company-logo">
-        {/* The public asset must stay relative so it also works under the GitHub Pages repository path. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="solaris-logo.png" alt="Центр авиации «Солярис»" />
-      </div>
-    </aside>
+      <div className="header-status"><span className="status-dot" /><div><strong>Локальная база</strong><span className={`save-state ${saveState}`}>{saveState === "saved" ? "Сохранено" : saveState === "saving" ? "Сохраняю…" : "Ошибка сохранения"}</span></div></div>
+      <input ref={importRef} hidden type="file" accept="application/json,.json" onChange={importBackup} />
+    </header>
     <main className="workspace" style={{ backgroundImage: 'linear-gradient(180deg, rgba(242, 245, 246, .62), rgba(242, 245, 246, .82)), url("solaris-berassom-bg.jpeg")' }}>
-      <header className="topbar"><div className="topbar-title"><p className="eyebrow current-date">{new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date())}</p><h1>{view === "dashboard" ? "Оперативная информация" : view === "shifts" ? "Полётные смены" : view === "people" ? "Личный состав" : view === "personal" ? "Личные дела" : view === "control" ? "Контрольный журнал" : view === "actual" ? "Фактический план" : "Месячный план"}</h1></div>
+      <header className="topbar"><div className="topbar-title"><p className="eyebrow current-date">{new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date())}</p><h1>{viewTitle(view)}</h1></div>
         <WorldClocks />
-        <div className="top-actions"><span className={`save-state ${saveState}`}>{saveState === "saved" ? "Сохранено" : saveState === "saving" ? "Сохраняю…" : "Ошибка сохранения"}</span></div>
+        <div className="top-actions">{!["dashboard", "documentation", "settings"].includes(view) && <button className="secondary-button" onClick={() => setView("dashboard")}>← На главную</button>}</div>
       </header>
       {!hydrated ? <Loading /> : view === "dashboard"
-        ? <Dashboard people={data.people} shifts={monthSortedShifts} alerts={alerts} totalWork={totalWork} totalFlight={totalFlight} restMap={restMap} assumedCompliantRestIds={assumedCompliantRestIds} onAddPerson={() => setPersonModal("new")} onAddShift={() => openNewShift()} />
+        ? <Dashboard
+          people={data.people}
+          shifts={monthSortedShifts}
+          alerts={alerts}
+          totalWork={totalWork}
+          totalFlight={totalFlight}
+          restMap={restMap}
+          assumedCompliantRestIds={assumedCompliantRestIds}
+          onAddShift={() => openNewShift()}
+          onRestore={() => importRef.current?.click()}
+          onNavigate={setView}
+        />
+        : view === "documentation"
+          ? <DocumentationView />
+          : view === "settings"
+            ? <SettingsView
+              settings={data.settings}
+              onChange={(patch) => setData((current) => ({ ...current, settings: { ...current.settings, ...patch } }))}
+              onExport={exportBackup}
+              onRestore={() => importRef.current?.click()}
+            />
         : view === "shifts"
           ? <ShiftsView
             people={data.people}
@@ -861,7 +915,7 @@ export default function Home() {
             : view === "personal"
               ? <PersonalFilesView people={data.people} shifts={expandedShifts} records={data.certifications} onImportClick={() => setAviabitModal(true)} onUpsert={upsertCertification} onDelete={deleteCertification} />
               : view === "control"
-                ? <ControlJournalView rows={controlRows} onNotify={setToast} />
+                ? <ControlJournalView rows={controlRows} alerts={alerts} onNotify={setToast} />
                 : view === "actual"
                   ? <ActualPlanView
                     people={data.people}
@@ -905,6 +959,19 @@ export default function Home() {
 }
 
 function NavButton({ active, onClick, label, glyph }: { active: boolean; onClick: () => void; label: string; glyph: string }) { return <button className={active ? "active" : ""} onClick={onClick}><span>{glyph}</span>{label}</button>; }
+function viewTitle(view: View): string {
+  return {
+    dashboard: "Оперативная информация",
+    shifts: "Полётные смены",
+    people: "Сотрудники",
+    personal: "Личные дела",
+    control: "Контрольный журнал",
+    planning: "Месячный план",
+    actual: "Фактический план",
+    documentation: "Документация",
+    settings: "Настройки",
+  }[view];
+}
 function Loading() { return <div className="loading"><span /><p>Открываю локальную базу…</p></div>; }
 
 function WorldClocks() {
@@ -918,13 +985,105 @@ function WorldClocks() {
   return <div className="world-clocks" aria-label="Текущее время">{operationalClocks.map((clock) => <div className="clock-card" key={clock.timeZone}><span>{clock.label}</span><strong>{now ? new Intl.DateTimeFormat("ru-RU", { timeZone: clock.timeZone, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(now) : "--:--:--"}</strong></div>)}</div>;
 }
 
-function Dashboard({ people, shifts, alerts, totalWork, totalFlight, restMap, assumedCompliantRestIds, onAddPerson, onAddShift }: { people: Person[]; shifts: Shift[]; alerts: { id: string; severity: "danger" | "warning"; title: string; detail: string }[]; totalWork: number; totalFlight: number; restMap: Map<string, number>; assumedCompliantRestIds: Set<string>; onAddPerson: () => void; onAddShift: () => void }) {
-  if (!people.length) return <section className="empty-start"><div className="empty-visual"><span>01</span><i /></div><p className="eyebrow">Начало работы</p><h2>Создайте первую карточку сотрудника</h2><p>После этого можно вносить смены, а система начнёт автоматически считать рабочее время и отдых.</p><button className="primary-button" onClick={onAddPerson}>Добавить сотрудника</button></section>;
+function Dashboard({
+  people,
+  shifts,
+  alerts,
+  totalWork,
+  totalFlight,
+  restMap,
+  assumedCompliantRestIds,
+  onAddShift,
+  onRestore,
+  onNavigate,
+}: {
+  people: Person[];
+  shifts: Shift[];
+  alerts: DashboardAlert[];
+  totalWork: number;
+  totalFlight: number;
+  restMap: Map<string, number>;
+  assumedCompliantRestIds: Set<string>;
+  onAddShift: () => void;
+  onRestore: () => void;
+  onNavigate: (view: View) => void;
+}) {
+  if (!people.length) return <section className="empty-start"><div className="empty-visual"><span>01</span><i /></div><p className="eyebrow">Новая или пустая база</p><h2>Восстановите рабочую базу из резервной копии</h2><p>Выберите ранее сохранённый файл BaseShtab. Сотрудники, смены, планы, личные дела и настройки предприятия будут восстановлены на этом устройстве.</p><button className="primary-button" onClick={onRestore}>Восстановить базу из файла</button></section>;
   return <><section className="metric-grid"><Metric label="Активный состав" value={String(people.filter((person) => person.active).length)} detail="сотрудников в базе" tone="blue" /><Metric label="Рабочее время" value={formatDuration(totalWork)} detail="в текущем месяце" tone="navy" /><Metric label="Полётное время" value={formatDuration(totalFlight)} detail="в текущем месяце" tone="teal" /><Metric label="Полётные смены" value={String(shifts.filter((shift) => shift.activity === "flight").reduce((sum, shift) => sum + flightEntryCount(shift.segments), 0))} detail="в текущем месяце" tone="violet" /><Metric label="Требует внимания" value={String(alerts.length)} detail={alerts.length ? "открытых предупреждений" : "нарушений не выявлено"} tone={alerts.length ? "red" : "green"} /></section>
     <section className="content-grid"><article className="panel alerts-panel"><div className="panel-heading"><div><p className="eyebrow">Контроль</p><h2>Требует внимания</h2></div><span className="count-badge">{alerts.length}</span></div><div className="control-rules"><strong>Нормы отдыха · приказ № 381</strong><span>12 ч ежедневно · 42 ч после 6 рабочих дней · 48 ч после двух разделённых смен</span></div>{!alerts.length ? <div className="good-state"><span>✓</span><div><strong>Критических замечаний нет</strong><p>Новые предупреждения появятся после расчёта смен.</p></div></div> : dashboardRows(alerts).map((alert) => <div className={`alert-row ${alert.severity}`} key={alert.id}><span className="alert-icon">!</span><div><strong>{alert.title}</strong><p>{alert.detail}</p></div></div>)}</article>
-      <article className="panel recent-panel"><div className="panel-heading"><div><p className="eyebrow">Последние записи</p><h2>Недавние смены</h2></div><button className="link-button" onClick={onAddShift}>Добавить</button></div>{!shifts.length ? <div className="panel-empty">Смен пока нет</div> : dashboardRows(shifts).map((shift) => { const person = people.find((item) => item.id === shift.personId); const rest = restMap.get(shift.id); const assumedCompliant = assumedCompliantRestIds.has(shift.id); return <div className="shift-row" key={shift.id}><div className="date-tile"><strong>{shift.date.slice(8, 10)}</strong><span>{new Intl.DateTimeFormat("ru-RU", { month: "short" }).format(new Date(`${shift.date}T12:00:00`)).replace(".", "")}</span></div><div className="shift-main"><strong>{person?.name ?? "Сотрудник"}</strong><span>{activityLabels[shift.activity]} · {shift.start || "без времени"}</span></div><div className="shift-meta"><strong>{shift.workMinutes ? formatDuration(shift.workMinutes) : "—"}</strong><span>{shift.activity === "dayoff" ? "отдых 24 ч" : assumedCompliant ? "отдых по норме" : rest === undefined ? "первая смена" : `отдых ${formatDuration(rest)}`}</span></div></div>; })}</article></section></>;
+      <article className="panel recent-panel"><div className="panel-heading"><div><p className="eyebrow">Последние записи</p><h2>Недавние смены</h2></div><button className="link-button" onClick={onAddShift}>Добавить</button></div>{!shifts.length ? <div className="panel-empty">Смен пока нет</div> : dashboardRows(shifts).map((shift) => { const person = people.find((item) => item.id === shift.personId); const rest = restMap.get(shift.id); const assumedCompliant = assumedCompliantRestIds.has(shift.id); return <div className="shift-row" key={shift.id}><div className="date-tile"><strong>{shift.date.slice(8, 10)}</strong><span>{new Intl.DateTimeFormat("ru-RU", { month: "short" }).format(new Date(`${shift.date}T12:00:00`)).replace(".", "")}</span></div><div className="shift-main"><strong>{person?.name ?? "Сотрудник"}</strong><span>{activityLabels[shift.activity]} · {shift.start || "без времени"}</span></div><div className="shift-meta"><strong>{shift.workMinutes ? formatDuration(shift.workMinutes) : "—"}</strong><span>{shift.activity === "dayoff" ? "отдых 24 ч" : assumedCompliant ? "отдых по норме" : rest === undefined ? "первая смена" : `отдых ${formatDuration(rest)}`}</span></div></div>; })}</article></section>
+    <section className="dashboard-sections">
+      <DashboardBlock eyebrow="Рабочий контур" title="Личный состав">
+        <DashboardShortcut glyph="◷" title="Полётные смены" detail="Единый журнал, импорт и отчёты" onClick={() => onNavigate("shifts")} />
+        <DashboardShortcut glyph="◎" title="Сотрудники" detail="Состав, допуски, кресла и типы ВС" onClick={() => onNavigate("people")} />
+        <DashboardShortcut glyph="▤" title="Личные дела" detail="Документы и контроль сроков" onClick={() => onNavigate("personal")} />
+      </DashboardBlock>
+      <DashboardBlock eyebrow="Расстановка экипажей" title="Планирование">
+        <DashboardShortcut glyph="▦" title="Месячный план" detail="Борта, экипажи и занятость" onClick={() => onNavigate("planning")} />
+        <DashboardShortcut glyph="▦" title="Фактический план" detail="Фактическая занятость по дням" onClick={() => onNavigate("actual")} />
+      </DashboardBlock>
+      <DashboardBlock eyebrow="Сроки и допуски" title="Контроль">
+        <DashboardShortcut glyph="✓" title="Контрольный журнал" detail="Все предупреждения с главной страницы" onClick={() => onNavigate("control")} />
+      </DashboardBlock>
+    </section></>;
 }
 function Metric({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: string }) { return <article className={`metric ${tone}`}><p>{label}</p><strong>{value}</strong><span>{detail}</span></article>; }
+
+function DashboardBlock({ eyebrow, title, children }: { eyebrow: string; title: string; children: React.ReactNode }) {
+  return <section className="panel dashboard-block"><div className="panel-heading"><div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2></div></div><div className="dashboard-shortcuts">{children}</div></section>;
+}
+
+function DashboardShortcut({ glyph, title, detail, onClick }: { glyph: string; title: string; detail: string; onClick: () => void }) {
+  return <button type="button" className="dashboard-shortcut" onClick={onClick}><span>{glyph}</span><div><strong>{title}</strong><small>{detail}</small></div><i>→</i></button>;
+}
+
+function DocumentationView() {
+  return <section className="documentation-layout">
+    <article className="panel documentation-intro"><div><p className="eyebrow">Подготовлено место</p><h2>Документационный контур</h2><p>Раздел зарезервирован для реестра номенклатуры, присвоения номеров и формирования типовых авиационных документов. Рабочие функции будут добавляться поэтапно.</p></div><span>В разработке</span></article>
+    <div className="documentation-grid">
+      <PlaceholderCard glyph="№" title="Реестр номенклатуры" detail="Автоматическое назначение номера документа из базы." />
+      <PlaceholderCard glyph="ЛС" title="Приложения к свидетельствам" detail="Подготовка приложений к пилотским свидетельствам." />
+      <PlaceholderCard glyph="Ф" title="Формы и шаблоны" detail="Заявки, приказы и другие заполняемые формы." />
+    </div>
+  </section>;
+}
+
+function PlaceholderCard({ glyph, title, detail }: { glyph: string; title: string; detail: string }) {
+  return <article className="panel placeholder-card"><span>{glyph}</span><div><strong>{title}</strong><p>{detail}</p></div><small>Скоро</small></article>;
+}
+
+function SettingsView({
+  settings,
+  onChange,
+  onExport,
+  onRestore,
+}: {
+  settings: CompanySettings;
+  onChange: (patch: Partial<CompanySettings>) => void;
+  onExport: () => void;
+  onRestore: () => void;
+}) {
+  return <section className="settings-layout">
+    <article className="panel settings-card"><div className="panel-heading"><div><p className="eyebrow">Реквизиты</p><h2>Карточка предприятия</h2></div><span className="settings-auto-save">Сохраняется автоматически</span></div><div className="settings-form form-stack">
+      <Field label="Полное наименование"><input value={settings.fullName} onChange={(event) => onChange({ fullName: event.target.value })} placeholder="Общество с ограниченной ответственностью…" /></Field>
+      <Field label="Сокращённое наименование"><input value={settings.shortName} onChange={(event) => onChange({ shortName: event.target.value })} placeholder="ООО «…»" /></Field>
+      <div className="form-grid three">
+        <Field label="ИНН"><input value={settings.inn} onChange={(event) => onChange({ inn: event.target.value.replace(/\D/g, "").slice(0, 12) })} /></Field>
+        <Field label="КПП"><input value={settings.kpp} onChange={(event) => onChange({ kpp: event.target.value.replace(/\D/g, "").slice(0, 9) })} /></Field>
+        <Field label="ОГРН"><input value={settings.ogrn} onChange={(event) => onChange({ ogrn: event.target.value.replace(/\D/g, "").slice(0, 15) })} /></Field>
+      </div>
+      <Field label="Юридический адрес"><textarea value={settings.legalAddress} onChange={(event) => onChange({ legalAddress: event.target.value })} /></Field>
+      <Field label="Фактический адрес"><textarea value={settings.actualAddress} onChange={(event) => onChange({ actualAddress: event.target.value })} /></Field>
+    </div></article>
+    <article className="panel settings-card"><div className="panel-heading"><div><p className="eyebrow">Ответственные лица</p><h2>Подписанты и руководство</h2></div></div><div className="settings-form form-stack">
+      <Field label="Начальник штаба"><input value={settings.chiefOfStaff} onChange={(event) => onChange({ chiefOfStaff: event.target.value })} placeholder="Фамилия Имя Отчество" /></Field>
+      <Field label="ЗГД по ОЛР"><input value={settings.deputyFlightOperations} onChange={(event) => onChange({ deputyFlightOperations: event.target.value })} placeholder="Фамилия Имя Отчество" /></Field>
+      <Field label="Генеральный директор"><input value={settings.generalDirector} onChange={(event) => onChange({ generalDirector: event.target.value })} placeholder="Фамилия Имя Отчество" /></Field>
+      <div className="report-scope-note">Эти данные подготовлены для будущего автоматического заполнения Word-форм, приказов, заявок и приложений.</div>
+    </div></article>
+    <article className="panel backup-card"><div><p className="eyebrow">Локальная база</p><h2>Резервное копирование</h2><p>Скачивайте резервную копию перед переносом на другое устройство. Имя файла формируется как BaseShtab_дата_время.</p></div><div><button type="button" className="primary-button" onClick={onExport}>Скачать резервную копию</button><button type="button" className="secondary-button" onClick={onRestore}>Восстановить базу из файла</button></div></article>
+  </section>;
+}
 
 function ShiftsView({
   people,

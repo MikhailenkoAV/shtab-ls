@@ -10,12 +10,17 @@ import { buildCumulativeWorkbookModel } from "../app/cumulative-flight-report.ts
 
 test("GitHub Pages export contains the main application sections", async () => {
   const html = await readFile(new URL("../out/index.html", import.meta.url), "utf8");
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(html, /ШТАБ ЛС/);
-  assert.match(html, /Полётные смены/);
-  assert.match(html, /Личные дела/);
-  assert.match(html, /Контрольный журнал/);
-  assert.match(html, /Месячный план/);
-  assert.match(html, /Фактический план/);
+  assert.match(html, /Главная/);
+  assert.match(html, /Документация/);
+  assert.match(html, /Настройки/);
+  assert.match(source, /title="Полётные смены"/);
+  assert.match(source, /title="Сотрудники"/);
+  assert.match(source, /title="Личные дела"/);
+  assert.match(source, /title="Контрольный журнал"/);
+  assert.match(source, /title="Месячный план"/);
+  assert.match(source, /title="Фактический план"/);
   assert.match(html, /solaris-berassom-bg\.jpeg/);
   assert.match(html, /sidebar-icon\.png/);
   assert.match(html, /UTC/);
@@ -49,11 +54,12 @@ test("period report aggregates chair, aircraft type, purpose, total and night fl
   assert.match(serialized, /Тип ВС/);
   assert.match(serialized, /Бортовой №/);
   assert.match(serialized, /RA-00001/);
-  assert.match(serialized, /РС/);
-  assert.ok(serialized.includes("\"text\":\"+\""));
+  assert.doesNotMatch(serialized, /РС/);
+  assert.doesNotMatch(serialized, /Разделение полетной смены на части/);
   assert.match(serialized, /Цель/);
   assert.match(serialized, /Налёт/);
   assert.match(serialized, /Из них ночь/);
+  assert.match(serialized, /ИТОГО/);
   assert.match(serialized, /data:image\/png;base64,bG9nbw==/);
   assert.match(serialized, /3:05/);
   assert.match(serialized, /0:45/);

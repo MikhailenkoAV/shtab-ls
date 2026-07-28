@@ -24,9 +24,17 @@ function displayDate(value: string): string {
 
 export function ControlJournalView({
   rows,
+  alerts,
   onNotify,
 }: {
   rows: ControlRow[];
+  alerts: {
+    id: string;
+    severity: "danger" | "warning";
+    title: string;
+    detail: string;
+    sortDate: string;
+  }[];
   onNotify: (message: string) => void;
 }) {
   const [kind, setKind] = useState<ControlKind>("type");
@@ -41,12 +49,15 @@ export function ControlJournalView({
   const counts = useMemo(() => ({
     type: rows.filter((row) => isControlJournalVisible(row, "type")).length,
     night: rows.filter((row) => isControlJournalVisible(row, "night")).length,
-    certification: rows.filter((row) => isControlJournalVisible(row, "certification")).length,
-  }), [rows]);
+    certification: alerts.length,
+  }), [alerts, rows]);
   const visible = useMemo(() => rows.filter((row) =>
     isControlJournalVisible(row, kind)
     && `${row.personName} ${row.subject} ${row.aircraftType}`.toLocaleLowerCase("ru-RU")
       .includes(query.trim().toLocaleLowerCase("ru-RU"))), [kind, query, rows]);
+  const visibleAlerts = useMemo(() => alerts.filter((alert) =>
+    `${alert.title} ${alert.detail}`.toLocaleLowerCase("ru-RU")
+      .includes(query.trim().toLocaleLowerCase("ru-RU"))), [alerts, query]);
 
   async function exportJournal() {
     setExporting(true);
@@ -71,17 +82,22 @@ export function ControlJournalView({
     <div className="records-toolbar control-journal-toolbar">
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по сотруднику, типу или документу…" />
       <span className="control-attention-note">{kind === "certification"
-        ? "Показаны только записи, требующие внимания"
+        ? "Все предупреждения полностью совпадают с разделом «Требует внимания» на главной"
         : "Показаны все сотрудники с соответствующим допуском"}</span>
     </div>
     <div className="control-journal-note">{kind === "type"
       ? "Срок 90 дней рассчитывается от последнего полёта сотрудника на каждом допущенном типе ВС."
       : kind === "night"
         ? "Ночной контроль: не менее 3 ночных взлётов и посадок за предшествующие 90 дней. Для расчёта принимается, что каждой внесённой посадке соответствует взлёт."
-        : "Сроки документов берутся из личных дел и обновляются после импорта из Авиабит."}</div>
-    {!visible.length ? <div className="panel-empty tall">{kind === "certification"
-      ? "В этом разделе нет записей, требующих внимания."
-      : "Сотрудники с соответствующим допуском не найдены."}</div> : <div className="table-scroll"><table className="control-journal-table"><thead><tr><th>Сотрудник</th><th>{kind === "certification" ? "Документ" : "Тип ВС"}</th><th>{kind === "certification" ? "Начало" : kind === "night" ? "Опорная посадка" : "Последний полёт"}</th>{kind === "night" && <th>Посадки за 90 дней</th>}<th>Срок</th><th>Осталось</th><th>Состояние</th></tr></thead><tbody>{visible.map((row) =>
-      <tr key={row.id}><td><strong>{row.personName}</strong></td><td><strong>{kind === "certification" ? row.subject : row.aircraftType}</strong>{kind === "certification" && row.aircraftType && <small>{row.aircraftType}</small>}</td><td>{displayDate(row.referenceDate)}</td>{kind === "night" && <td><strong>{row.landingCount ?? 0}</strong> / 3</td>}<td>{displayDate(row.dueDate)}</td><td>{row.daysLeft === null ? "—" : row.daysLeft < 0 ? `−${Math.abs(row.daysLeft)} дн.` : `${row.daysLeft} дн.`}</td><td><span className={`expiry-pill ${row.status}`}>{row.statusLabel}</span></td></tr>)}</tbody></table></div>}
+        : "Здесь собраны нарушения отдыха, контроль 90-дневных сроков и документы из личных дел, требующие внимания."}</div>
+    {kind === "certification"
+      ? !visibleAlerts.length
+        ? <div className="panel-empty tall">На главной странице нет предупреждений, требующих внимания.</div>
+        : <div className="table-scroll"><table className="control-journal-table attention-table"><thead><tr><th>Предупреждение</th><th>Подробности</th><th>Контрольная дата</th><th>Уровень</th></tr></thead><tbody>{visibleAlerts.map((alert) =>
+          <tr key={alert.id}><td><strong>{alert.title}</strong></td><td className="note-cell">{alert.detail}</td><td>{displayDate(alert.sortDate)}</td><td><span className={`attention-level ${alert.severity}`}>{alert.severity === "danger" ? "Срочно" : "Внимание"}</span></td></tr>)}</tbody></table></div>
+      : !visible.length
+        ? <div className="panel-empty tall">Сотрудники с соответствующим допуском не найдены.</div>
+        : <div className="table-scroll"><table className="control-journal-table"><thead><tr><th>Сотрудник</th><th>Тип ВС</th><th>{kind === "night" ? "Опорная посадка" : "Последний полёт"}</th>{kind === "night" && <th>Посадки за 90 дней</th>}<th>Срок</th><th>Осталось</th><th>Состояние</th></tr></thead><tbody>{visible.map((row) =>
+          <tr key={row.id}><td><strong>{row.personName}</strong></td><td><strong>{row.aircraftType}</strong></td><td>{displayDate(row.referenceDate)}</td>{kind === "night" && <td><strong>{row.landingCount ?? 0}</strong> / 3</td>}<td>{displayDate(row.dueDate)}</td><td>{row.daysLeft === null ? "—" : row.daysLeft < 0 ? `−${Math.abs(row.daysLeft)} дн.` : `${row.daysLeft} дн.`}</td><td><span className={`expiry-pill ${row.status}`}>{row.statusLabel}</span></td></tr>)}</tbody></table></div>}
   </section>;
 }

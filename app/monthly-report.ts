@@ -69,7 +69,6 @@ type FlightDetail = Totals & {
   aircraftType: string;
   aircraft: string;
   purpose: string;
-  splitShift: boolean;
 };
 type PersonTotals = Totals & { shiftCount: number; details: Map<string, FlightDetail> };
 
@@ -114,7 +113,7 @@ function datesBetween(dateFrom: string, dateTo: string): string[] {
 }
 
 function addDetail(target: Map<string, FlightDetail>, detail: FlightDetail) {
-  const key = [detail.seat, detail.aircraftType, detail.aircraft, detail.purpose, detail.splitShift ? "1" : "0"].join("\u0001");
+  const key = [detail.seat, detail.aircraftType, detail.aircraft, detail.purpose].join("\u0001");
   const current = target.get(key);
   target.set(key, current
     ? { ...current, flight: current.flight + detail.flight, night: current.night + detail.night }
@@ -145,7 +144,6 @@ function collectPersonTotals(person: FlightReportPerson, shifts: FlightReportShi
       aircraftType,
       aircraft,
       purpose,
-      splitShift: Boolean(segment.splitShift),
       flight: segmentFlight,
       night: segmentNight,
     });
@@ -162,22 +160,25 @@ function collectPersonTotals(person: FlightReportPerson, shifts: FlightReportShi
 
 function flightDetailsTable(title: string, details: Map<string, FlightDetail>): Content {
   const rows = [...details.values()].sort((left, right) =>
-    `${left.seat}\u0001${left.aircraftType}\u0001${left.aircraft}\u0001${left.purpose}\u0001${left.splitShift}`
-      .localeCompare(`${right.seat}\u0001${right.aircraftType}\u0001${right.aircraft}\u0001${right.purpose}\u0001${right.splitShift}`, "ru-RU"));
+    `${left.seat}\u0001${left.aircraftType}\u0001${left.aircraft}\u0001${left.purpose}`
+      .localeCompare(`${right.seat}\u0001${right.aircraftType}\u0001${right.aircraft}\u0001${right.purpose}`, "ru-RU"));
+  const total = rows.reduce((result, row) => ({
+    flight: result.flight + row.flight,
+    night: result.night + row.night,
+  }), { flight: 0, night: 0 });
   return {
     stack: [
       { text: title, style: "sectionTitle" },
       {
         table: {
           headerRows: 1,
-          widths: [68, 54, 72, "*", 24, 48, 54],
+          widths: [72, 58, 78, "*", 52, 58],
           body: [
             [
               { text: "Кресло", style: "tableHeader" },
               { text: "Тип ВС", style: "tableHeader" },
               { text: "Бортовой №", style: "tableHeader" },
               { text: "Цель", style: "tableHeader" },
-              { text: "РС", style: "tableHeader", alignment: "center" },
               { text: "Налёт", style: "tableHeader", alignment: "right" },
               { text: "Из них ночь", style: "tableHeader", alignment: "right" },
             ],
@@ -186,10 +187,15 @@ function flightDetailsTable(title: string, details: Map<string, FlightDetail>): 
               { text: row.aircraftType },
               { text: row.aircraft },
               { text: row.purpose },
-              { text: row.splitShift ? "+" : "—", alignment: "center" as const, bold: row.splitShift },
               { text: formatMinutes(row.flight), alignment: "right" as const },
               { text: row.night ? formatMinutes(row.night) : "—", alignment: "right" as const },
-            ]) : [[{ text: "Нет данных о налёте", colSpan: 7, color: "#7b8b93", italics: true }, {}, {}, {}, {}, {}, {}]]),
+            ]) : [[{ text: "Нет данных о налёте", colSpan: 6, color: "#7b8b93", italics: true }, {}, {}, {}, {}, {}]]),
+            [
+              { text: "ИТОГО", colSpan: 4, bold: true, fillColor: "#e7f1f2" },
+              {}, {}, {},
+              { text: formatMinutes(total.flight), bold: true, alignment: "right", fillColor: "#e7f1f2" },
+              { text: total.night ? formatMinutes(total.night) : "—", bold: true, alignment: "right", fillColor: "#e7f1f2" },
+            ],
           ],
         },
         layout: "lightHorizontalLines",
@@ -221,7 +227,7 @@ function personFlightSection(person: FlightReportPerson, totals: PersonTotals, p
       { text: person.position || "Должность не указана", style: "position" },
       metrics(totals.flight, totals.night, "ПОЛЁТНЫХ СМЕН", String(totals.shiftCount)),
       flightDetailsTable("Налёт по креслу, типу ВС и цели полёта", totals.details),
-      { text: "Время указано в формате часы:минуты. РС — разделение полётной смены на части; «+» означает наличие разделения.", style: "note" },
+      { text: "Время указано в формате часы:минуты.", style: "note" },
     ],
     pageBreak: pageBreak ? "before" : undefined,
   };
