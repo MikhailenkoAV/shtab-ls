@@ -51,6 +51,7 @@ import {
   EMPTY_DOCUMENT_PROFILE,
   EMPTY_DOCUMENT_SETTINGS,
 } from "./documentation-rules";
+import { FlightBookBaseline } from "./flight-book-rules";
 
 type View = "dashboard" | "shifts" | "people" | "personal" | "control" | "planning" | "actual" | "documentation" | "settings";
 type Activity = "flight" | "trip" | "office" | "periodic_training" | "ground_training" | "standby" | "vacation" | "dayoff";
@@ -109,6 +110,7 @@ type AppData = {
   documentRegistry: DocumentRegistryRecord[];
   documentProfiles: Record<string, DocumentPersonProfile>;
   documentSettings: DocumentSettings;
+  flightBookBaselines: FlightBookBaseline[];
 };
 const REGISTRY_SEED = registrySeedJson as DocumentRegistryRecord[];
 
@@ -134,6 +136,7 @@ const EMPTY_DATA: AppData = {
   documentRegistry: REGISTRY_SEED,
   documentProfiles: {},
   documentSettings: EMPTY_DOCUMENT_SETTINGS,
+  flightBookBaselines: [],
 };
 const DB_NAME = "shtab-ls";
 const STORE_NAME = "workspace";
@@ -280,6 +283,7 @@ async function loadData(): Promise<AppData> {
         documentRegistry: stored?.documentRegistry ?? REGISTRY_SEED,
         documentProfiles: stored?.documentProfiles ?? {},
         documentSettings: { ...EMPTY_DOCUMENT_SETTINGS, ...(stored?.documentSettings ?? {}) },
+        flightBookBaselines: stored?.flightBookBaselines ?? [],
       });
     };
     request.onerror = () => reject(request.error);
@@ -694,6 +698,7 @@ export default function Home() {
       planAssignments: current.planAssignments.filter((assignment) => assignment.personId !== person.id),
       planBusyEntries: current.planBusyEntries.filter((entry) => entry.personId !== person.id),
       documentProfiles: Object.fromEntries(Object.entries(current.documentProfiles).filter(([personId]) => personId !== person.id)),
+      flightBookBaselines: current.flightBookBaselines.filter((baseline) => baseline.personId !== person.id),
     }));
     setPersonModal(null); setToast("Сотрудник удалён");
   }
@@ -804,6 +809,22 @@ export default function Home() {
     setData((current) => ({ ...current, certifications: current.certifications.some((item) => item.id === record.id) ? current.certifications.map((item) => item.id === record.id ? record : item) : [...current.certifications, record] })); setToast("Запись личного дела сохранена");
   }
   function deleteCertification(recordId: string) { setData((current) => ({ ...current, certifications: current.certifications.filter((record) => record.id !== recordId) })); setToast("Запись удалена"); }
+  function upsertFlightBookBaseline(baseline: FlightBookBaseline) {
+    setData((current) => ({
+      ...current,
+      flightBookBaselines: current.flightBookBaselines.some((item) => item.id === baseline.id)
+        ? current.flightBookBaselines.map((item) => item.id === baseline.id ? baseline : item)
+        : [...current.flightBookBaselines, baseline],
+    }));
+    setToast("Исходный налёт сохранён");
+  }
+  function deleteFlightBookBaseline(baselineId: string) {
+    setData((current) => ({
+      ...current,
+      flightBookBaselines: current.flightBookBaselines.filter((item) => item.id !== baselineId),
+    }));
+    setToast("Контрольная точка удалена");
+  }
   function upsertRegistryRecord(record: DocumentRegistryRecord) {
     setData((current) => ({
       ...current,
@@ -868,7 +889,7 @@ export default function Home() {
   }
   function exportBackup() {
     const now = new Date();
-    download(backupFileName(now), JSON.stringify({ version: 13, exportedAt: now.toISOString(), data }, null, 2));
+    download(backupFileName(now), JSON.stringify({ version: 14, exportedAt: now.toISOString(), data }, null, 2));
     setToast("Резервная копия сохранена");
   }
   function importBackup(event: ChangeEvent<HTMLInputElement>) {
@@ -887,6 +908,7 @@ export default function Home() {
         documentRegistry: restored.documentRegistry ?? REGISTRY_SEED,
         documentProfiles: restored.documentProfiles ?? {},
         documentSettings: { ...EMPTY_DOCUMENT_SETTINGS, ...(restored.documentSettings ?? {}) },
+        flightBookBaselines: restored.flightBookBaselines ?? [],
       }); setToast("Резервная копия восстановлена");
     }).catch(() => setToast("Не удалось прочитать резервную копию"));
     event.target.value = "";
@@ -967,7 +989,17 @@ export default function Home() {
           : view === "people"
             ? <PeopleView people={data.people} shifts={expandedShifts} onAdd={() => setPersonModal("new")} onEdit={setPersonModal} onOpenPersonal={() => setView("personal")} />
             : view === "personal"
-              ? <PersonalFilesView people={data.people} shifts={expandedShifts} records={data.certifications} onImportClick={() => setAviabitModal(true)} onUpsert={upsertCertification} onDelete={deleteCertification} />
+              ? <PersonalFilesView
+                people={data.people}
+                shifts={expandedShifts}
+                records={data.certifications}
+                baselines={data.flightBookBaselines}
+                onImportClick={() => setAviabitModal(true)}
+                onUpsert={upsertCertification}
+                onDelete={deleteCertification}
+                onUpsertBaseline={upsertFlightBookBaseline}
+                onDeleteBaseline={deleteFlightBookBaseline}
+              />
               : view === "control"
                 ? <ControlJournalView rows={controlRows} alerts={alerts} onNotify={setToast} />
                 : view === "actual"

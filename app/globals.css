@@ -276,11 +276,17 @@ td strong { color: #314956; }
 .record-hero h2 { margin: 0; color: #173448; font-size: 22px; }
 .record-person > span { display: block; margin-top: 5px; color: #7c8d95; font-size: 11px; }
 .record-hero-side { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.record-flight-cards { display: flex; gap: 8px; }
 .monthly-flight-card { min-width: 170px; padding: 11px 14px; border: 1px solid #cfe2e1; border-left: 4px solid var(--teal); border-radius: 10px; background: #f2f8f7; }
+.monthly-flight-card.total { border-color: #cddce4; border-left-color: #31576d; background: #f1f6f8; }
+.monthly-flight-card.total strong { color: #31576d; }
 .monthly-flight-card span, .monthly-flight-card strong { display: block; }
 .monthly-flight-card span { color: #687f87; font-size: 8px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .monthly-flight-card strong { margin-top: 5px; color: #17675f; font-size: 17px; }
 .hero-actions { display: flex; gap: 9px; }
+.personal-view-tabs { display: flex; gap: 7px; padding: 5px; border: 1px solid #dce5e8; border-radius: 12px; background: rgba(247,250,251,.94); }
+.personal-view-tabs button { flex: 1; min-height: 39px; border: 0; border-radius: 9px; color: #667b85; background: transparent; font-size: 10px; font-weight: 800; }
+.personal-view-tabs button.active { color: #176c65; background: white; box-shadow: 0 3px 10px rgba(24,53,67,.08), inset 0 -2px 0 #4da59d; }
 .record-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .record-metric { padding: 14px 16px; border: 1px solid #e0e7ea; border-left: 4px solid #aab8bf; border-radius: 11px; background: white; }
 .record-metric strong, .record-metric span { display: block; }
@@ -299,6 +305,62 @@ td strong { color: #314956; }
 .records-table td:first-child { min-width: 190px; }
 .records-table td strong, .records-table td small { display: block; }
 .records-table td small { margin-top: 4px; color: #89979e; font-size: 9px; }
+.personal-section-groups { display: grid; gap: 14px; }
+.personal-section-group { padding: 17px 18px 18px; }
+.personal-section-group h3 { margin: 0 0 11px; color: #184a68; font-size: 13px; }
+.personal-section-group > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.personal-section-group button { min-height: 66px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 13px; border: 1px solid #7fa6bd; border-radius: 9px; color: #1f5777; background: rgba(235,243,248,.92); text-align: left; transition: .15s ease; }
+.personal-section-group button:hover { border-color: #3e809e; background: #e0eef5; transform: translateY(-1px); }
+.personal-section-group button strong, .personal-section-group button small { display: block; }
+.personal-section-group button strong { font-size: 10px; }
+.personal-section-group button small { margin-top: 4px; color: #698496; font-size: 8px; }
+.personal-section-group button i { min-width: 34px; padding: 5px 7px; border-radius: 999px; color: #326d89; background: white; text-align: center; font-size: 8px; font-style: normal; font-weight: 900; }
+.flight-book-layout { display: grid; gap: 14px; }
+.flight-book-summary { min-width: 0; }
+.flight-book-rule { display: flex; align-items: flex-start; gap: 14px; padding: 11px 20px; border-bottom: 1px solid #e7ecef; color: #637985; background: #f7fafb; font-size: 9px; line-height: 1.45; }
+.flight-book-rule strong { flex: none; color: #31546a; }
+.flight-book-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; padding: 14px 18px; }
+.flight-book-metric { padding: 12px 13px; border: 1px solid #dfe7ea; border-top: 3px solid #79919d; border-radius: 10px; background: #fbfcfc; }
+.flight-book-metric span, .flight-book-metric strong { display: block; }
+.flight-book-metric span { color: #71838c; font-size: 8px; font-weight: 800; text-transform: uppercase; }
+.flight-book-metric strong { margin-top: 6px; color: #294857; font-size: 18px; font-variant-numeric: tabular-nums; }
+.flight-book-metric.teal { border-top-color: #0d8d82; }
+.flight-book-metric.navy { border-top-color: #31576d; }
+.flight-book-metric.violet { border-top-color: #7562a8; }
+.flight-book-metric.blue { border-top-color: #4386b4; }
+.flight-book-metric.green { border-top-color: #317a5f; }
+.flight-book-table { min-width: 980px; }
+.flight-book-table td { text-align: center; }
+.flight-book-table th { text-align: center; }
+.flight-book-table th:first-child, .flight-book-table td:first-child { text-align: left; }
+.flight-book-total td { color: #294e61; background: #e8f1f5; font-weight: 800; }
+.flight-book-caveat { margin: 0; padding: 10px 18px 14px; color: #758891; font-size: 8px; line-height: 1.5; }
+.site-flight-value { display: inline-block; padding: 4px 7px; border-radius: 999px; color: #28705a; background: #e6f3ed; font-size: 8px; font-weight: 900; }
+.flight-book-bottom-grid { display: grid; grid-template-columns: minmax(310px, .8fr) minmax(0, 1.2fr); gap: 14px; align-items: start; }
+.baseline-items { display: grid; padding: 8px; }
+.baseline-items > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border-bottom: 1px solid #edf1f2; border-radius: 8px; }
+.baseline-items > div.active { background: #edf7f5; }
+.baseline-items strong, .baseline-items span, .baseline-items small { display: block; }
+.baseline-items strong { color: #294b5b; font-size: 10px; }
+.baseline-items span { margin-top: 4px; color: #73868f; font-size: 8px; }
+.baseline-items small { margin-top: 4px; color: #8a989f; font-size: 8px; line-height: 1.35; }
+.baseline-items > div > div:last-child { display: flex; align-items: center; gap: 4px; }
+.baseline-items i { padding: 4px 6px; border-radius: 999px; color: #267061; background: white; font-size: 7px; font-style: normal; font-weight: 900; }
+.baseline-items button { padding: 5px; border: 0; color: #28776f; background: transparent; font-size: 8px; font-weight: 800; }
+.baseline-items button.delete { color: #ad4d4d; }
+.flight-book-log table { min-width: 620px; }
+.flight-book-log td strong, .flight-book-log td small { display: block; }
+.flight-book-log td small { margin-top: 3px; color: #89989e; font-size: 8px; }
+.modal.extra-wide { width: min(1280px, 100%); }
+.flight-book-form-note { display: flex; gap: 12px; padding: 11px 13px; border: 1px solid #d9e7e7; border-radius: 10px; color: #607782; background: #f2f8f7; font-size: 9px; line-height: 1.45; }
+.flight-book-form-note strong { flex: none; color: #2d6d67; }
+.baseline-row-list { display: grid; gap: 10px; }
+.baseline-row-card { display: grid; gap: 11px; padding: 13px; border: 1px solid #dfe7ea; border-radius: 11px; background: #f8fafb; }
+.baseline-row-title { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.baseline-row-title .field { width: min(300px, 100%); }
+.danger-button.compact { min-height: 36px; padding-inline: 10px; font-size: 9px; }
+.baseline-duration-grid { display: grid; grid-template-columns: repeat(7, minmax(85px, 1fr)); gap: 8px; }
+.add-baseline-type { justify-self: start; }
 .expiry-pill { display: inline-block; padding: 6px 8px; border-radius: 999px; font-size: 9px; font-weight: 800; white-space: nowrap; }
 .expiry-pill.expired { color: #a33838; background: #fde7e5; }
 .expiry-pill.alert14 { color: #9b511f; background: #fff0df; }
@@ -591,6 +653,11 @@ td strong { color: #314956; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .content-grid { grid-template-columns: 1fr; }
   .people-grid { grid-template-columns: 1fr; }
+  .record-hero { align-items: flex-start; }
+  .record-hero-side { align-items: stretch; flex-direction: column; }
+  .flight-book-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .flight-book-bottom-grid { grid-template-columns: 1fr; }
+  .baseline-duration-grid { grid-template-columns: repeat(4, minmax(85px, 1fr)); }
   .journal-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .quick-filters { width: 100%; }
   .panel-heading { align-items: flex-start; flex-wrap: wrap; }
@@ -639,7 +706,11 @@ td strong { color: #314956; }
   .pilot-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .record-hero { align-items: flex-start; flex-direction: column; }
   .record-hero-side { width: 100%; align-items: stretch; flex-direction: column; }
+  .record-flight-cards { display: grid; grid-template-columns: 1fr 1fr; }
   .monthly-flight-card { width: 100%; }
+  .personal-section-group > div { grid-template-columns: 1fr 1fr; }
+  .flight-book-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .baseline-duration-grid { grid-template-columns: repeat(2, minmax(85px, 1fr)); }
   .record-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .records-toolbar { align-items: stretch; flex-direction: column; }
   .records-toolbar > input { width: 100%; }
@@ -669,6 +740,10 @@ td strong { color: #314956; }
   .backup-card > div:last-child { flex-direction: column; }
 }
 @media (max-width: 430px) {
+  .record-flight-cards { grid-template-columns: 1fr; }
+  .personal-view-tabs { flex-direction: column; }
+  .personal-section-group > div { grid-template-columns: 1fr; }
+  .flight-book-metrics { grid-template-columns: 1fr; }
   .metric-grid { grid-template-columns: 1fr; }
   .top-actions .secondary-button { display: none; }
   .primary-button { flex: 1; }
