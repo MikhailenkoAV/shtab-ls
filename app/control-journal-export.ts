@@ -22,12 +22,13 @@ export async function downloadControlJournalExcel(rows: ControlRow[], dateFrom: 
   const data = [
     ["Контрольный журнал — сроки, требующие внимания"],
     [`Период: ${displayDate(dateFrom)} — ${displayDate(dateTo)}`],
-    ["Раздел", "Сотрудник", "Тип ВС / документ", "Последний полёт / начало", "Срок", "Осталось дней", "Состояние"],
+    ["Раздел", "Сотрудник", "Тип ВС / документ", "Опорная дата / начало", "Посадки за 90 дней", "Срок", "Осталось дней", "Состояние"],
     ...selected.map((row) => [
       kindLabels[row.kind],
       row.personName,
       row.kind === "certification" ? [row.subject, row.aircraftType].filter(Boolean).join(" · ") : row.aircraftType,
       displayDate(row.referenceDate),
+      row.kind === "night" ? row.landingCount ?? 0 : "",
       displayDate(row.dueDate),
       row.daysLeft ?? "",
       row.statusLabel,
@@ -46,7 +47,7 @@ export async function downloadControlJournalExcel(rows: ControlRow[], dateFrom: 
     if (!sheet[address]) sheet[address] = { t: "s", v: "" };
     sheet[address].s = style;
   };
-  for (let column = 0; column < 7; column += 1) {
+  for (let column = 0; column < 8; column += 1) {
     setStyle(0, column, {
       fill: fill("17384C"),
       font: { name: "Arial", sz: 15, bold: true, color: { rgb: "FFFFFF" } },
@@ -71,7 +72,7 @@ export async function downloadControlJournalExcel(rows: ControlRow[], dateFrom: 
         : row.status === "alert45" ? "FFF5CF"
           : row.status === "incomplete" ? "ECEFF1"
             : "E8F3EE";
-    for (let column = 0; column < 7; column += 1) {
+    for (let column = 0; column < 8; column += 1) {
       setStyle(excelRow, column, {
         fill: fill(rowFill),
         font: { name: "Arial", sz: 9, color: { rgb: "2C4655" } },
@@ -81,12 +82,12 @@ export async function downloadControlJournalExcel(rows: ControlRow[], dateFrom: 
     }
   });
   sheet["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } },
-    { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } },
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 7 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 7 } },
   ];
-  sheet["!cols"] = [{ wch: 18 }, { wch: 34 }, { wch: 34 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 24 }];
+  sheet["!cols"] = [{ wch: 18 }, { wch: 34 }, { wch: 34 }, { wch: 20 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 24 }];
   sheet["!rows"] = [{ hpt: 28 }, { hpt: 22 }, { hpt: 32 }, ...selected.map(() => ({ hpt: 28 }))];
-  sheet["!autofilter"] = { ref: `A3:G${data.length}` };
+  sheet["!autofilter"] = { ref: `A3:H${data.length}` };
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, "Контроль");
   XLSX.writeFile(workbook, `kontrolnyy-zhurnal-${dateFrom}-${dateTo}.xlsx`);

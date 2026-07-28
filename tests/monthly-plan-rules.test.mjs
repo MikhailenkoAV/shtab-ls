@@ -9,7 +9,9 @@ import {
   datesInRange,
   isPersonBusyOnDate,
   monthDates,
+  planBusyActivities,
 } from "../app/monthly-plan-rules.ts";
+import { buildMonthlyPlanMatrix } from "../app/monthly-plan-export.ts";
 
 test("monthly plan builds every calendar date, including leap February", () => {
   assert.equal(monthDates("2026-07").length, 31);
@@ -104,4 +106,18 @@ test("non-flight employment cannot replace an existing aircraft assignment", () 
     [],
   );
   assert.equal(reason, "На эту дату уже назначен полёт на RA-01902.");
+});
+
+test("standby is placed in an aircraft row and removed from the lower employment rows", () => {
+  assert.equal(planBusyActivities.includes("standby"), false);
+  const matrix = buildMonthlyPlanMatrix(
+    "2026-07",
+    [{ id: "one", name: "Иванов Иван Иванович", aircraftTypes: ["AW109"], active: true }],
+    [],
+    [{ id: "standby", personId: "one", date: "2026-07-15", aircraft: "RA-01902", role: "primary", activity: "standby" }],
+    [],
+  );
+  const aircraftRow = matrix.rows.find((row) => row.aircraft === "RA-01902" && row.role === "primary");
+  assert.match(aircraftRow?.cells[14] ?? "", /Ожидание/);
+  assert.equal(matrix.rows.some((row) => row.kind === "busy" && row.activity === "standby"), false);
 });

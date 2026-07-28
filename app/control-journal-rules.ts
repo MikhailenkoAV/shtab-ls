@@ -23,6 +23,8 @@ export type ControlShiftRef = {
     aircraftType?: string;
     flightMinutes: number;
     nightMinutes: number;
+    dayLandings?: number;
+    nightLandings?: number;
   }[];
 };
 
@@ -52,6 +54,7 @@ export type ControlRow = {
   daysLeft: number | null;
   status: ControlStatus;
   statusLabel: string;
+  landingCount?: number;
 };
 
 function isoDate(date: Date): string {
@@ -111,6 +114,21 @@ function lastFlightDate(
     .at(-1) ?? "";
 }
 
+function nightLandingDates(
+  shifts: ControlShiftRef[],
+  personId: string,
+  aircraftType: string,
+): string[] {
+  return shifts
+    .filter((shift) => shift.personId === personId && shift.activity === "flight")
+    .flatMap((shift) => shift.segments.flatMap((segment) => {
+      if (aircraftTypeForSegment(segment) !== aircraftType) return [];
+      const count = Math.max(0, Math.floor(segment.nightLandings ?? 0));
+      return Array.from({ length: count }, () => shift.date);
+    }))
+    .sort();
+}
+
 function flightControlRow(
   kind: "type" | "night",
   person: ControlPersonRef,
@@ -118,20 +136,38 @@ function flightControlRow(
   shifts: ControlShiftRef[],
   today: string,
 ): ControlRow {
-  const referenceDate = lastFlightDate(shifts, person.id, aircraftType, kind === "night");
+  const landingDates = kind === "night" ? nightLandingDates(shifts, person.id, aircraftType) : [];
+  const referenceDate = kind === "night"
+    ? landingDates.at(-3) ?? ""
+    : lastFlightDate(shifts, person.id, aircraftType, false);
   const dueDate = referenceDate ? addDays(referenceDate, 90) : "";
+  const landingCount = kind === "night"
+    ? landingDates.filter((date) => {
+      const age = daysBetween(date, today);
+      return age !== null && age >= 0 && age <= 90;
+    }).length
+    : undefined;
   const status = dueDate
     ? statusForDueDate(dueDate, today)
-    : { daysLeft: null, status: "incomplete" as const, statusLabel: kind === "night" ? "Нет ночного полёта" : "Нет полёта на типе" };
+    : {
+      daysLeft: null,
+      status: "incomplete" as const,
+      statusLabel: kind === "night"
+        ? landingCount
+          ? `${landingCount} из 3 посадок`
+          : "Нет ночных посадок"
+        : "Нет полёта на типе",
+    };
   return {
     id: `${kind}-${person.id}-${aircraftType}`,
     kind,
     personId: person.id,
     personName: person.name,
-    subject: kind === "type" ? "Поддержание допуска на типе" : "Поддержание ночного допуска",
+    subject: kind === "type" ? "Поддержание допуска на типе" : "3 ночные посадки за 90 дней",
     aircraftType,
     referenceDate,
     dueDate,
+    landingCount,
     ...status,
   };
 }

@@ -1,6 +1,5 @@
-import { aircraftNumbersByType } from "./aircraft-rules";
+import { aircraftNumbersByType } from "./aircraft-rules.ts";
 import {
-  ActualBusyInput,
   aircraftTypeForNumber,
   dateInPlanEntry,
   monthDates,
@@ -8,11 +7,14 @@ import {
   planBusyLabels,
   planPersonShortName,
   planRoleLabels,
+} from "./monthly-plan-rules.ts";
+import type {
+  ActualBusyInput,
   PlanAssignment,
   PlanBusyActivity,
   PlanBusyEntry,
   PlanRole,
-} from "./monthly-plan-rules";
+} from "./monthly-plan-rules.ts";
 
 export type MonthlyPlanExportPerson = {
   id: string;
@@ -29,6 +31,7 @@ export type MonthlyPlanMatrixRow = {
   role?: PlanRole;
   activity?: PlanBusyActivity;
   cells: string[];
+  standbyCells?: boolean[];
 };
 
 export type MonthlyPlanMatrix = {
@@ -71,8 +74,10 @@ export function buildMonthlyPlanMatrix(
         const assignment = assignments.find((item) =>
           item.date === date && item.aircraft === aircraft && item.role === role);
         const person = assignment ? peopleById.get(assignment.personId) : undefined;
-        return person ? planPersonShortName(person.name) : "";
+        return person ? [assignment?.activity === "standby" ? "Ожидание" : "", planPersonShortName(person.name)].filter(Boolean).join("\n") : "";
       }),
+      standbyCells: dates.map((date) => assignments.some((item) =>
+        item.date === date && item.aircraft === aircraft && item.role === role && item.activity === "standby")),
     })));
   planBusyActivities.forEach((activity) => {
     rows.push({
@@ -169,7 +174,7 @@ export async function downloadMonthlyPlanExcel(
     for (let column = 0; column <= lastColumn; column += 1) {
       setStyle(excelRow, column, {
         ...baseStyle,
-        fill: fill(rowFill),
+        fill: fill(row.kind === "assignment" && column >= 2 && row.standbyCells?.[column - 2] ? "CCE1DE" : rowFill),
         font: {
           name: "Arial",
           sz: column < 2 ? 9 : 8,

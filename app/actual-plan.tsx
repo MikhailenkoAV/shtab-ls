@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { downloadActualPlanExcel } from "./actual-plan-export";
 
 export type ActualPlanPerson = {
   id: string;
@@ -87,12 +88,15 @@ export function ActualPlanView({
   people,
   shifts,
   onEdit,
+  onNotify,
 }: {
   people: ActualPlanPerson[];
   shifts: ActualPlanShift[];
   onEdit: (shift: ActualPlanShift) => void;
+  onNotify: (message: string) => void;
 }) {
   const [month, setMonth] = useState(currentMonth);
+  const [exporting, setExporting] = useState(false);
   const dates = useMemo(() => monthDates(month), [month]);
   const includedPeople = useMemo(() => people
     .filter((person) => person.active || shifts.some((shift) => shift.personId === person.id && shift.date.startsWith(month)))
@@ -101,6 +105,17 @@ export function ActualPlanView({
     .filter((shift) => shift.date.startsWith(month))
     .sort((left, right) => `${left.date}${left.start ?? ""}`.localeCompare(`${right.date}${right.start ?? ""}`)), [month, shifts]);
   const occupiedDays = new Set(monthShifts.map((shift) => `${shift.personId}|${shift.date}`)).size;
+  async function exportPlan() {
+    setExporting(true);
+    try {
+      await downloadActualPlanExcel(month, people, shifts);
+      onNotify("Фактический план сохранён в Excel");
+    } catch {
+      onNotify("Не удалось сформировать Excel");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return <section className="panel actual-plan-panel">
     <div className="panel-heading actual-plan-heading">
@@ -110,6 +125,7 @@ export function ActualPlanView({
         <label className="plan-month-picker"><span>Месяц</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value || currentMonth())} /></label>
         <button type="button" className="secondary-button" onClick={() => setMonth(changeMonth(month, 1))}>→</button>
         <button type="button" className="secondary-button" onClick={() => setMonth(currentMonth())}>Текущий месяц</button>
+        <button type="button" className="secondary-button plan-export-button" disabled={exporting} onClick={exportPlan}>{exporting ? "Excel…" : "Выгрузить в Excel"}</button>
       </div>
     </div>
     <div className="plan-summary">

@@ -6,6 +6,7 @@ export type PlanAssignment = {
   aircraft: string;
   role: PlanRole;
   personId: string;
+  activity?: "flight" | "standby";
 };
 
 export type PlanBusyActivity =
@@ -45,7 +46,8 @@ export const planBusyLabels: Record<PlanBusyActivity, string> = {
   vacation: "Отпуск",
 };
 
-export const planBusyActivities = Object.keys(planBusyLabels) as PlanBusyActivity[];
+export const planBusyActivities = (Object.keys(planBusyLabels) as PlanBusyActivity[])
+  .filter((activity) => activity !== "standby");
 
 export type PlanPersonInput = {
   id: string;

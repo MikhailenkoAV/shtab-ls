@@ -23,7 +23,7 @@ test("control journal creates 90-day type and night rows from the latest qualify
       personId: "pilot",
       date: "2026-07-01",
       activity: "flight",
-      segments: [{ aircraft: "RA-04186", aircraftType: "R44", flightMinutes: 90, nightMinutes: 30 }],
+      segments: [{ aircraft: "RA-04186", aircraftType: "R44", flightMinutes: 90, nightMinutes: 30, dayLandings: 1, nightLandings: 3 }],
     },
     {
       personId: "pilot",
@@ -44,6 +44,7 @@ test("control journal creates 90-day type and night rows from the latest qualify
   assert.equal(nightRows.length, 1);
   assert.equal(nightRows[0].aircraftType, "R44");
   assert.equal(nightRows[0].referenceDate, "2026-07-01");
+  assert.equal(nightRows[0].landingCount, 3);
   assert.equal(isControlAttention(r44Type), false);
   assert.equal(isControlJournalVisible(r44Type, "type"), true);
   assert.equal(isControlJournalVisible(nightRows[0], "night"), true);
@@ -63,13 +64,32 @@ test("Bell407 board is recognized and missing flights require attention", () => 
     personId: "bell",
     date: "2026-07-21",
     activity: "flight",
-    segments: [{ aircraft: "RA-01619", flightMinutes: 60, nightMinutes: 15 }],
+    segments: [{ aircraft: "RA-01619", flightMinutes: 60, nightMinutes: 15, nightLandings: 3 }],
   }];
   const rows = buildControlRows(people, shifts, [], "2026-07-26");
   assert.equal(rows.find((row) => row.kind === "type" && row.aircraftType === "Bell407")?.referenceDate, "2026-07-21");
   assert.equal(rows.find((row) => row.kind === "night" && row.aircraftType === "Bell407")?.referenceDate, "2026-07-21");
   assert.equal(rows.find((row) => row.kind === "type" && row.aircraftType === "AW139")?.status, "incomplete");
   assert.equal(rows.filter(isControlAttention).length, 1);
+});
+
+test("night validity is extended by the third most recent landing, not merely the latest night flight", () => {
+  const people = [{
+    id: "pilot",
+    name: "Иванов Иван Иванович",
+    active: true,
+    qualifications: [{ aircraftTypes: ["AW109"], nightAircraftTypes: ["AW109"] }],
+  }];
+  const shifts = [
+    { personId: "pilot", date: "2026-06-01", activity: "flight", segments: [{ aircraft: "RA-01902", aircraftType: "AW109", flightMinutes: 30, nightMinutes: 10, nightLandings: 1 }] },
+    { personId: "pilot", date: "2026-06-15", activity: "flight", segments: [{ aircraft: "RA-01902", aircraftType: "AW109", flightMinutes: 30, nightMinutes: 10, nightLandings: 1 }] },
+    { personId: "pilot", date: "2026-07-01", activity: "flight", segments: [{ aircraft: "RA-01902", aircraftType: "AW109", flightMinutes: 30, nightMinutes: 10, nightLandings: 2 }] },
+  ];
+  const night = buildControlRows(people, shifts, [], "2026-07-02")
+    .find((row) => row.kind === "night");
+  assert.equal(night?.landingCount, 4);
+  assert.equal(night?.referenceDate, "2026-06-15");
+  assert.equal(night?.dueDate, "2026-09-13");
 });
 
 test("certification dates are included and attention is ordered by nearest overdue then upcoming", () => {

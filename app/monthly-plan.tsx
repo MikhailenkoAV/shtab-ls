@@ -173,7 +173,7 @@ export function MonthlyPlanView({
                   const current = assignments.find((item) => item.date === date && item.aircraft === aircraft && item.role === role);
                   const person = people.find((item) => item.id === current?.personId);
                   const weekend = dayMeta(date).weekend;
-                  return <td className={weekend ? "weekend" : ""} key={date}><button type="button" className={current ? "filled" : ""} onClick={() => setAssignmentCell({ date, aircraft, role })}>{person ? planPersonShortName(person.name) : "+"}</button></td>;
+                  return <td className={weekend ? "weekend" : ""} key={date}><button type="button" title={current?.activity === "standby" ? "Ожидание полёта" : undefined} className={`${current ? "filled" : ""} ${current?.activity === "standby" ? "standby" : ""}`} onClick={() => setAssignmentCell({ date, aircraft, role })}>{person ? <>{planPersonShortName(person.name)}{current?.activity === "standby" && <small>ожидание</small>}</> : "+"}</button></td>;
                 })}
               </tr>;
             }))}
@@ -207,7 +207,7 @@ export function MonthlyPlanView({
       actualBusy={shifts}
       onClose={() => setAssignmentCell(null)}
       onSave={(personId) => {
-        onSaveAssignment({ id: assignment?.id ?? uid(), ...assignmentCell, personId });
+        onSaveAssignment({ id: assignment?.id ?? uid(), ...assignmentCell, personId, activity: assignment?.activity ?? "flight" });
         setAssignmentCell(null);
       }}
       onDelete={assignment ? () => { onDeleteAssignment(assignment.id); setAssignmentCell(null); } : undefined}
@@ -322,7 +322,7 @@ function BusyModal({
   return <PlanModal title={entry ? "Изменение занятости" : "Новая занятость"} subtitle="Занятость исключает сотрудника из назначения на полёты" onClose={onClose}>
     <form className="form-stack" onSubmit={submit}>
       <label className="field"><span>Сотрудник</span><select required autoFocus value={personId} onChange={(event) => setPersonId(event.target.value)}><option value="">Выберите сотрудника</option>{people.filter((person) => person.active).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
-      <label className="field"><span>Вид занятости</span><select value={activity} onChange={(event) => setActivity(event.target.value as PlanBusyActivity)}>{planBusyActivities.map((item) => <option key={item} value={item}>{planBusyLabels[item]}</option>)}</select></label>
+      <label className="field"><span>Вид занятости</span><select value={activity} onChange={(event) => setActivity(event.target.value as PlanBusyActivity)}>{entry?.activity === "standby" && <option value="standby">{planBusyLabels.standby} · прежняя запись</option>}{planBusyActivities.map((item) => <option key={item} value={item}>{planBusyLabels[item]}</option>)}</select></label>
       <div className="form-grid two"><label className="field"><span>Период с</span><input required type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); if (dateTo < event.target.value) setDateTo(event.target.value); }} /></label><label className="field"><span>Период по</span><input required type="date" min={dateFrom} value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></label></div>
       <label className="field"><span>Примечание</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Подразделение, программа подготовки, место командировки…" /></label>
       {error && <div className="form-error">{error}</div>}
@@ -364,6 +364,7 @@ function EmploymentPlannerModal({
   const [error, setError] = useState("");
   const person = people.find((item) => item.id === personId);
   const dates = datesInRange(dateFrom, dateTo);
+  const usesAircraftPlacement = activity === "flight" || activity === "standby";
   const allowedAircraft = aircraftNumbers.filter((aircraft) =>
     person?.aircraftTypes.includes(aircraftTypeForNumber(aircraft, aircraftNumbersByType)));
 
@@ -376,7 +377,7 @@ function EmploymentPlannerModal({
 
   function dateBlockReason(date: string): string | null {
     if (!person) return "Сначала выберите сотрудника.";
-    if (activity !== "flight") {
+    if (!usesAircraftPlacement) {
       return busyBlockReason(person.id, date, assignments, busyEntries, actualBusy);
     }
     if (!selectedAircraft.length) return "Выберите хотя бы один борт.";
@@ -418,13 +419,14 @@ function EmploymentPlannerModal({
         : "Выберите хотя бы один доступный день.");
       return;
     }
-    if (activity === "flight") {
+    if (usesAircraftPlacement) {
       onSaveAssignments(readyDates.flatMap((date) => selectedAircraft.map((aircraft) => ({
         id: uid(),
         personId: person.id,
         date,
         aircraft,
         role,
+        activity,
       }))));
       return;
     }
@@ -449,7 +451,7 @@ function EmploymentPlannerModal({
         <label className="field"><span>Вид занятости</span><select value={activity} onChange={(event) => {
           setActivity(event.target.value as EmploymentActivity);
           setError("");
-        }}><option value="flight">Полётная смена</option>{planBusyActivities.map((item) => <option key={item} value={item}>{planBusyLabels[item]}</option>)}</select></label>
+        }}><option value="flight">Полётная смена</option><option value="standby">{planBusyLabels.standby}</option>{planBusyActivities.map((item) => <option key={item} value={item}>{planBusyLabels[item]}</option>)}</select></label>
       </div>
       <div className="form-grid two">
         <label className="field"><span>Период с</span><input required type="date" value={dateFrom} onChange={(event) => {
@@ -458,7 +460,7 @@ function EmploymentPlannerModal({
         }} /></label>
         <label className="field"><span>Период по</span><input required type="date" min={dateFrom} value={dateTo} onChange={(event) => setRange(dateFrom, event.target.value)} /></label>
       </div>
-      {activity === "flight" && <section className="employment-aircraft">
+      {usesAircraftPlacement && <section className="employment-aircraft">
         <div className="section-label"><strong>Борта из допусков сотрудника</strong><span>{selectedAircraft.length}</span></div>
         {!person ? <div className="planner-hint">Сначала выберите сотрудника.</div> : !allowedAircraft.length ? <div className="form-error">Для типов ВС сотрудника нет настроенных бортовых номеров.</div> : <div className="aircraft-choice-grid">{allowedAircraft.map((aircraft) => {
           const aircraftType = aircraftTypeForNumber(aircraft, aircraftNumbersByType);
@@ -485,8 +487,8 @@ function EmploymentPlannerModal({
           ><strong>{String(meta.day).padStart(2, "0")}</strong><span>{meta.weekday}</span>{reason && <i>!</i>}</button>;
         })}</div>
       </section>
-      {activity !== "flight" && <label className="field"><span>Примечание</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Место, программа, основание…" /></label>}
-      <div className="report-scope-note">Запись сразу появится в месячном плане и в разделе «Полётные смены». Фактическое время и налёт по выполненному полёту затем вносятся обычной записью смены.</div>
+      {!usesAircraftPlacement && <label className="field"><span>Примечание</span><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Место, программа, основание…" /></label>}
+      <div className="report-scope-note">{activity === "standby" ? "Ожидание полёта будет показано непосредственно в строке выбранного борта и экипажа." : "Запись сразу появится в месячном плане и в разделе «Полётные смены». Фактическое время и налёт по выполненному полёту затем вносятся обычной записью смены."}</div>
       {error && <div className="form-error">{error}</div>}
       <div className="form-actions"><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button">Применить занятость</button></div>
     </form>

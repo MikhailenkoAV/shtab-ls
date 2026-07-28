@@ -344,6 +344,14 @@ td strong { color: #314956; }
 .excluded-work-toggle { display: flex; align-items: center; gap: 8px; min-height: 41px; padding: 9px 11px; border: 1px solid #d8e2e5; border-radius: 8px; color: #526b77; background: #f8fbfb; font-size: 9px; font-weight: 800; cursor: pointer; }
 .excluded-work-toggle:has(input:checked) { border-color: #d29b54; color: #7a541e; background: #fff7e8; }
 .excluded-work-toggle input { margin: 0; accent-color: #b87928; }
+.landing-count-field { min-width: 0; margin: 0; padding: 0; border: 0; }
+.landing-count-field legend { margin-bottom: 7px; color: #4a606c; font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.landing-count-field legend small { margin-left: 5px; color: #96a3a9; font-size: 8px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.landing-count-field > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.landing-count-field label { position: relative; min-width: 0; }
+.landing-count-field label span { position: absolute; z-index: 1; left: 8px; top: 5px; color: #85949b; font-size: 7px; font-weight: 800; text-transform: uppercase; }
+.landing-count-field input { width: 100%; min-height: 41px; padding: 15px 8px 3px; border: 1px solid #d6e0e4; border-radius: 8px; outline: none; color: #263f4d; background: #fbfcfd; font-size: 12px; }
+.landing-count-field input:focus { border-color: #51aaa2; box-shadow: 0 0 0 3px rgba(81,170,162,.11); background: white; }
 .remove-segment { width: 26px; height: 41px; border: 0; color: #a55e5e; background: transparent; font-size: 20px; }
 .split-pill { display: inline-block; min-width: 32px; padding: 4px 7px; border-radius: 999px; color: #76868e; background: #eef2f3; text-align: center; font-size: 9px; font-weight: 800; }
 .split-pill.active { color: #81571f; background: #fff0cf; }
@@ -390,6 +398,8 @@ td strong { color: #314956; }
 .plan-table td > button { width: 100%; min-height: 33px; overflow: hidden; padding: 3px 5px; border: 0; color: #65808a; background: transparent; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; }
 .plan-table td > button:hover { color: #0c6d65; background: rgba(255,255,255,.65); }
 .plan-table td > button.filled { color: #173f46; font-weight: 800; }
+.plan-table td > button.filled small { display: block; margin-top: 2px; color: #41766f; font-size: 6px; font-weight: 800; text-transform: uppercase; }
+.plan-table td > button.standby { background: #cce1de; }
 .plan-divider td { position: sticky; z-index: 3; left: 0; height: 29px; padding: 5px 10px; color: white; background: #137a92; text-align: left; font-size: 8px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
 .plan-busy-name { position: sticky; z-index: 4; left: 0; width: 180px; min-width: 180px; padding: 6px 8px !important; border-left: 1px solid #cbd4d8; color: #243f4e !important; background: #edf1f2 !important; text-align: left !important; font-size: 8px !important; }
 .plan-busy-row td { height: 37px; background: #f5f7f8; }

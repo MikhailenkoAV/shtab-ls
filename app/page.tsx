@@ -58,6 +58,7 @@ type Person = { id: string; name: string; position: string; permissions: string[
 type Segment = {
   id: string; aircraft: string; aircraftType?: string; seat: Seat; purpose: string;
   dutyStart: string; dutyEnd: string; flightMinutes: number; nightMinutes: number; splitShift: boolean;
+  dayLandings?: number; nightLandings?: number;
   excludedWorkMinutes?: number;
   splitGroupId?: string; splitPart?: 1 | 2;
   commanderPersonId?: string;
@@ -132,6 +133,8 @@ function normalizeShift(shift: Shift): Shift {
     dutyStart: segment.dutyStart ?? shift.start ?? "",
     dutyEnd: segment.dutyEnd ?? legacyDutyEnd,
     excludedWorkMinutes: Math.max(0, segment.excludedWorkMinutes ?? 0),
+    dayLandings: Math.max(0, Math.floor(segment.dayLandings ?? 0)),
+    nightLandings: Math.max(0, Math.floor(segment.nightLandings ?? 0)),
     splitShift: Boolean(segment.splitShift),
     splitPart: segment.splitPart === 1 || segment.splitPart === 2 ? segment.splitPart : undefined,
     commanderPersonId: segment.seat?.toLocaleLowerCase("ru-RU").includes("инструктор")
@@ -771,7 +774,7 @@ export default function Home() {
     setToast("Занятость удалена");
   }
   function exportBackup() {
-    download(`shtab-ls-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ version: 9, exportedAt: new Date().toISOString(), data }, null, 2));
+    download(`shtab-ls-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ version: 10, exportedAt: new Date().toISOString(), data }, null, 2));
     setToast("Резервная копия сохранена");
   }
   function importBackup(event: ChangeEvent<HTMLInputElement>) {
@@ -850,6 +853,7 @@ export default function Home() {
                   ? <ActualPlanView
                     people={data.people}
                     shifts={expandedShifts}
+                    onNotify={setToast}
                     onEdit={(selected) => {
                       const source = data.shifts.find((item) => item.id === selected.linkedSourceShiftId);
                       setShiftModal(source ?? selected as Shift);
@@ -996,11 +1000,12 @@ function ShiftsView({
           : segment?.commanderPersonId
             ? `КВС: ${linkedPerson?.name ?? "связанная смена"}`
             : "";
-        return <tr key={segment ? `${shift.id}-${segment.id}` : shift.id}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{activityLabels[shift.activity]}{crewLabel && <span className="source-pill">Одна смена · {crewLabel}</span>}{segment?.splitShift && <span className="split-pill active">Разделённая · часть {segment.splitPart ?? 1}</span>}</span></td><td>{segment ? `${segment.dutyStart || "—"}–${segment.dutyEnd || "—"}` : shift.start ? `${shift.start}–${shiftEndClock(shift)}` : "—"}</td><td>{segment ? <span className="aircraft-cell"><strong>{[segment.aircraftType, segment.aircraft].filter(Boolean).join(" · ") || "—"}</strong><small>{segment.seat}</small></span> : "—"}</td><td>{segment?.purpose || "—"}</td><td>{segment ? <span className="flight-cell"><strong>{formatDuration(segmentCountedWorkMinutes(segment))}</strong>{Boolean(segment.excludedWorkMinutes) && <small>не учитывается {formatDuration(segment.excludedWorkMinutes ?? 0)}</small>}</span> : shift.workMinutes ? formatDuration(shift.workMinutes) : "—"}</td><td>{segment ? <span className="flight-cell"><strong>{flight ? formatDuration(flight) : "—"}</strong>{night > 0 && <small>ночь {formatDuration(night)}</small>}</span> : "—"}</td><td><RestCell shift={shift} rest={rest} assumedCompliant={assumedCompliant} allShifts={expandedActualShifts} /></td><td className="note-cell">{shift.note || "—"}</td><td><div className="row-actions"><button onClick={() => onEdit(sourceShift)}>Изменить</button><button className="delete" onClick={() => segment ? onDeleteFlight(sourceShift, segment.id) : onDelete(sourceShift)}>Удалить</button></div></td></tr>;
+        return <tr key={segment ? `${shift.id}-${segment.id}` : shift.id}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{activityLabels[shift.activity]}{crewLabel && <span className="source-pill">Одна смена · {crewLabel}</span>}{segment?.splitShift && <span className="split-pill active">Разделённая · часть {segment.splitPart ?? 1}</span>}</span></td><td>{segment ? `${segment.dutyStart || "—"}–${segment.dutyEnd || "—"}` : shift.start ? `${shift.start}–${shiftEndClock(shift)}` : "—"}</td><td>{segment ? <span className="aircraft-cell"><strong>{[segment.aircraftType, segment.aircraft].filter(Boolean).join(" · ") || "—"}</strong><small>{segment.seat}</small></span> : "—"}</td><td>{segment?.purpose || "—"}</td><td>{segment ? <span className="flight-cell"><strong>{formatDuration(segmentCountedWorkMinutes(segment))}</strong>{Boolean(segment.excludedWorkMinutes) && <small>не учитывается {formatDuration(segment.excludedWorkMinutes ?? 0)}</small>}</span> : shift.workMinutes ? formatDuration(shift.workMinutes) : "—"}</td><td>{segment ? <span className="flight-cell"><strong>{flight ? formatDuration(flight) : "—"}</strong>{night > 0 && <small>ночь {formatDuration(night)}</small>}<small>посадки Д/Н: {segment.dayLandings ?? 0}/{segment.nightLandings ?? 0}</small></span> : "—"}</td><td><RestCell shift={shift} rest={rest} assumedCompliant={assumedCompliant} allShifts={expandedActualShifts} /></td><td className="note-cell">{shift.note || "—"}</td><td><div className="row-actions"><button onClick={() => onEdit(sourceShift)}>Изменить</button><button className="delete" onClick={() => segment ? onDeleteFlight(sourceShift, segment.id) : onDelete(sourceShift)}>Удалить</button></div></td></tr>;
       }
       if (row.kind === "assignment") {
         const aircraftType = aircraftTypeForNumber(row.assignment.aircraft, aircraftNumbersByType);
-        return <tr className="planned-row" key={`assignment-${row.assignment.id}`}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">Полётная смена<span className="source-pill">Из месячного плана</span></span></td><td>—</td><td><span className="aircraft-cell"><strong>{[aircraftType, row.assignment.aircraft].filter(Boolean).join(" · ")}</strong><small>{planRoleLabels[row.assignment.role]}</small></span></td><td>—</td><td>—</td><td>—</td><td>—</td><td className="note-cell">Назначение из месячного плана</td><td><div className="row-actions"><button onClick={() => onEditPlan({ kind: "assignment", id: row.assignment.id })}>Изменить</button><button className="delete" onClick={() => { if (window.confirm(`Удалить назначение ${person?.name ?? "сотрудника"} на ${row.assignment.aircraft} за ${formatDate(row.date)}?`)) onDeletePlanAssignment(row.assignment.id); }}>Удалить</button></div></td></tr>;
+        const plannedActivity = row.assignment.activity === "standby" ? "Ожидание полёта" : "Полётная смена";
+        return <tr className="planned-row" key={`assignment-${row.assignment.id}`}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{plannedActivity}<span className="source-pill">Из месячного плана</span></span></td><td>—</td><td><span className="aircraft-cell"><strong>{[aircraftType, row.assignment.aircraft].filter(Boolean).join(" · ")}</strong><small>{planRoleLabels[row.assignment.role]}</small></span></td><td>—</td><td>—</td><td>—</td><td>—</td><td className="note-cell">{plannedActivity} · месячный план</td><td><div className="row-actions"><button onClick={() => onEditPlan({ kind: "assignment", id: row.assignment.id })}>Изменить</button><button className="delete" onClick={() => { if (window.confirm(`Удалить назначение ${person?.name ?? "сотрудника"} на ${row.assignment.aircraft} за ${formatDate(row.date)}?`)) onDeletePlanAssignment(row.assignment.id); }}>Удалить</button></div></td></tr>;
       }
       return <tr className="planned-row" key={`busy-${row.entry.id}-${row.date}`}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{planBusyLabels[row.entry.activity]}<span className="source-pill">Из месячного плана</span></span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td className="note-cell">{row.entry.note || "Из месячного плана"}</td><td><div className="row-actions"><button onClick={() => onEditPlan({ kind: "busy", id: row.entry.id })}>Изменить</button><button className="delete" onClick={() => { if (window.confirm(`Удалить занятость «${planBusyLabels[row.entry.activity]}» за ${formatDate(row.date)}?`)) onDeletePlanBusy(row.entry.id); }}>Удалить</button></div></td></tr>;
     })}</tbody></table></div>}
@@ -1196,6 +1201,8 @@ type SegmentDraft = {
   dutyEnd: string;
   flight: string;
   night: string;
+  dayLandings: string;
+  nightLandings: string;
   excludeFromWork: boolean;
   excludedWork: string;
   splitShift: boolean;
@@ -1215,6 +1222,8 @@ function createSegmentDraft(aircraftType: string, dutyStart = "08:00"): SegmentD
     dutyEnd: clockAfterMinutes(dutyStart, 480),
     flight: "00:00",
     night: "00:00",
+    dayLandings: "0",
+    nightLandings: "0",
     excludeFromWork: false,
     excludedWork: "00:00",
     splitShift: false,
@@ -1230,6 +1239,8 @@ function splitSecondPart(first: SegmentDraft, groupId: string): SegmentDraft {
     dutyEnd: clockAfterMinutes(dutyStart, 240),
     flight: "00:00",
     night: "00:00",
+    dayLandings: "0",
+    nightLandings: "0",
     excludeFromWork: false,
     excludedWork: "00:00",
     splitShift: true,
@@ -1251,6 +1262,8 @@ function initializeSegmentDrafts(shift: Shift | null, defaultAircraftType: strin
     dutyEnd: item.dutyEnd || clockAfterMinutes(shift.start || "08:00", shift.workMinutes || 480),
     flight: durationValue(item.flightMinutes),
     night: durationValue(item.nightMinutes),
+    dayLandings: String(Math.max(0, Math.floor(item.dayLandings ?? 0))),
+    nightLandings: String(Math.max(0, Math.floor(item.nightLandings ?? 0))),
     excludeFromWork: Boolean(item.excludedWorkMinutes),
     excludedWork: durationValue(item.excludedWorkMinutes ?? 0),
     splitShift: Boolean(item.splitShift),
@@ -1378,6 +1391,7 @@ function ShiftModal({ people, shift, onClose, onSubmit, onDelete }: { people: Pe
           && qualification.seats.some((seat) => seat === "КВС" || seat === "Командир ВС"));
     })) { setError("Выбранный КВС должен быть другим сотрудником и иметь допуск на указанный тип ВС."); return; }
     if (activity === "flight" && segments.some((item) => (item.flight && !normalizeTime(item.flight)) || (item.night && !normalizeTime(item.night)))) { setError("Проверьте полётное и ночное время."); return; }
+    if (activity === "flight" && segments.some((item) => !/^\d*$/.test(item.dayLandings) || !/^\d*$/.test(item.nightLandings))) { setError("Количество посадок указывается целым неотрицательным числом."); return; }
     if (activity === "flight" && segments.some((item) => item.excludeFromWork && item.excludedWork && !normalizeTime(item.excludedWork))) { setError("Проверьте время, которое не учитывается в рабочем времени."); return; }
     const safeSegments: Segment[] = activity === "flight" ? segments.map((item) => ({
       id: item.id,
@@ -1390,6 +1404,8 @@ function ShiftModal({ people, shift, onClose, onSubmit, onDelete }: { people: Pe
       dutyEnd: normalizeTime(item.dutyEnd, true),
       flightMinutes: parseDuration(normalizeTime(item.flight) || "00:00"),
       nightMinutes: parseDuration(normalizeTime(item.night) || "00:00"),
+      dayLandings: Math.max(0, Math.floor(Number(item.dayLandings) || 0)),
+      nightLandings: Math.max(0, Math.floor(Number(item.nightLandings) || 0)),
       excludedWorkMinutes: item.excludeFromWork
         ? parseDuration(normalizeTime(item.excludedWork) || "00:00")
         : 0,
@@ -1504,6 +1520,13 @@ function SegmentDraftFields({
       <Field label="Цель"><select value={segment.purpose} onChange={(event) => onChange({ purpose: event.target.value })}>{flightPurposes.map((purpose) => <option key={purpose}>{purpose}</option>)}</select></Field>
       <Field label="Полётное" hint="0130 → 01:30"><TimeEntry value={segment.flight} onChange={(value) => onChange({ flight: value })} /></Field>
       <Field label="Ночь" hint="0045 → 00:45"><TimeEntry value={segment.night} onChange={(value) => onChange({ night: value })} /></Field>
+      <fieldset className="landing-count-field">
+        <legend>Посадки <small>день / ночь</small></legend>
+        <div>
+          <label><span>День</span><input type="number" inputMode="numeric" min="0" step="1" value={segment.dayLandings} onChange={(event) => onChange({ dayLandings: event.target.value.replace(/\D/g, "") })} /></label>
+          <label><span>Ночь</span><input type="number" inputMode="numeric" min="0" step="1" value={segment.nightLandings} onChange={(event) => onChange({ nightLandings: event.target.value.replace(/\D/g, "") })} /></label>
+        </div>
+      </fieldset>
       <label className="excluded-work-toggle"><input type="checkbox" checked={segment.excludeFromWork} onChange={(event) => onChange({
         excludeFromWork: event.target.checked,
         excludedWork: event.target.checked ? segment.excludedWork : "00:00",
