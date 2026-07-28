@@ -50,7 +50,7 @@ test("control journal creates 90-day type and night rows from the latest qualify
   assert.equal(isControlJournalVisible(nightRows[0], "night"), true);
 });
 
-test("Bell407 board is recognized and missing flights require attention", () => {
+test("Bell407 board is recognized while types without a reference flight stay outside control", () => {
   const people = [{
     id: "bell",
     name: "Левочкин Виктор Викторович",
@@ -70,7 +70,30 @@ test("Bell407 board is recognized and missing flights require attention", () => 
   assert.equal(rows.find((row) => row.kind === "type" && row.aircraftType === "Bell407")?.referenceDate, "2026-07-21");
   assert.equal(rows.find((row) => row.kind === "night" && row.aircraftType === "Bell407")?.referenceDate, "2026-07-21");
   assert.equal(rows.find((row) => row.kind === "type" && row.aircraftType === "AW139")?.status, "incomplete");
-  assert.equal(rows.filter(isControlAttention).length, 1);
+  const aw139 = rows.find((row) => row.kind === "type" && row.aircraftType === "AW139");
+  assert.equal(isControlAttention(aw139), false);
+  assert.equal(isControlJournalVisible(aw139, "type"), false);
+  assert.equal(rows.filter(isControlAttention).length, 0);
+});
+
+test("night control starts only after the third recorded night landing", () => {
+  const people = [{
+    id: "night",
+    name: "Ночной Пилот",
+    active: true,
+    qualifications: [{ aircraftTypes: ["R44"], nightAircraftTypes: ["R44"] }],
+  }];
+  const shifts = [{
+    personId: "night",
+    date: "2026-07-20",
+    activity: "flight",
+    segments: [{ aircraft: "RA-04186", aircraftType: "R44", flightMinutes: 40, nightMinutes: 15, nightLandings: 2 }],
+  }];
+  const night = buildControlRows(people, shifts, [], "2026-07-26").find((row) => row.kind === "night");
+  assert.equal(night?.referenceDate, "");
+  assert.equal(night?.landingCount, 2);
+  assert.equal(isControlAttention(night), false);
+  assert.equal(isControlJournalVisible(night, "night"), false);
 });
 
 test("night validity is extended by the third most recent landing, not merely the latest night flight", () => {

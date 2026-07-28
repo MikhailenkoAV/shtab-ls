@@ -216,11 +216,14 @@ export function buildControlRows(
 }
 
 export function isControlAttention(row: ControlRow): boolean {
+  if ((row.kind === "type" || row.kind === "night") && !row.referenceDate) return false;
   return ["expired", "alert14", "alert45", "incomplete"].includes(row.status);
 }
 
 export function isControlJournalVisible(row: ControlRow, kind: ControlKind): boolean {
-  return row.kind === kind && (kind !== "certification" || isControlAttention(row));
+  if (row.kind !== kind) return false;
+  if ((kind === "type" || kind === "night") && !row.referenceDate) return false;
+  return kind !== "certification" || isControlAttention(row);
 }
 
 export function compareAttentionDates(leftDate: string, rightDate: string, today: string): number {

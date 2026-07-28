@@ -83,7 +83,7 @@ export function ControlJournalView({
       <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по сотруднику, типу или документу…" />
       <span className="control-attention-note">{kind === "certification"
         ? "Все предупреждения полностью совпадают с разделом «Требует внимания» на главной"
-        : "Показаны все сотрудники с соответствующим допуском"}</span>
+        : "Показаны допуски, по которым в базе уже есть опорная дата"}</span>
     </div>
     <div className="control-journal-note">{kind === "type"
       ? "Срок 90 дней рассчитывается от последнего полёта сотрудника на каждом допущенном типе ВС."
@@ -96,7 +96,7 @@ export function ControlJournalView({
         : <div className="table-scroll"><table className="control-journal-table attention-table"><thead><tr><th>Предупреждение</th><th>Подробности</th><th>Контрольная дата</th><th>Уровень</th></tr></thead><tbody>{visibleAlerts.map((alert) =>
           <tr key={alert.id}><td><strong>{alert.title}</strong></td><td className="note-cell">{alert.detail}</td><td>{displayDate(alert.sortDate)}</td><td><span className={`attention-level ${alert.severity}`}>{alert.severity === "danger" ? "Срочно" : "Внимание"}</span></td></tr>)}</tbody></table></div>
       : !visible.length
-        ? <div className="panel-empty tall">Сотрудники с соответствующим допуском не найдены.</div>
+        ? <div className="panel-empty tall">Нет записей с опорной датой. Отсчёт начнётся после внесения первого полёта на типе или трёх ночных посадок.</div>
         : <div className="table-scroll"><table className="control-journal-table"><thead><tr><th>Сотрудник</th><th>Тип ВС</th><th>{kind === "night" ? "Опорная посадка" : "Последний полёт"}</th>{kind === "night" && <th>Посадки за 90 дней</th>}<th>Срок</th><th>Осталось</th><th>Состояние</th></tr></thead><tbody>{visible.map((row) =>
           <tr key={row.id}><td><strong>{row.personName}</strong></td><td><strong>{row.aircraftType}</strong></td><td>{displayDate(row.referenceDate)}</td>{kind === "night" && <td><strong>{row.landingCount ?? 0}</strong> / 3</td>}<td>{displayDate(row.dueDate)}</td><td>{row.daysLeft === null ? "—" : row.daysLeft < 0 ? `−${Math.abs(row.daysLeft)} дн.` : `${row.daysLeft} дн.`}</td><td><span className={`expiry-pill ${row.status}`}>{row.statusLabel}</span></td></tr>)}</tbody></table></div>}
   </section>;

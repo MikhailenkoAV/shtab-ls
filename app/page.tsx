@@ -42,6 +42,15 @@ import {
 import { expandLinkedCrewShifts } from "./crew-rules";
 import { dashboardRows } from "./dashboard-rules";
 import { backupFileName } from "./backup-rules";
+import { DocumentationView } from "./documentation";
+import registrySeedJson from "./document-registry-seed.json";
+import {
+  DocumentPersonProfile,
+  DocumentRegistryRecord,
+  DocumentSettings,
+  EMPTY_DOCUMENT_PROFILE,
+  EMPTY_DOCUMENT_SETTINGS,
+} from "./documentation-rules";
 
 type View = "dashboard" | "shifts" | "people" | "personal" | "control" | "planning" | "actual" | "documentation" | "settings";
 type Activity = "flight" | "trip" | "office" | "periodic_training" | "ground_training" | "standby" | "vacation" | "dayoff";
@@ -97,7 +106,11 @@ type AppData = {
   planAssignments: PlanAssignment[];
   planBusyEntries: PlanBusyEntry[];
   settings: CompanySettings;
+  documentRegistry: DocumentRegistryRecord[];
+  documentProfiles: Record<string, DocumentPersonProfile>;
+  documentSettings: DocumentSettings;
 };
+const REGISTRY_SEED = registrySeedJson as DocumentRegistryRecord[];
 
 const EMPTY_SETTINGS: CompanySettings = {
   fullName: "",
@@ -118,6 +131,9 @@ const EMPTY_DATA: AppData = {
   planAssignments: [],
   planBusyEntries: [],
   settings: EMPTY_SETTINGS,
+  documentRegistry: REGISTRY_SEED,
+  documentProfiles: {},
+  documentSettings: EMPTY_DOCUMENT_SETTINGS,
 };
 const DB_NAME = "shtab-ls";
 const STORE_NAME = "workspace";
@@ -261,6 +277,9 @@ async function loadData(): Promise<AppData> {
         planAssignments: stored?.planAssignments ?? [],
         planBusyEntries: stored?.planBusyEntries ?? [],
         settings: { ...EMPTY_SETTINGS, ...(stored?.settings ?? {}) },
+        documentRegistry: stored?.documentRegistry ?? REGISTRY_SEED,
+        documentProfiles: stored?.documentProfiles ?? {},
+        documentSettings: { ...EMPTY_DOCUMENT_SETTINGS, ...(stored?.documentSettings ?? {}) },
       });
     };
     request.onerror = () => reject(request.error);
@@ -674,6 +693,7 @@ export default function Home() {
       certifications: current.certifications.filter((record) => record.personId !== person.id),
       planAssignments: current.planAssignments.filter((assignment) => assignment.personId !== person.id),
       planBusyEntries: current.planBusyEntries.filter((entry) => entry.personId !== person.id),
+      documentProfiles: Object.fromEntries(Object.entries(current.documentProfiles).filter(([personId]) => personId !== person.id)),
     }));
     setPersonModal(null); setToast("Сотрудник удалён");
   }
@@ -784,6 +804,25 @@ export default function Home() {
     setData((current) => ({ ...current, certifications: current.certifications.some((item) => item.id === record.id) ? current.certifications.map((item) => item.id === record.id ? record : item) : [...current.certifications, record] })); setToast("Запись личного дела сохранена");
   }
   function deleteCertification(recordId: string) { setData((current) => ({ ...current, certifications: current.certifications.filter((record) => record.id !== recordId) })); setToast("Запись удалена"); }
+  function upsertRegistryRecord(record: DocumentRegistryRecord) {
+    setData((current) => ({
+      ...current,
+      documentRegistry: current.documentRegistry.some((item) => item.id === record.id)
+        ? current.documentRegistry.map((item) => item.id === record.id ? record : item)
+        : [...current.documentRegistry, record],
+    }));
+    setToast("Запись реестра сохранена");
+  }
+  function deleteRegistryRecord(recordId: string) {
+    setData((current) => ({ ...current, documentRegistry: current.documentRegistry.filter((record) => record.id !== recordId) }));
+    setToast("Запись реестра удалена");
+  }
+  function saveDocumentProfile(personId: string, profile: DocumentPersonProfile) {
+    setData((current) => ({
+      ...current,
+      documentProfiles: { ...current.documentProfiles, [personId]: { ...EMPTY_DOCUMENT_PROFILE, ...profile } },
+    }));
+  }
   function savePlanAssignment(assignment: PlanAssignment) {
     setData((current) => ({
       ...current,
@@ -829,7 +868,7 @@ export default function Home() {
   }
   function exportBackup() {
     const now = new Date();
-    download(backupFileName(now), JSON.stringify({ version: 12, exportedAt: now.toISOString(), data }, null, 2));
+    download(backupFileName(now), JSON.stringify({ version: 13, exportedAt: now.toISOString(), data }, null, 2));
     setToast("Резервная копия сохранена");
   }
   function importBackup(event: ChangeEvent<HTMLInputElement>) {
@@ -845,6 +884,9 @@ export default function Home() {
         planAssignments: restored.planAssignments ?? [],
         planBusyEntries: restored.planBusyEntries ?? [],
         settings: { ...EMPTY_SETTINGS, ...(restored.settings ?? {}) },
+        documentRegistry: restored.documentRegistry ?? REGISTRY_SEED,
+        documentProfiles: restored.documentProfiles ?? {},
+        documentSettings: { ...EMPTY_DOCUMENT_SETTINGS, ...(restored.documentSettings ?? {}) },
       }); setToast("Резервная копия восстановлена");
     }).catch(() => setToast("Не удалось прочитать резервную копию"));
     event.target.value = "";
@@ -884,7 +926,19 @@ export default function Home() {
           onNavigate={setView}
         />
         : view === "documentation"
-          ? <DocumentationView />
+          ? <DocumentationView
+            people={data.people}
+            certifications={data.certifications}
+            registry={data.documentRegistry}
+            profiles={data.documentProfiles}
+            settings={data.documentSettings}
+            company={data.settings}
+            onUpsertRegistry={upsertRegistryRecord}
+            onDeleteRegistry={deleteRegistryRecord}
+            onProfileChange={saveDocumentProfile}
+            onSettingsChange={(patch) => setData((current) => ({ ...current, documentSettings: { ...current.documentSettings, ...patch } }))}
+            onNotify={setToast}
+          />
           : view === "settings"
             ? <SettingsView
               settings={data.settings}
@@ -1035,21 +1089,6 @@ function DashboardBlock({ eyebrow, title, children }: { eyebrow: string; title: 
 
 function DashboardShortcut({ glyph, title, detail, onClick }: { glyph: string; title: string; detail: string; onClick: () => void }) {
   return <button type="button" className="dashboard-shortcut" onClick={onClick}><span>{glyph}</span><div><strong>{title}</strong><small>{detail}</small></div><i>→</i></button>;
-}
-
-function DocumentationView() {
-  return <section className="documentation-layout">
-    <article className="panel documentation-intro"><div><p className="eyebrow">Подготовлено место</p><h2>Документационный контур</h2><p>Раздел зарезервирован для реестра номенклатуры, присвоения номеров и формирования типовых авиационных документов. Рабочие функции будут добавляться поэтапно.</p></div><span>В разработке</span></article>
-    <div className="documentation-grid">
-      <PlaceholderCard glyph="№" title="Реестр номенклатуры" detail="Автоматическое назначение номера документа из базы." />
-      <PlaceholderCard glyph="ЛС" title="Приложения к свидетельствам" detail="Подготовка приложений к пилотским свидетельствам." />
-      <PlaceholderCard glyph="Ф" title="Формы и шаблоны" detail="Заявки, приказы и другие заполняемые формы." />
-    </div>
-  </section>;
-}
-
-function PlaceholderCard({ glyph, title, detail }: { glyph: string; title: string; detail: string }) {
-  return <article className="panel placeholder-card"><span>{glyph}</span><div><strong>{title}</strong><p>{detail}</p></div><small>Скоро</small></article>;
 }
 
 function SettingsView({
