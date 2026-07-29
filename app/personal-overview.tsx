@@ -14,7 +14,9 @@ import {
 } from "./flight-book-rules";
 import {
   aviationWorkLabel,
+  calculateDocumentEndDate,
   DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
+  documentValidityLabel,
   FAP_494_AVIATION_WORKS,
   normalizePilotPersonalProfile,
   periodicMedicalDates,
@@ -244,6 +246,7 @@ export function PersonalFilesView({
     {recordEditing && person && <CertificationModal
       personId={person.id}
       personAircraftTypes={person.aircraftTypes}
+      personQualifications={person.qualifications}
       record={recordEditing.record}
       group={recordEditing.group}
       definitions={definitions}
@@ -488,6 +491,7 @@ function ProfileModal({
 function CertificationModal({
   personId,
   personAircraftTypes,
+  personQualifications,
   record,
   group,
   definitions,
@@ -497,6 +501,7 @@ function CertificationModal({
 }: {
   personId: string;
   personAircraftTypes: string[];
+  personQualifications: PersonRef["qualifications"];
   record: CertificationRecord | null;
   group: PersonalDocumentGroup;
   definitions: PersonalDocumentDefinition[];
@@ -529,6 +534,18 @@ function CertificationModal({
   const update = (key: keyof CertificationRecord, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const selectedDefinitionId = groupDefinitions.find((item) => item.name === form.certificationType)?.id
     ?? (form.certificationType ? "__legacy" : "");
+  const selectedDefinition = groupDefinitions.find((item) => item.id === selectedDefinitionId);
+  const relevantOperators = [...new Set(personQualifications
+    .filter((item) => !form.aircraftType || item.aircraftTypes.includes(form.aircraftType))
+    .flatMap((item) => item.operators)
+    .filter((item) => item === "КВП" || item === "АОН"))];
+  const needsOperator = Boolean(selectedDefinition?.validityByOperatorMonths);
+  const updateWithCalculatedEnd = (patch: Partial<CertificationRecord>) => setForm((current) => {
+    const next = { ...current, ...patch };
+    const definition = definitions.find((item) => item.name === next.certificationType);
+    const calculated = calculateDocumentEndDate(next.issuedDate, definition, next.operator ?? "");
+    return { ...next, endDate: calculated || next.endDate };
+  });
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="modal wide" role="dialog" aria-modal="true">
       <header><div><p className="eyebrow">Личное дело</p><h2>{record ? "Изменить документ" : `Добавить: ${personalDocumentGroupLabels[group]}`}</h2></div><button className="modal-close" aria-label="Закрыть" onClick={onClose}>×</button></header>
@@ -538,11 +555,12 @@ function CertificationModal({
       }}>
         {groupDefinitions.length > 0 && <label className="field"><span>Документ</span><select required value={selectedDefinitionId} onChange={(event) => {
           const definition = definitions.find((item) => item.id === event.target.value);
-          if (definition) setForm((current) => ({ ...current, certificationType: definition.name, category: definition.category }));
+          if (definition) updateWithCalculatedEnd({ certificationType: definition.name, category: definition.category, operator: "" });
         }}><option value="">Выбрать документ…</option>{selectedDefinitionId === "__legacy" && <option value="__legacy">{form.certificationType}</option>}{groupDefinitions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-        <div className="form-grid two"><label className="field"><span>Тип ВС</span><input list="personal-aircraft-types" value={form.aircraftType} onChange={(event) => update("aircraftType", event.target.value)} /></label><label className="field"><span>Организация</span><input value={form.organization} onChange={(event) => update("organization", event.target.value)} /></label></div>
+        <div className="form-grid two"><label className="field"><span>Тип ВС</span><input list="personal-aircraft-types" value={form.aircraftType} onChange={(event) => updateWithCalculatedEnd({ aircraftType: event.target.value, operator: "" })} /></label><label className="field"><span>Организация</span><input value={form.organization} onChange={(event) => update("organization", event.target.value)} /></label></div>
         <datalist id="personal-aircraft-types">{personAircraftTypes.map((aircraftType) => <option key={aircraftType}>{aircraftType}</option>)}</datalist>
-        <div className="form-grid two"><label className="field"><span>Дата выдачи</span><input type="date" value={form.issuedDate} onChange={(event) => update("issuedDate", event.target.value)} /></label><label className="field"><span>Дата окончания действия</span><input type="date" value={form.endDate} onChange={(event) => update("endDate", event.target.value)} /></label></div>
+        {needsOperator && <label className="field"><span>Эксплуатант для расчёта срока</span><select required value={form.operator ?? ""} onChange={(event) => updateWithCalculatedEnd({ operator: event.target.value })}><option value="">Выберите эксплуатанта…</option>{relevantOperators.map((operator) => <option key={operator}>{operator}</option>)}</select></label>}
+        <div className="form-grid two"><label className="field"><span>Дата выдачи</span><input type="date" value={form.issuedDate} onChange={(event) => updateWithCalculatedEnd({ issuedDate: event.target.value })} /></label><label className="field"><span>Дата окончания действия</span><input type="date" value={form.endDate} onChange={(event) => update("endDate", event.target.value)} />{documentValidityLabel(selectedDefinition, form.operator) && <small>Автоматический срок: {documentValidityLabel(selectedDefinition, form.operator)}</small>}</label></div>
         <div className="form-grid two"><label className="field"><span>Серия</span><input value={form.series} onChange={(event) => update("series", event.target.value)} /></label><label className="field"><span>Номер</span><input value={form.number} onChange={(event) => update("number", event.target.value)} /></label></div>
         <label className="field"><span>Дополнительные сведения</span><textarea value={form.note} onChange={(event) => update("note", event.target.value)} /></label>
         <div className="form-actions split">{onDelete && <button type="button" className="danger-button" onClick={onDelete}>Удалить</button>}<span /><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button className="primary-button">Сохранить</button></div>

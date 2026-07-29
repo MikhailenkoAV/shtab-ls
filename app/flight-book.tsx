@@ -7,6 +7,7 @@ import {
   FlightBookBaselineRow,
   FlightBookShiftRef,
 } from "./flight-book-rules";
+import { FlightBookImportPreview, parseFlightBookImport } from "./flight-book-import-rules";
 
 type FlightBookPerson = {
   id: string;
@@ -39,6 +40,7 @@ export function FlightBookView({
   onDelete: (baselineId: string) => void;
 }) {
   const [editing, setEditing] = useState<FlightBookBaseline | "new" | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const personBaselines = useMemo(() => baselines
     .filter((item) => item.personId === person.id)
     .sort((left, right) => `${right.date}|${right.createdAt}`.localeCompare(`${left.date}|${left.createdAt}`)),
@@ -50,7 +52,7 @@ export function FlightBookView({
 
   return <div className="flight-book-layout">
     <section className="panel flight-book-summary">
-      <div className="panel-heading"><div><p className="eyebrow">Лётная книжка</p><h2>Суммарный налёт</h2></div><button className="primary-button" onClick={() => setEditing("new")}>+ Исходный налёт</button></div>
+      <div className="panel-heading"><div><p className="eyebrow">Лётная книжка</p><h2>Суммарный налёт</h2></div><div className="hero-actions"><button className="secondary-button" onClick={() => setImportOpen(true)}>Импорт из Excel</button><button className="primary-button" onClick={() => setEditing("new")}>+ Исходный налёт</button></div></div>
       <div className="flight-book-rule"><strong>Формула расчёта</strong><span>Последняя контрольная точка + полёты из единого журнала после её даты. Если исходный налёт не внесён, учитываются все записи сайта.</span></div>
       <div className="flight-book-metrics">
         <FlightMetric label="Общий налёт" value={result.total.totalMinutes} tone="teal" />
@@ -84,6 +86,11 @@ export function FlightBookView({
       baseline={editing === "new" ? null : editing}
       onClose={() => setEditing(null)}
       onSave={(baseline) => { onUpsert(baseline); setEditing(null); }}
+    />}
+    {importOpen && <FlightBookImportModal
+      person={person}
+      onClose={() => setImportOpen(false)}
+      onSave={(baseline) => { onUpsert(baseline); setImportOpen(false); }}
     />}
   </div>;
 }
@@ -225,4 +232,50 @@ function BaselineModal({
     </article>)}</div>
     <div className="form-actions"><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button">Сохранить исходный налёт</button></div>
   </form></section></div>;
+}
+
+function FlightBookImportModal({
+  person,
+  onClose,
+  onSave,
+}: {
+  person: FlightBookPerson;
+  onClose: () => void;
+  onSave: (baseline: FlightBookBaseline) => void;
+}) {
+  const [preview, setPreview] = useState<FlightBookImportPreview | null>(null);
+  const [date, setDate] = useState("");
+  const [loading, setLoading] = useState(false);
+  const blocking = preview?.issues.some((issue) => issue.level === "error") ?? true;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal extra-wide" role="dialog" aria-modal="true">
+    <header><div><p className="eyebrow">Лётная книжка · {person.name}</p><h2>Импорт исходного налёта</h2><span>Сначала выполняется чтение и проверка. В базу ничего не попадёт до подтверждения.</span></div><button className="modal-close" aria-label="Закрыть" onClick={onClose}>×</button></header>
+    <div className="form-stack">
+      <label className="file-picker"><input type="file" accept=".xlsx,.xls,.csv" disabled={loading} onChange={async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        setLoading(true);
+        try {
+          const XLSX = await import("xlsx");
+          const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: true });
+          const next = parseFlightBookImport(rows, file.name, person.aircraftTypes);
+          setPreview(next);
+          setDate(next.date || localIsoDate());
+        } finally {
+          setLoading(false);
+        }
+      }} /><strong>{loading ? "Чтение файла…" : "Выбрать Excel с исходным налётом"}</strong><span>.xlsx, .xls или .csv</span></label>
+      {preview && <>
+        <div className="form-grid two"><label className="field"><span>Дата контрольной точки</span><input required type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label className="field"><span>Источник</span><input readOnly value={preview.source} /></label></div>
+        <div className="import-summary-grid"><article><span>Распознано типов ВС</span><strong>{preview.rows.length}</strong></article><article><span>Предупреждения</span><strong>{preview.issues.filter((item) => item.level === "warning").length}</strong></article><article><span>Ошибки</span><strong>{preview.issues.filter((item) => item.level === "error").length}</strong></article></div>
+        {preview.issues.length > 0 && <div className="import-issues">{preview.issues.map((issue, index) => <div className={issue.level} key={`${issue.row}-${index}`}><strong>{issue.level === "error" ? "Ошибка" : "Проверить"}{issue.row ? ` · строка ${issue.row}` : ""}</strong><span>{issue.message}</span></div>)}</div>}
+        <div className="table-scroll"><table className="flight-book-table"><thead><tr><th>Тип ВС</th><th>Общий</th><th>КВС</th><th>2-й пилот</th><th>Пилот-инструктор</th><th>Ночь</th><th>ППП</th><th>Заходы ППП</th></tr></thead><tbody>{preview.rows.map((row) => <tr key={row.id}><td><strong>{row.aircraftType}</strong></td><td>{displayMinutes(row.totalMinutes)}</td><td>{displayMinutes(row.picMinutes)}</td><td>{displayMinutes(row.secondPilotMinutes)}</td><td>{displayMinutes(row.instructorMinutes)}</td><td>{displayMinutes(row.nightMinutes)}</td><td>{displayMinutes(row.ifrMinutes)}</td><td>{row.ifrApproaches}</td></tr>)}</tbody></table></div>
+      </>}
+      <div className="form-actions"><button className="secondary-button" type="button" onClick={onClose}>Отмена</button><button className="primary-button" type="button" disabled={!preview || blocking || !date || !preview.rows.length} onClick={() => {
+        if (!preview) return;
+        onSave({ id: uid(), personId: person.id, date, source: preview.source, note: "", rows: preview.rows.map((row) => ({ ...row, id: uid() })), createdAt: new Date().toISOString() });
+      }}>Подтвердить импорт</button></div>
+    </div>
+  </section></div>;
 }

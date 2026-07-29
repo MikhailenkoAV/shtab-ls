@@ -51,6 +51,7 @@ import {
   DocumentSettings,
   EMPTY_DOCUMENT_PROFILE,
   EMPTY_DOCUMENT_SETTINGS,
+  normalizeDocumentSettings,
 } from "./documentation-rules";
 import { FlightBookBaseline } from "./flight-book-rules";
 import {
@@ -297,7 +298,7 @@ async function loadData(): Promise<AppData> {
         settings: { ...EMPTY_SETTINGS, ...(stored?.settings ?? {}) },
         documentRegistry: stored?.documentRegistry ?? REGISTRY_SEED,
         documentProfiles: stored?.documentProfiles ?? {},
-        documentSettings: { ...EMPTY_DOCUMENT_SETTINGS, ...(stored?.documentSettings ?? {}) },
+        documentSettings: normalizeDocumentSettings(stored?.documentSettings),
         flightBookBaselines: stored?.flightBookBaselines ?? [],
         personalProfiles: Object.fromEntries(Object.entries(stored?.personalProfiles ?? {})
           .map(([personId, profile]) => [personId, normalizePilotPersonalProfile(profile)])),
@@ -956,7 +957,7 @@ export default function Home() {
         settings: { ...EMPTY_SETTINGS, ...(restored.settings ?? {}) },
         documentRegistry: restored.documentRegistry ?? REGISTRY_SEED,
         documentProfiles: restored.documentProfiles ?? {},
-        documentSettings: { ...EMPTY_DOCUMENT_SETTINGS, ...(restored.documentSettings ?? {}) },
+        documentSettings: normalizeDocumentSettings(restored.documentSettings),
         flightBookBaselines: restored.flightBookBaselines ?? [],
         personalProfiles: Object.fromEntries(Object.entries(restored.personalProfiles ?? {})
           .map(([personId, profile]) => [personId, normalizePilotPersonalProfile(profile)])),

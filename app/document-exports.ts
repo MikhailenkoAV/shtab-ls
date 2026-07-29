@@ -259,71 +259,101 @@ export async function downloadPilotAppendixWord(payload: PilotAppendixPayload): 
 }
 
 export async function downloadTrainingRequestWord(payload: TrainingRequestPayload): Promise<void> {
-  const header = ["№", "Ф. И. О.", "Дата рождения", "Тип ВС", "Должность", "СНИЛС", "Документ об образовании", "Квалификация", "Уровень образования", "Паспорт"];
+  let logo: Paragraph;
+  try {
+    const response = await fetch(new URL("solaris-logo.png", window.location.href).pathname);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    logo = new Paragraph({ children: [new ImageRun({ data: bytes, type: "png", transformation: { width: 170, height: 47 } })] });
+  } catch {
+    logo = new Paragraph({ children: [new TextRun({ text: "СОЛЯРИС\nЦЕНТР АВИАЦИИ", bold: true, size: 18 })] });
+  }
+  const blackBorders = {
+    top: { style: BorderStyle.SINGLE, size: 4, color: "000000" },
+    bottom: { style: BorderStyle.SINGLE, size: 4, color: "000000" },
+    left: { style: BorderStyle.SINGLE, size: 4, color: "000000" },
+    right: { style: BorderStyle.SINGLE, size: 4, color: "000000" },
+    insideHorizontal: { style: BorderStyle.SINGLE, size: 4, color: "000000" },
+    insideVertical: { style: BorderStyle.SINGLE, size: 4, color: "000000" },
+  };
+  const requestCell = (text: string, bold = false, width?: number) => new TableCell({
+    width: width ? { size: width, type: WidthType.DXA } : undefined,
+    verticalAlign: VerticalAlign.CENTER,
+    margins: { top: 55, bottom: 55, left: 55, right: 55 },
+    children: [new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [new TextRun({ text: text || " ", bold, size: 15 })],
+    })],
+  });
+  const personHeader = ["№ п/п", "Фамилия Имя Отчество", "Дата рождения", "Тип ВС", "Должность", "СНИЛС", "Серия/номер документа о ВО/СПО", "Наименование квалификации, профессии, специальности", "Уровень образования ВО/СПО", "Серия/номер паспорта"];
   const doc = new Document({
     sections: [{
       properties: {
         page: {
-          size: { orientation: "landscape" },
-          margin: { top: 650, right: 560, bottom: 650, left: 560 },
+          size: { orientation: "landscape", width: 16838, height: 11906 },
+          margin: { top: 520, right: 620, bottom: 430, left: 620 },
         },
       },
       children: [
-        await logoParagraph(),
-        new Paragraph({ alignment: AlignmentType.RIGHT, children: [
-          new TextRun({ text: `${payload.trainingCenterHead}\n`, bold: true, size: 20 }),
-          new TextRun({ text: payload.trainingCenterName, size: 20 }),
-        ] }),
-        new Paragraph({
-          text: "ЗАЯВКА НА ОБУЧЕНИЕ ПЕРСОНАЛА",
-          heading: HeadingLevel.TITLE,
-          alignment: AlignmentType.CENTER,
-          spacing: { before: 260, after: 220 },
-        }),
-        detailsTable([
-          ["Дата заявки", displayDate(payload.requestDate)],
-          ["Программа обучения", payload.programName],
-          ["Объём", payload.hours ? `${payload.hours} ч` : ""],
-          ["Период обучения", `${displayDate(payload.dateFrom)} — ${displayDate(payload.dateTo)}`],
-          ["Предприятие", payload.companyName],
-        ]),
-        new Paragraph({ text: "Список работников", heading: HeadingLevel.HEADING_2, spacing: { before: 260, after: 100 } }),
         new Table({
           width: { size: 100, type: WidthType.PERCENTAGE },
-          borders,
+          borders: {
+            top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE },
+            left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE },
+            insideHorizontal: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE },
+          },
+          rows: [new TableRow({ children: [
+            new TableCell({ width: { size: 55, type: WidthType.PERCENTAGE }, children: [logo] }),
+            new TableCell({ width: { size: 45, type: WidthType.PERCENTAGE }, children: [new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ text: `${payload.trainingCenterHead || "Начальнику АУЦ"}\n${payload.trainingCenterName || "АО ЦА «Солярис»"}`, bold: true, size: 19 })],
+            })] }),
+          ] })],
+        }),
+        new Paragraph({ spacing: { before: 70 }, children: [new TextRun({ text: `Дата: ${displayDate(payload.requestDate)}`, size: 19 })] }),
+        new Paragraph({
+          children: [new TextRun({ text: "Заявка на обучение персонала", bold: true, size: 28 })],
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 120, after: 180 },
+        }),
+        new Paragraph({ children: [new TextRun({ text: "Просим Вас провести обучение наших сотрудников", size: 20 })], spacing: { after: 130 } }),
+        new Paragraph({ children: [
+          new TextRun({ text: "Наименование программы: ", size: 15 }),
+          new TextRun({ text: payload.programName, bold: true, size: 15 }),
+          new TextRun({ text: `\nКоличество часов: ${payload.hours}`, size: 15 }),
+          new TextRun({ text: `\nВ период с ${displayDate(payload.dateFrom)} по ${displayDate(payload.dateTo)}`, size: 15 }),
+        ], spacing: { after: 130 }, indent: { left: 240 } }),
+        new Paragraph({ children: [new TextRun({ text: "Список сотрудников прилагается:", size: 20 })], spacing: { after: 90 } }),
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          borders: blackBorders,
           rows: [
-            new TableRow({ tableHeader: true, children: header.map((value) => cell(value, true)) }),
+            new TableRow({ tableHeader: true, children: personHeader.map((value) => requestCell(value, true)) }),
             ...payload.rows.map((row, index) => new TableRow({ children: [
-              cell(String(index + 1)),
-              cell(row.personName),
-              cell(displayDate(row.birthDate)),
-              cell(row.aircraftType),
-              cell(row.position),
-              cell(row.snils),
-              cell(row.educationDocument),
-              cell(row.educationQualification),
-              cell(row.educationLevel),
-              cell(row.passport),
+              requestCell(String(index + 1)),
+              requestCell(row.personName),
+              requestCell(displayDate(row.birthDate)),
+              requestCell(row.aircraftType),
+              requestCell(row.position),
+              requestCell(row.snils),
+              requestCell(row.educationDocument),
+              requestCell(row.educationQualification),
+              requestCell(row.educationLevel),
+              requestCell(row.passport),
             ] })),
           ],
         }),
-        new Paragraph({ spacing: { before: 220 }, children: [
-          new TextRun({ text: "Оплату обучения гарантируем. Условия оплаты и реквизиты определяются действующим договором с АУЦ.", size: 18 }),
+        new Paragraph({ children: [new TextRun({ text: "Форма оплаты:\n    1.  Безналичный расчет", size: 19 })], spacing: { before: 120, after: 120 } }),
+        new Paragraph({ children: [
+          new TextRun({ text: `${payload.senderTitle || "Начальник штаба"}                                      `, bold: true, size: 18 }),
+          new TextRun({ text: "____________________    ", size: 18 }),
+          new TextRun({ text: payload.senderName, bold: true, size: 18 }),
         ] }),
-        detailsTable([
-          ["Руководитель организации", payload.senderName],
-          ["Должность", payload.senderTitle],
-          ["Подпись", ""],
-          ["Дата", displayDate(payload.requestDate)],
-        ]),
-        new Paragraph({ spacing: { before: 170 }, children: [new TextRun({ text: `Контактное лицо: ${payload.senderName}`, bold: true, size: 18 })] }),
-        new Paragraph({ children: [new TextRun({ text: `E-mail: ${payload.senderEmail} · Телефон: ${payload.senderPhone}`, size: 18 })] }),
-        new Paragraph({ spacing: { before: 170 }, children: [new TextRun({
-          text: "К заявке прилагаются копии документов работников в составе, установленном АУЦ.",
-          italics: true,
-          color: "5F7079",
-          size: 17,
-        })] }),
+        new Paragraph({ children: [new TextRun({ text: "       (должность заказчика обучения)                                      (подпись/Фамилия, инициалы)", size: 13 })], spacing: { after: 100 } }),
+        new Paragraph({ children: [new TextRun({ text: `Данные лица, отправившего заявку:\nФамилия, инициалы: ${payload.senderName}\nЭл.почта: ${payload.senderEmail}\nТелефон: ${payload.senderPhone}`, size: 15 })] }),
+        new Paragraph({ spacing: { before: 80 }, children: [
+          new TextRun({ text: "*Перечень документов при поступлении (копии): ", bold: true, size: 13 }),
+          new TextRun({ text: "Документ о высшем/среднем-профессиональном образовании (номер, серия, специальность); паспорт; СНИЛС; свидетельство пилота/бортинженера/бортмеханика; документ, подтверждающий прохождение обучения по программе подготовки членов летного экипажа других видов авиации к выполнению полетов на воздушных судах гражданской авиации; Медицинское заключение (если требуется)", size: 13 }),
+        ] }),
       ],
     }],
   });

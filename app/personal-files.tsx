@@ -43,6 +43,7 @@ export type CertificationRecord = {
   id: string; personId: string; category: string; certificationType: string; aircraftType: string;
   organization: string; issuedDate: string; startDate: string; endDate: string; documentType: string;
   grade: string; series: string; number: string; documentAvailable: string; note: string;
+  operator?: string;
   source: "aviabit" | "manual"; sourceFile: string; importedAt: string;
 };
 export type ImportPayload = { targetPersonId: string | null; personName: string; records: CertificationRecord[] };

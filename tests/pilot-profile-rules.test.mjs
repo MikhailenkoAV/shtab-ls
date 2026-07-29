@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  calculateDocumentEndDate,
   DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
   EMPTY_PILOT_PERSONAL_PROFILE,
   migratePersonalDocumentDefinitions,
@@ -50,7 +51,6 @@ test("document library contains the approved training and licence names", () => 
     "Английский язык",
     "АСП вода",
     "АСП суша (на типе)",
-    "ВЛЭК",
     "КПК на типе ВС",
     "Опасные грузы",
     "Человеческий фактор",
@@ -63,6 +63,16 @@ test("document library contains the approved training and licence names", () => 
     "Свидетельство линейного пилота",
     "Валидация",
   ].forEach((name) => assert.ok(names.includes(name), `missing definition: ${name}`));
+});
+
+test("training validity is calculated from issue date", () => {
+  const byId = Object.fromEntries(DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS.map((item) => [item.id, item]));
+  assert.equal(calculateDocumentEndDate("2026-01-31", byId["periodic-aviation-security"]), "2029-01-31");
+  assert.equal(calculateDocumentEndDate("2026-01-31", byId["flight-cabin"]), "2026-05-01");
+  assert.equal(calculateDocumentEndDate("2026-02-28", byId["flight-simulator"]), "2026-09-28");
+  assert.equal(calculateDocumentEndDate("2026-07-01", byId["periodic-type"], "КВП"), "2027-07-01");
+  assert.equal(calculateDocumentEndDate("2026-07-01", byId["periodic-type"], "АОН"), "2031-07-01");
+  assert.equal(DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS.some((item) => item.name === "ВЛЭК"), false);
 });
 
 test("legacy document library is upgraded while custom rows are preserved", () => {

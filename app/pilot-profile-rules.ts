@@ -52,6 +52,9 @@ export type PersonalDocumentDefinition = {
   name: string;
   category: string;
   group: PersonalDocumentGroup;
+  validityMonths?: number;
+  validityDays?: number;
+  validityByOperatorMonths?: Partial<Record<"КВП" | "АОН", number>>;
 };
 
 export const personalDocumentGroupLabels: Record<PersonalDocumentGroup, string> = {
@@ -62,21 +65,20 @@ export const personalDocumentGroupLabels: Record<PersonalDocumentGroup, string> 
   other: "Прочие документы",
 };
 
-export const PERSONAL_DOCUMENT_DEFINITIONS_VERSION = 2;
+export const PERSONAL_DOCUMENT_DEFINITIONS_VERSION = 3;
 
 export const DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS: PersonalDocumentDefinition[] = [
-  { id: "flight-proficiency-pic", name: "Квалификационная проверка КВС", category: "Лётная подготовка", group: "flight_training" },
-  { id: "flight-proficiency-instructor", name: "Квалификационная проверка Пилот-инструктор", category: "Лётная подготовка", group: "flight_training" },
-  { id: "flight-cabin", name: "Тренаж в кабине ВС", category: "Лётная подготовка", group: "flight_training" },
-  { id: "flight-simulator", name: "Тренажерная подготовка", category: "Лётная подготовка", group: "flight_training" },
-  { id: "periodic-aviation-security", name: "Авиационная безопасность", category: "Периодическая подготовка", group: "periodic_training" },
-  { id: "periodic-english", name: "Английский язык", category: "Периодическая подготовка", group: "periodic_training" },
-  { id: "periodic-asp-water", name: "АСП вода", category: "Периодическая подготовка", group: "periodic_training" },
-  { id: "periodic-asp-land-type", name: "АСП суша (на типе)", category: "Периодическая подготовка", group: "periodic_training" },
-  { id: "periodic-medical", name: "ВЛЭК", category: "Периодическая подготовка", group: "periodic_training" },
-  { id: "periodic-type", name: "КПК на типе ВС", category: "Периодическая подготовка", group: "periodic_training" },
-  { id: "periodic-dangerous", name: "Опасные грузы", category: "Периодическая подготовка", group: "periodic_training" },
-  { id: "periodic-human-factor", name: "Человеческий фактор", category: "Периодическая подготовка", group: "periodic_training" },
+  { id: "flight-proficiency-pic", name: "Квалификационная проверка КВС", category: "Лётная подготовка", group: "flight_training", validityMonths: 12 },
+  { id: "flight-proficiency-instructor", name: "Квалификационная проверка Пилот-инструктор", category: "Лётная подготовка", group: "flight_training", validityMonths: 12 },
+  { id: "flight-cabin", name: "Тренаж в кабине ВС", category: "Лётная подготовка", group: "flight_training", validityDays: 90 },
+  { id: "flight-simulator", name: "Тренажерная подготовка", category: "Лётная подготовка", group: "flight_training", validityMonths: 7 },
+  { id: "periodic-aviation-security", name: "Авиационная безопасность", category: "Периодическая подготовка", group: "periodic_training", validityMonths: 36 },
+  { id: "periodic-english", name: "Английский язык", category: "Периодическая подготовка", group: "periodic_training", validityMonths: 36 },
+  { id: "periodic-asp-water", name: "АСП вода", category: "Периодическая подготовка", group: "periodic_training", validityMonths: 24 },
+  { id: "periodic-asp-land-type", name: "АСП суша (на типе)", category: "Периодическая подготовка", group: "periodic_training", validityMonths: 12 },
+  { id: "periodic-type", name: "КПК на типе ВС", category: "Периодическая подготовка", group: "periodic_training", validityByOperatorMonths: { КВП: 12, АОН: 60 } },
+  { id: "periodic-dangerous", name: "Опасные грузы", category: "Периодическая подготовка", group: "periodic_training", validityMonths: 24 },
+  { id: "periodic-human-factor", name: "Человеческий фактор", category: "Периодическая подготовка", group: "periodic_training", validityMonths: 36 },
   { id: "licence-private", name: "Свидетельство частного пилота", category: "Свидетельство", group: "licence" },
   { id: "licence-commercial", name: "Свидетельство коммерческого пилота", category: "Свидетельство", group: "licence" },
   { id: "licence-airline", name: "Свидетельство линейного пилота", category: "Свидетельство", group: "licence" },
@@ -96,6 +98,7 @@ const LEGACY_BUILT_IN_DOCUMENT_IDS = new Set([
   "licence-pilot",
   "licence-validation",
   "medical-conclusion",
+  "periodic-medical",
 ]);
 
 export function migratePersonalDocumentDefinitions(
@@ -109,6 +112,45 @@ export function migratePersonalDocumentDefinitions(
     !LEGACY_BUILT_IN_DOCUMENT_IDS.has(definition.id)
     && !DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS.some((builtIn) => builtIn.id === definition.id));
   return [...DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS, ...customDefinitions];
+}
+
+export function documentValidityLabel(
+  definition: PersonalDocumentDefinition | undefined,
+  operator = "",
+): string {
+  if (!definition) return "";
+  const operatorMonths = definition.validityByOperatorMonths?.[operator as "КВП" | "АОН"];
+  if (operatorMonths) return `${operatorMonths} мес. (${operator})`;
+  if (definition.validityDays) return `${definition.validityDays} дн.`;
+  if (definition.validityMonths) return `${definition.validityMonths} мес.`;
+  return "";
+}
+
+function isoDate(date: Date): string {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+export function calculateDocumentEndDate(
+  issuedDate: string,
+  definition: PersonalDocumentDefinition | undefined,
+  operator = "",
+): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(issuedDate);
+  if (!match || !definition) return "";
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  if (definition.validityDays) {
+    date.setUTCDate(date.getUTCDate() + definition.validityDays);
+    return isoDate(date);
+  }
+  const months = definition.validityByOperatorMonths?.[operator as "КВП" | "АОН"]
+    ?? definition.validityMonths;
+  if (!months) return "";
+  const originalDay = date.getUTCDate();
+  date.setUTCDate(1);
+  date.setUTCMonth(date.getUTCMonth() + months);
+  const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+  date.setUTCDate(Math.min(originalDay, lastDay));
+  return isoDate(date);
 }
 
 export const EMPTY_PILOT_PERSONAL_PROFILE: PilotPersonalProfile = {

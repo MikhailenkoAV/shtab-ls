@@ -148,26 +148,36 @@ export function DocumentationView({
     examinerRole: "Пилот-инструктор",
   });
   const selectedProgramHours = settings.trainingProgramHours?.[trainingForm.programName] ?? [];
+  const selectedProgramKind = settings.trainingProgramVariants?.[trainingForm.programName]
+    ?.find((variant) => variant.hours === trainingForm.hours)?.kind
+    ?? settings.trainingProgramKinds?.[trainingForm.programName]
+    ?? "";
 
   function updateTrainingProgram(index: number, nextName: string) {
     const previousName = settings.trainingPrograms[index];
     const trainingPrograms = settings.trainingPrograms.map((item, itemIndex) =>
       itemIndex === index ? nextName : item);
     const trainingProgramHours = { ...(settings.trainingProgramHours ?? {}) };
+    const trainingProgramKinds = { ...(settings.trainingProgramKinds ?? {}) };
     if (previousName !== nextName) {
       trainingProgramHours[nextName] = trainingProgramHours[previousName] ?? [];
+      trainingProgramKinds[nextName] = trainingProgramKinds[previousName] ?? "";
       delete trainingProgramHours[previousName];
+      delete trainingProgramKinds[previousName];
     }
-    onSettingsChange({ trainingPrograms, trainingProgramHours });
+    onSettingsChange({ trainingPrograms, trainingProgramHours, trainingProgramKinds });
   }
 
   function deleteTrainingProgram(index: number) {
     const name = settings.trainingPrograms[index];
     const trainingProgramHours = { ...(settings.trainingProgramHours ?? {}) };
+    const trainingProgramKinds = { ...(settings.trainingProgramKinds ?? {}) };
     delete trainingProgramHours[name];
+    delete trainingProgramKinds[name];
     onSettingsChange({
       trainingPrograms: settings.trainingPrograms.filter((_, itemIndex) => itemIndex !== index),
       trainingProgramHours,
+      trainingProgramKinds,
     });
   }
 
@@ -261,9 +271,10 @@ export function DocumentationView({
           <ProfileField label="Руководитель / адресат" value={settings.trainingCenterHead} onChange={(value) => onSettingsChange({ trainingCenterHead: value })} />
         </div>
         <div className="training-program-settings">
-          <div className="training-program-settings-head"><strong>Программы и количество часов</strong><button className="secondary-button compact" type="button" onClick={() => onSettingsChange({ trainingPrograms: [...settings.trainingPrograms, "Новая программа"] })}>+ Добавить программу</button></div>
+          <div className="training-program-settings-head"><strong>Программы, вид обучения и часы</strong><button className="secondary-button compact" type="button" onClick={() => onSettingsChange({ trainingPrograms: [...settings.trainingPrograms, "Новая программа"] })}>+ Добавить программу</button></div>
           {settings.trainingPrograms.map((program, index) => <article key={`${program}-${index}`}>
             <label className="field"><span>Наименование программы</span><input value={program} onChange={(event) => updateTrainingProgram(index, event.target.value)} /></label>
+            <label className="field"><span>Вид обучения</span><input value={settings.trainingProgramKinds?.[program] ?? ""} onChange={(event) => onSettingsChange({ trainingProgramKinds: { ...(settings.trainingProgramKinds ?? {}), [program]: event.target.value } })} /></label>
             <label className="field"><span>Варианты часов — через запятую</span><input value={(settings.trainingProgramHours?.[program] ?? []).join(", ")} onChange={(event) => onSettingsChange({
               trainingProgramHours: {
                 ...(settings.trainingProgramHours ?? {}),
@@ -341,6 +352,7 @@ export function DocumentationView({
               const hours = settings.trainingProgramHours?.[programName]?.[0] ?? "";
               setTrainingForm((current) => ({ ...current, programName, hours }));
             }}><option value="">Выберите программу</option>{settings.trainingPrograms.map((program) => <option key={program} value={program}>{program}</option>)}</select></label>
+            <label className="field"><span>Вид обучения</span><input readOnly value={selectedProgramKind} /></label>
             {selectedProgramHours.length > 0
               ? <label className="field"><span>Количество часов</span><select value={trainingForm.hours} onChange={(event) => setTrainingForm((current) => ({ ...current, hours: event.target.value }))}>{selectedProgramHours.map((hours) => <option key={hours} value={hours}>{hours}</option>)}</select></label>
               : <ProfileField label="Количество часов" value={trainingForm.hours} onChange={(value) => setTrainingForm((current) => ({ ...current, hours: value }))} />}
