@@ -326,7 +326,7 @@ function DocumentState({ record }: { record: CertificationRecord }) {
 function DocumentList({ records, empty, onEdit }: { records: CertificationRecord[]; empty: string; onEdit: (record: CertificationRecord) => void }) {
   if (!records.length) return <div className="pilot-frame-empty">{empty}</div>;
   return <div className="pilot-document-list">{records.map((record) => <button key={record.id} onClick={() => onEdit(record)}>
-    <span><strong>{record.certificationType || record.documentType || "Документ"}</strong><small>{[record.aircraftType, record.documentType, record.series, record.number].filter(Boolean).join(" · ") || "Сведения не указаны"}</small><small>Действует: {displayDate(record.startDate)} - {displayDate(record.endDate)}</small></span>
+    <span><strong>{record.certificationType || "Документ"}</strong><small>{[record.aircraftType, record.series, record.number].filter(Boolean).join(" · ") || "Сведения не указаны"}</small><small>Выдано: {displayDate(record.issuedDate)} · Действует до: {displayDate(record.endDate)}</small></span>
     <DocumentState record={record} />
   </button>)}</div>;
 }
@@ -527,6 +527,8 @@ function CertificationModal({
     importedAt: new Date().toISOString(),
   });
   const update = (key: keyof CertificationRecord, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  const selectedDefinitionId = groupDefinitions.find((item) => item.name === form.certificationType)?.id
+    ?? (form.certificationType ? "__legacy" : "");
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="modal wide" role="dialog" aria-modal="true">
       <header><div><p className="eyebrow">Личное дело</p><h2>{record ? "Изменить документ" : `Добавить: ${personalDocumentGroupLabels[group]}`}</h2></div><button className="modal-close" aria-label="Закрыть" onClick={onClose}>×</button></header>
@@ -534,15 +536,14 @@ function CertificationModal({
         event.preventDefault();
         if (form.certificationType.trim()) onSave({ ...form, source: "manual", importedAt: new Date().toISOString() });
       }}>
-        {groupDefinitions.length > 0 && <label className="field"><span>Название из настроек</span><select value="" onChange={(event) => {
+        {groupDefinitions.length > 0 && <label className="field"><span>Документ</span><select required value={selectedDefinitionId} onChange={(event) => {
           const definition = definitions.find((item) => item.id === event.target.value);
           if (definition) setForm((current) => ({ ...current, certificationType: definition.name, category: definition.category }));
-        }}><option value="">Выбрать документ…</option>{groupDefinitions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-        <div className="form-grid two"><label className="field"><span>Категория</span><input required value={form.category} onChange={(event) => update("category", event.target.value)} /></label><label className="field"><span>Название документа / подготовки</span><input required value={form.certificationType} onChange={(event) => update("certificationType", event.target.value)} /></label></div>
+        }}><option value="">Выбрать документ…</option>{selectedDefinitionId === "__legacy" && <option value="__legacy">{form.certificationType}</option>}{groupDefinitions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
         <div className="form-grid two"><label className="field"><span>Тип ВС</span><input list="personal-aircraft-types" value={form.aircraftType} onChange={(event) => update("aircraftType", event.target.value)} /></label><label className="field"><span>Организация</span><input value={form.organization} onChange={(event) => update("organization", event.target.value)} /></label></div>
         <datalist id="personal-aircraft-types">{personAircraftTypes.map((aircraftType) => <option key={aircraftType}>{aircraftType}</option>)}</datalist>
-        <div className="form-grid three"><label className="field"><span>Дата выдачи</span><input type="date" value={form.issuedDate} onChange={(event) => update("issuedDate", event.target.value)} /></label><label className="field"><span>Дата начала действия</span><input type="date" value={form.startDate} onChange={(event) => update("startDate", event.target.value)} /></label><label className="field"><span>Дата окончания действия</span><input type="date" value={form.endDate} onChange={(event) => update("endDate", event.target.value)} /></label></div>
-        <div className="form-grid three"><label className="field"><span>Вид документа</span><input value={form.documentType} onChange={(event) => update("documentType", event.target.value)} /></label><label className="field"><span>Серия</span><input value={form.series} onChange={(event) => update("series", event.target.value)} /></label><label className="field"><span>Номер</span><input value={form.number} onChange={(event) => update("number", event.target.value)} /></label></div>
+        <div className="form-grid two"><label className="field"><span>Дата выдачи</span><input type="date" value={form.issuedDate} onChange={(event) => update("issuedDate", event.target.value)} /></label><label className="field"><span>Дата окончания действия</span><input type="date" value={form.endDate} onChange={(event) => update("endDate", event.target.value)} /></label></div>
+        <div className="form-grid two"><label className="field"><span>Серия</span><input value={form.series} onChange={(event) => update("series", event.target.value)} /></label><label className="field"><span>Номер</span><input value={form.number} onChange={(event) => update("number", event.target.value)} /></label></div>
         <label className="field"><span>Дополнительные сведения</span><textarea value={form.note} onChange={(event) => update("note", event.target.value)} /></label>
         <div className="form-actions split">{onDelete && <button type="button" className="danger-button" onClick={onDelete}>Удалить</button>}<span /><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button className="primary-button">Сохранить</button></div>
       </form>

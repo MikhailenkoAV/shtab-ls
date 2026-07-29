@@ -55,7 +55,9 @@ import {
 import { FlightBookBaseline } from "./flight-book-rules";
 import {
   DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
+  migratePersonalDocumentDefinitions,
   normalizePilotPersonalProfile,
+  PERSONAL_DOCUMENT_DEFINITIONS_VERSION,
   PersonalDocumentDefinition,
   PilotPersonalProfile,
 } from "./pilot-profile-rules";
@@ -120,6 +122,7 @@ type AppData = {
   flightBookBaselines: FlightBookBaseline[];
   personalProfiles: Record<string, PilotPersonalProfile>;
   personalDocumentDefinitions: PersonalDocumentDefinition[];
+  personalDocumentDefinitionsVersion: number;
 };
 const REGISTRY_SEED = registrySeedJson as DocumentRegistryRecord[];
 
@@ -148,6 +151,7 @@ const EMPTY_DATA: AppData = {
   flightBookBaselines: [],
   personalProfiles: {},
   personalDocumentDefinitions: DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
+  personalDocumentDefinitionsVersion: PERSONAL_DOCUMENT_DEFINITIONS_VERSION,
 };
 const DB_NAME = "shtab-ls";
 const STORE_NAME = "workspace";
@@ -297,9 +301,11 @@ async function loadData(): Promise<AppData> {
         flightBookBaselines: stored?.flightBookBaselines ?? [],
         personalProfiles: Object.fromEntries(Object.entries(stored?.personalProfiles ?? {})
           .map(([personId, profile]) => [personId, normalizePilotPersonalProfile(profile)])),
-        personalDocumentDefinitions: stored?.personalDocumentDefinitions?.length
-          ? stored.personalDocumentDefinitions
-          : DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
+        personalDocumentDefinitions: migratePersonalDocumentDefinitions(
+          stored?.personalDocumentDefinitions,
+          stored?.personalDocumentDefinitionsVersion,
+        ),
+        personalDocumentDefinitionsVersion: PERSONAL_DOCUMENT_DEFINITIONS_VERSION,
       });
     };
     request.onerror = () => reject(request.error);
@@ -954,9 +960,11 @@ export default function Home() {
         flightBookBaselines: restored.flightBookBaselines ?? [],
         personalProfiles: Object.fromEntries(Object.entries(restored.personalProfiles ?? {})
           .map(([personId, profile]) => [personId, normalizePilotPersonalProfile(profile)])),
-        personalDocumentDefinitions: restored.personalDocumentDefinitions?.length
-          ? restored.personalDocumentDefinitions
-          : DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
+        personalDocumentDefinitions: migratePersonalDocumentDefinitions(
+          restored.personalDocumentDefinitions,
+          restored.personalDocumentDefinitionsVersion,
+        ),
+        personalDocumentDefinitionsVersion: PERSONAL_DOCUMENT_DEFINITIONS_VERSION,
       }); setToast("Резервная копия восстановлена");
     }).catch(() => setToast("Не удалось прочитать резервную копию"));
     event.target.value = "";

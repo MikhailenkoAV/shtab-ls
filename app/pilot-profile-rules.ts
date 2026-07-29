@@ -62,19 +62,54 @@ export const personalDocumentGroupLabels: Record<PersonalDocumentGroup, string> 
   other: "Прочие документы",
 };
 
+export const PERSONAL_DOCUMENT_DEFINITIONS_VERSION = 2;
+
 export const DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS: PersonalDocumentDefinition[] = [
+  { id: "flight-proficiency-pic", name: "Квалификационная проверка КВС", category: "Лётная подготовка", group: "flight_training" },
+  { id: "flight-proficiency-instructor", name: "Квалификационная проверка Пилот-инструктор", category: "Лётная подготовка", group: "flight_training" },
   { id: "flight-cabin", name: "Тренаж в кабине ВС", category: "Лётная подготовка", group: "flight_training" },
-  { id: "flight-proficiency", name: "Квалификационная проверка", category: "Лётная подготовка", group: "flight_training" },
-  { id: "flight-emergency", name: "Проверка действий в аварийной обстановке", category: "Лётная подготовка", group: "flight_training" },
-  { id: "periodic-type", name: "КПК по типу ВС", category: "Периодическая подготовка", group: "periodic_training" },
-  { id: "periodic-crm", name: "CRM", category: "Периодическая подготовка", group: "periodic_training" },
-  { id: "periodic-asp", name: "Аварийно-спасательная подготовка", category: "Периодическая подготовка", group: "periodic_training" },
-  { id: "periodic-dangerous", name: "Опасные грузы", category: "Периодическая подготовка", group: "periodic_training" },
+  { id: "flight-simulator", name: "Тренажерная подготовка", category: "Лётная подготовка", group: "flight_training" },
+  { id: "periodic-aviation-security", name: "Авиационная безопасность", category: "Периодическая подготовка", group: "periodic_training" },
   { id: "periodic-english", name: "Английский язык", category: "Периодическая подготовка", group: "periodic_training" },
-  { id: "licence-pilot", name: "Свидетельство пилота", category: "Свидетельство", group: "licence" },
-  { id: "licence-validation", name: "Валидация свидетельства", category: "Свидетельство", group: "licence" },
+  { id: "periodic-asp-water", name: "АСП вода", category: "Периодическая подготовка", group: "periodic_training" },
+  { id: "periodic-asp-land-type", name: "АСП суша (на типе)", category: "Периодическая подготовка", group: "periodic_training" },
+  { id: "periodic-medical", name: "ВЛЭК", category: "Периодическая подготовка", group: "periodic_training" },
+  { id: "periodic-type", name: "КПК на типе ВС", category: "Периодическая подготовка", group: "periodic_training" },
+  { id: "periodic-dangerous", name: "Опасные грузы", category: "Периодическая подготовка", group: "periodic_training" },
+  { id: "periodic-human-factor", name: "Человеческий фактор", category: "Периодическая подготовка", group: "periodic_training" },
+  { id: "licence-private", name: "Свидетельство частного пилота", category: "Свидетельство", group: "licence" },
+  { id: "licence-commercial", name: "Свидетельство коммерческого пилота", category: "Свидетельство", group: "licence" },
+  { id: "licence-airline", name: "Свидетельство линейного пилота", category: "Свидетельство", group: "licence" },
+  { id: "licence-validation", name: "Валидация", category: "Свидетельство", group: "licence" },
   { id: "medical-conclusion", name: "Медицинское заключение", category: "Медицина", group: "medical" },
 ];
+
+const LEGACY_BUILT_IN_DOCUMENT_IDS = new Set([
+  "flight-cabin",
+  "flight-proficiency",
+  "flight-emergency",
+  "periodic-type",
+  "periodic-crm",
+  "periodic-asp",
+  "periodic-dangerous",
+  "periodic-english",
+  "licence-pilot",
+  "licence-validation",
+  "medical-conclusion",
+]);
+
+export function migratePersonalDocumentDefinitions(
+  definitions: PersonalDocumentDefinition[] | undefined,
+  version = 0,
+): PersonalDocumentDefinition[] {
+  if (version >= PERSONAL_DOCUMENT_DEFINITIONS_VERSION) {
+    return definitions?.length ? definitions : DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS;
+  }
+  const customDefinitions = (definitions ?? []).filter((definition) =>
+    !LEGACY_BUILT_IN_DOCUMENT_IDS.has(definition.id)
+    && !DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS.some((builtIn) => builtIn.id === definition.id));
+  return [...DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS, ...customDefinitions];
+}
 
 export const EMPTY_PILOT_PERSONAL_PROFILE: PilotPersonalProfile = {
   division: "",
