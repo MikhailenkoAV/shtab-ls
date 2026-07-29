@@ -16,12 +16,13 @@ import {
   VerticalAlign,
   WidthType,
 } from "docx";
-import { safeFilePart, splitPersonName } from "./documentation-rules.ts";
+import { personNameDative, safeFilePart, splitPersonName } from "./documentation-rules.ts";
 import type { DocumentPersonProfile } from "./documentation-rules.ts";
 import type { TDocumentDefinitions } from "pdfmake/interfaces";
 import JSZip from "jszip";
 import { AUC_TRAINING_TEMPLATE_BASE64 } from "./auc-training-template-data.ts";
 import { FLIGHT_CERTIFICATE_TEMPLATE_BASE64 } from "./flight-certificate-template-data.ts";
+import { PILOT_APPENDIX_TEMPLATE_BASE64 } from "./pilot-appendix-template-data.ts";
 
 export type DocumentCertificationRef = {
   category: string;
@@ -190,7 +191,7 @@ function qualificationTable(title: string, records: DocumentCertificationRef[]):
   ];
 }
 
-export async function downloadPilotAppendixWord(payload: PilotAppendixPayload): Promise<void> {
+async function downloadPilotAppendixWordLegacy(payload: PilotAppendixPayload): Promise<void> {
   const { lastName, firstName, patronymic } = splitPersonName(payload.personName);
   const matches = (pattern: RegExp) => payload.certifications.filter((record) =>
     pattern.test(`${record.category} ${record.certificationType}`.toLocaleLowerCase("ru-RU")));
@@ -435,6 +436,76 @@ function replaceTemplateToken(xml: string, token: string, value: string): string
   return xml.split(`{{${token}}}`).join(xmlValue(value));
 }
 
+export async function downloadPilotAppendixWord(payload: PilotAppendixPayload): Promise<void> {
+  const archive = await JSZip.loadAsync(PILOT_APPENDIX_TEMPLATE_BASE64, { base64: true });
+  const documentFile = archive.file("word/document.xml");
+  if (!documentFile) {
+    await downloadPilotAppendixWordLegacy(payload);
+    return;
+  }
+  let xml = await documentFile.async("string");
+  const text = (record: DocumentCertificationRef) =>
+    `${record.category} ${record.certificationType} ${record.documentType}`.toLocaleLowerCase("ru-RU");
+  const simulator = payload.certifications.filter((record) => /тренаж|симулятор/.test(text(record)));
+  const proficiency = payload.certifications.filter((record) =>
+    !simulator.includes(record) && /квалиф|провер|экзам/.test(text(record)));
+  const lowVisibility = payload.certifications.filter((record) =>
+    !simulator.includes(record) && !proficiency.includes(record) && /видим|минимум|lvto|cat|сложн/.test(text(record)));
+  const special = payload.certifications.filter((record) =>
+    !simulator.includes(record) && !proficiency.includes(record) && !lowVisibility.includes(record));
+  const fillRows = (
+    prefix: string,
+    count: number,
+    records: DocumentCertificationRef[],
+    values: (record: DocumentCertificationRef) => string[],
+  ) => {
+    for (let index = 0; index < count; index += 1) {
+      const rowValues = records[index] ? values(records[index]) : [];
+      for (let column = 0; column < 4; column += 1) {
+        xml = replaceTemplateToken(xml, `${prefix}_${index}_${column}`, rowValues[column] ?? "");
+      }
+    }
+  };
+  fillRows("SIM", 9, simulator, (record) => [
+    record.aircraftType || record.certificationType,
+    displayDate(record.issuedDate || record.startDate),
+    record.organization,
+    record.number,
+  ]);
+  fillRows("SPECIAL", 29, special, (record) => [
+    record.certificationType || record.documentType || record.category,
+    record.number,
+    displayDate(record.issuedDate || record.startDate),
+  ]);
+  fillRows("PROF", 8, proficiency, (record) => [
+    record.aircraftType,
+    displayDate(record.issuedDate || record.startDate),
+    record.organization,
+    record.number,
+  ]);
+  fillRows("LOW", 8, lowVisibility, (record) => [
+    record.certificationType || record.documentType || record.category,
+    record.number,
+    displayDate(record.issuedDate || record.startDate),
+  ]);
+  const { lastName, firstName } = splitPersonName(payload.personName);
+  const values = {
+    LAST_NAME: lastName,
+    FIRST_NAME: firstName,
+    LICENCE_NUMBER: payload.profile.pilotLicenceNumber,
+    ISSUE_DATE: displayDate(payload.issueDate),
+  };
+  Object.entries(values).forEach(([token, value]) => {
+    xml = replaceTemplateToken(xml, token, value);
+  });
+  archive.file("word/document.xml", xml);
+  const blob = await archive.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+  downloadBlob(blob, `Приложение_к_свидетельству_${safeFilePart(payload.personName)}.docx`);
+}
+
 export async function downloadTrainingRequestWord(payload: TrainingRequestPayload): Promise<void> {
   const archive = await JSZip.loadAsync(AUC_TRAINING_TEMPLATE_BASE64, { base64: true });
   const documentFile = archive.file("word/document.xml");
@@ -537,7 +608,7 @@ export async function downloadPersonalFlightCertificateWord(
   const values: Record<string, string> = {
     ISSUE_DATE: displayDate(payload.issueDate),
     CERTIFICATE_NUMBER: payload.certificateNumber,
-    PERSON_NAME: payload.personName,
+    PERSON_NAME: personNameDative(payload.personName),
     BIRTH_YEAR: birthYear,
     TOTAL_HOURS: String(Math.floor(payload.totalMinutes / 60)),
     TOTAL_MINUTES: String(payload.totalMinutes % 60).padStart(2, "0"),
@@ -554,6 +625,10 @@ export async function downloadPersonalFlightCertificateWord(
 }
 
 export function buildQualificationCheckPdf(payload: QualificationCheckPayload): TDocumentDefinitions {
+  const licenceText = payload.licenceKind?.trim().toLocaleLowerCase("ru-RU") || "свидетельство пилота";
+  const licenceHolder = licenceText.startsWith("свидетельство")
+    ? licenceText.replace(/^свидетельство/, "свидетельства")
+    : `свидетельства ${licenceText}`;
   const line = (label: string, value: string) => ({
     columns: [
       { width: 80, text: label, color: "#36434a" },
@@ -565,13 +640,23 @@ export function buildQualificationCheckPdf(payload: QualificationCheckPayload): 
   return {
     pageSize: { width: 297.64, height: 419.53 },
     pageMargins: [13, 12, 13, 12],
+    background: () => ({
+      canvas: [{
+        type: "rect",
+        x: 4,
+        y: 4,
+        w: 289.64,
+        h: 411.53,
+        lineWidth: 0.65,
+        lineColor: "#111111",
+      }],
+    }),
     info: {
       title: `Вкладыш квалификационной проверки — ${payload.personName}`,
       author: "ШТАБ ЛС — АО ЦА «Солярис»",
     },
     content: [
       { text: "КВАЛИФИКАЦИОННАЯ ПРОВЕРКА", alignment: "center", bold: true, fontSize: 9.5, margin: [0, 0, 0, 2] },
-      { text: "вкладыш в свидетельство авиационного специалиста", alignment: "center", fontSize: 6.2, color: "#4b555a", margin: [0, 0, 0, 7] },
       line("Фамилия, имя, отчество", payload.personName),
       line("Свидетельство", [payload.licenceKind, payload.licenceNumber && `№ ${payload.licenceNumber}`].filter(Boolean).join(" ")),
       {
@@ -634,7 +719,13 @@ export function buildQualificationCheckPdf(payload: QualificationCheckPayload): 
           { width: 70, text: "М. П.", alignment: "center", margin: [0, 10, 0, 0] },
         ],
       },
-      { text: "Размер страницы: 1/2 формата А5 (105 × 148 мм)", fontSize: 5.2, color: "#6c777c", alignment: "right", margin: [0, 10, 0, 0] },
+      {
+        text: `Уровень навыков управления вертолётом соответствует требованиям, предъявляемым к обладателю ${licenceHolder} с квалификационной отметкой (${payload.aircraftType || "тип ВС"}, Инструктор ${payload.aircraftType || "тип ВС"}).`,
+        alignment: "justify",
+        bold: true,
+        fontSize: 6.2,
+        margin: [0, 9, 0, 0],
+      },
     ],
     defaultStyle: {
       font: "Roboto",

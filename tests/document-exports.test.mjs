@@ -22,8 +22,13 @@ test("qualification check insert is built as a half-A5 PDF page", () => {
     examinerRole: "Пилот-инструктор",
   });
   assert.deepEqual(definition.pageSize, { width: 297.64, height: 419.53 });
-  assert.match(JSON.stringify(definition), /Пилот-инструктор/);
-  assert.match(JSON.stringify(definition), /RA-07338/);
+  const serialized = JSON.stringify(definition);
+  assert.match(serialized, /Пилот-инструктор/);
+  assert.match(serialized, /RA-07338/);
+  assert.match(serialized, /Уровень навыков управления вертолётом соответствует требованиям/);
+  assert.doesNotMatch(serialized, /вкладыш в свидетельство авиационного специалиста/);
+  assert.doesNotMatch(serialized, /Размер страницы/);
+  assert.match(JSON.stringify(definition.background()), /"type":"rect"/);
 });
 
 test("approved Word templates keep the required alignment and certificate fields", async () => {
@@ -32,7 +37,7 @@ test("approved Word templates keep the required alignment and certificate fields
   const staffRow = [...aucXml.matchAll(/<w:tr\b[\s\S]*?<\/w:tr>/g)]
     .find((match) => match[0].includes("{{INDEX}}"))?.[0] ?? "";
   assert.match(staffRow, /w:jc w:val="center"/);
-  assert.match(aucXml, /\{\{SENDER_NAME\}\}[\s\S]{0,1500}w:jc w:val="right"|w:jc w:val="right"[\s\S]{0,1500}\{\{SENDER_NAME\}\}/);
+  assert.equal((aucXml.match(/\{\{SENDER_NAME\}\}/g) ?? []).length, 1);
   assert.match(aucXml, /\{\{SENDER_SHORT\}\}/);
 
   const certificate = await JSZip.loadAsync(FLIGHT_CERTIFICATE_TEMPLATE_BASE64, { base64: true });

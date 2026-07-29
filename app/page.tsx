@@ -889,12 +889,6 @@ export default function Home() {
     setData((current) => ({ ...current, documentRegistry: current.documentRegistry.filter((record) => record.id !== recordId) }));
     setToast("Запись реестра удалена");
   }
-  function saveDocumentProfile(personId: string, profile: DocumentPersonProfile) {
-    setData((current) => ({
-      ...current,
-      documentProfiles: { ...current.documentProfiles, [personId]: { ...EMPTY_DOCUMENT_PROFILE, ...profile } },
-    }));
-  }
   function savePlanAssignment(assignment: PlanAssignment) {
     setData((current) => ({
       ...current,
@@ -1017,7 +1011,6 @@ export default function Home() {
             company={data.settings}
             onUpsertRegistry={upsertRegistryRecord}
             onDeleteRegistry={deleteRegistryRecord}
-            onProfileChange={saveDocumentProfile}
             onSettingsChange={(patch) => setData((current) => ({ ...current, documentSettings: { ...current.documentSettings, ...patch } }))}
             onNotify={setToast}
           />

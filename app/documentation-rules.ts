@@ -164,6 +164,36 @@ export function splitPersonName(fullName: string): { lastName: string; firstName
   return { lastName, firstName, patronymic };
 }
 
+function dativeWord(value: string, part: "last" | "first" | "patronymic"): string {
+  if (!value) return value;
+  const lower = value.toLocaleLowerCase("ru-RU");
+  const replaceEnding = (length: number, ending: string) => value.slice(0, -length) + ending;
+  if (part === "patronymic") {
+    if (lower.endsWith("ич")) return `${value}у`;
+    if (lower.endsWith("на")) return replaceEnding(1, "е");
+  }
+  if (part === "last") {
+    if (/(ова|ева|ина|ына)$/.test(lower)) return replaceEnding(1, "ой");
+    if (/(ская|цкая)$/.test(lower)) return replaceEnding(2, "ой");
+    if (/(ский|цкий)$/.test(lower)) return replaceEnding(2, "ому");
+    if (/(ой|ый)$/.test(lower)) return replaceEnding(2, "ому");
+    if (/(ов|ев|ин|ын)$/.test(lower)) return `${value}у`;
+  }
+  if (lower.endsWith("й") || lower.endsWith("ь")) return replaceEnding(1, part === "first" && lower.endsWith("ь") ? "ю" : "ю");
+  if (lower.endsWith("а") || lower.endsWith("я")) return replaceEnding(1, "е");
+  if (/[бвгджзклмнпрстфхцчшщ]$/i.test(value)) return `${value}у`;
+  return value;
+}
+
+export function personNameDative(fullName: string): string {
+  const { lastName, firstName, patronymic } = splitPersonName(fullName);
+  return [
+    dativeWord(lastName, "last"),
+    dativeWord(firstName, "first"),
+    dativeWord(patronymic, "patronymic"),
+  ].filter(Boolean).join(" ");
+}
+
 export function safeFilePart(value: string): string {
   return value.trim().replace(/[<>:"/\\|?*]+/g, " ").replace(/\s+/g, "_").slice(0, 90) || "документ";
 }

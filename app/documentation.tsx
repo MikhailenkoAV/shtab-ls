@@ -51,7 +51,7 @@ type DocumentationCompany = {
   chiefOfStaff: string;
 };
 
-type DocumentationTab = "registry" | "forms" | "profiles" | "references";
+type DocumentationTab = "registry" | "forms" | "references";
 type FormKind = "pilot" | "training" | "qualification" | "flight-certificate";
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const localIsoDate = () => {
@@ -73,7 +73,6 @@ export function DocumentationView({
   company,
   onUpsertRegistry,
   onDeleteRegistry,
-  onProfileChange,
   onSettingsChange,
   onNotify,
 }: {
@@ -87,7 +86,6 @@ export function DocumentationView({
   company: DocumentationCompany;
   onUpsertRegistry: (record: DocumentRegistryRecord) => void;
   onDeleteRegistry: (recordId: string) => void;
-  onProfileChange: (personId: string, profile: DocumentPersonProfile) => void;
   onSettingsChange: (patch: Partial<DocumentSettings>) => void;
   onNotify: (message: string) => void;
 }) {
@@ -96,7 +94,7 @@ export function DocumentationView({
     [people],
   );
   const [tab, setTab] = useState<DocumentationTab>("registry");
-  const [formKind, setFormKind] = useState<FormKind>("pilot");
+  const [formKind, setFormKind] = useState<FormKind>("training");
   const [registryKind, setRegistryKind] = useState<DocumentRegistryKind>("order");
   const [registryQuery, setRegistryQuery] = useState("");
   const [registryYear, setRegistryYear] = useState("");
@@ -110,10 +108,6 @@ export function DocumentationView({
     .sort((left, right) => `${right.date}|${right.number}`.localeCompare(`${left.date}|${left.number}`, "ru-RU")),
   [registry, registryKind, registryQuery, registryYear]);
 
-  const [profilePersonId, setProfilePersonId] = useState(activePeople[0]?.id ?? "");
-  const selectedProfilePersonId = activePeople.some((person) => person.id === profilePersonId)
-    ? profilePersonId
-    : activePeople[0]?.id ?? "";
   function resolvedProfile(personId: string): DocumentPersonProfile {
     const saved = { ...EMPTY_DOCUMENT_PROFILE, ...(profiles[personId] ?? {}) };
     const licence = certifications.find((record) =>
@@ -125,7 +119,6 @@ export function DocumentationView({
       pilotLicenceNumber: saved.pilotLicenceNumber || licence?.number || "",
     };
   }
-  const profile = resolvedProfile(selectedProfilePersonId);
 
   const [pilotPersonId, setPilotPersonId] = useState(activePeople[0]?.id ?? "");
   const [pilotIssueDate, setPilotIssueDate] = useState(localIsoDate());
@@ -233,7 +226,6 @@ export function DocumentationView({
     <nav className="documentation-tabs panel" aria-label="Разделы документации">
       <button className={tab === "registry" ? "active" : ""} onClick={() => setTab("registry")}><strong>Реестр</strong><small>{registry.length} записей</small></button>
       <button className={tab === "forms" ? "active" : ""} onClick={() => setTab("forms")}><strong>Формирование</strong><small>Word и PDF</small></button>
-      <button className={tab === "profiles" ? "active" : ""} onClick={() => setTab("profiles")}><strong>Анкетные данные</strong><small>Для автозаполнения</small></button>
       <button className={tab === "references" ? "active" : ""} onClick={() => setTab("references")}><strong>Справочники</strong><small>АУЦ и программы</small></button>
     </nav>
 
@@ -247,35 +239,6 @@ export function DocumentationView({
       </div>
       {!visibleRegistry.length ? <div className="panel-empty tall">Записи по выбранному фильтру не найдены.</div> : <div className="table-scroll"><table className="registry-table"><thead><tr><th>Номер</th><th>Дата</th><th>Содержание</th><th /></tr></thead><tbody>{visibleRegistry.map((record) =>
         <tr key={record.id}><td><strong>{record.number || "—"}</strong></td><td>{displayDate(record.date)}</td><td className="note-cell">{record.subject || "—"}</td><td><button className="row-action" onClick={() => setRegistryEditing(record)}>Изменить</button></td></tr>)}</tbody></table></div>}
-    </section>}
-
-    {tab === "profiles" && <section className="panel documentation-workspace">
-      <div className="panel-heading"><div><p className="eyebrow">Внутренняя база</p><h2>Анкетные данные сотрудника</h2></div><span className="settings-auto-save">Сохраняется автоматически</span></div>
-      {!activePeople.length ? <div className="panel-empty tall">Сначала добавьте сотрудников в разделе «Сотрудники».</div> : <div className="document-profile-form form-stack">
-        <label className="field"><span>Сотрудник</span><select value={selectedProfilePersonId} onChange={(event) => setProfilePersonId(event.target.value)}>{activePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
-        <div className="form-grid three">
-          <ProfileField label="Дата рождения" type="date" value={profile.birthDate} onChange={(value) => onProfileChange(selectedProfilePersonId, { ...profile, birthDate: value })} />
-          <ProfileField label="Вид свидетельства" value={profile.pilotLicenceKind} onChange={(value) => onProfileChange(selectedProfilePersonId, { ...profile, pilotLicenceKind: value })} />
-          <ProfileField label="Номер свидетельства" value={profile.pilotLicenceNumber} onChange={(value) => onProfileChange(selectedProfilePersonId, { ...profile, pilotLicenceNumber: value })} />
-        </div>
-        <div className="form-grid three">
-          <ProfileField label="СНИЛС" value={profile.snils} onChange={(value) => onProfileChange(selectedProfilePersonId, { ...profile, snils: value })} />
-          <ProfileField label="Серия паспорта" value={profile.passportSeries} onChange={(value) => onProfileChange(selectedProfilePersonId, { ...profile, passportSeries: value })} />
-          <ProfileField label="Номер паспорта" value={profile.passportNumber} onChange={(value) => onProfileChange(selectedProfilePersonId, { ...profile, passportNumber: value })} />
-        </div>
-        <div className="form-grid two">
-          <ProfileField label="Серия документа об образовании" value={profile.educationDocumentSeries} onChange={(value) => onProfileChange(selectedProfilePersonId, { ...profile, educationDocumentSeries: value })} />
-          <ProfileField label="Номер документа об образовании" value={profile.educationDocumentNumber} onChange={(value) => onProfileChange(selectedProfilePersonId, { ...profile, educationDocumentNumber: value })} />
-        </div>
-        <div className="form-grid two">
-          <ProfileField label="Квалификация / специальность" value={profile.educationQualification} onChange={(value) => onProfileChange(selectedProfilePersonId, { ...profile, educationQualification: value })} />
-          <ProfileField label="Уровень образования" value={profile.educationLevel} onChange={(value) => onProfileChange(selectedProfilePersonId, { ...profile, educationLevel: value })} />
-        </div>
-        <div className="form-grid two">
-          <ProfileField label="E-mail" value={profile.email} onChange={(value) => onProfileChange(selectedProfilePersonId, { ...profile, email: value })} />
-          <ProfileField label="Телефон" value={profile.phone} onChange={(value) => onProfileChange(selectedProfilePersonId, { ...profile, phone: value })} />
-        </div>
-      </div>}
     </section>}
 
     {tab === "references" && <section className="panel documentation-workspace">
@@ -310,10 +273,10 @@ export function DocumentationView({
 
     {tab === "forms" && <section className="documentation-form-layout">
       <aside className="panel document-form-menu">{([
-        ["pilot", "Приложение к пилотскому", "Word · данные личного дела"],
         ["training", "Заявка в АУЦ", "Word · ручная проверка полей"],
-        ["qualification", "Вкладыш проверки", "PDF · формат 1/2 А5"],
         ["flight-certificate", "Персональная справка о налёте", "Word · форма АО ЦА «Солярис»"],
+        ["qualification", "Вкладыш квалификационной проверки", "PDF · 105 × 148 мм"],
+        ["pilot", "Приложение к свидетельству", "Word · строго по образцу"],
       ] as const).map(([kind, title, detail]) => <button key={kind} className={formKind === kind ? "active" : ""} onClick={() => setFormKind(kind)}><strong>{title}</strong><small>{detail}</small></button>)}
       </aside>
 

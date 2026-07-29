@@ -6,6 +6,7 @@ import {
   normalizeDocumentSettings,
   nextRegistryNumber,
   splitPersonName,
+  personNameDative,
 } from "../app/documentation-rules.ts";
 
 const seed = JSON.parse(fs.readFileSync(new URL("../app/document-registry-seed.json", import.meta.url), "utf8"));
@@ -48,4 +49,10 @@ test("pilot name is split for the bilingual licence appendix", () => {
     firstName: "Александр",
     patronymic: "Константинович",
   });
+});
+
+test("pilot full name is written in the dative case for a personal certificate", () => {
+  assert.equal(personNameDative("Иванов Иван Иванович"), "Иванову Ивану Ивановичу");
+  assert.equal(personNameDative("Михайленко Антон Владимирович"), "Михайленко Антону Владимировичу");
+  assert.equal(personNameDative("Кузьмин Дмитрий Федорович"), "Кузьмину Дмитрию Федоровичу");
 });
