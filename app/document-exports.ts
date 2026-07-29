@@ -21,6 +21,7 @@ import type { DocumentPersonProfile } from "./documentation-rules.ts";
 import type { TDocumentDefinitions } from "pdfmake/interfaces";
 import JSZip from "jszip";
 import { AUC_TRAINING_TEMPLATE_BASE64 } from "./auc-training-template-data.ts";
+import { FLIGHT_CERTIFICATE_TEMPLATE_BASE64 } from "./flight-certificate-template-data.ts";
 
 export type DocumentCertificationRef = {
   category: string;
@@ -86,6 +87,18 @@ export type QualificationCheckPayload = {
   examinerName: string;
   examinerLicence: string;
   examinerRole: string;
+};
+
+export type PersonalFlightCertificatePayload = {
+  personName: string;
+  birthDate: string;
+  issueDate: string;
+  certificateNumber: string;
+  totalMinutes: number;
+  rows: {
+    aircraftType: string;
+    totalMinutes: number;
+  }[];
 };
 
 function displayDate(value: string): string {
@@ -490,6 +503,54 @@ export async function downloadTrainingRequestWord(payload: TrainingRequestPayloa
     mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   });
   downloadBlob(blob, `Заявка_в_АУЦ_${safeFilePart(payload.requestDate || "без_даты")}.docx`);
+}
+
+export async function downloadPersonalFlightCertificateWord(
+  payload: PersonalFlightCertificatePayload,
+): Promise<void> {
+  const archive = await JSZip.loadAsync(FLIGHT_CERTIFICATE_TEMPLATE_BASE64, { base64: true });
+  const documentFile = archive.file("word/document.xml");
+  if (!documentFile) throw new Error("Не удалось открыть шаблон справки о налёте");
+
+  let xml = await documentFile.async("string");
+  const aircraftRowMatch = [...xml.matchAll(/<w:tr\b[\s\S]*?<\/w:tr>/g)]
+    .find((match) => match[0].includes("{{AIRCRAFT_TYPE}}"));
+  if (!aircraftRowMatch) throw new Error("В шаблоне справки отсутствует строка типа ВС");
+
+  const visibleRows = payload.rows.filter((row) => row.totalMinutes > 0);
+  const aircraftRows = (visibleRows.length ? visibleRows : [{ aircraftType: "—", totalMinutes: 0 }])
+    .map((row) => {
+      let rowXml = aircraftRowMatch[0];
+      const values = {
+        AIRCRAFT_TYPE: row.aircraftType,
+        TYPE_HOURS: String(Math.floor(row.totalMinutes / 60)),
+        TYPE_MINUTES: String(row.totalMinutes % 60).padStart(2, "0"),
+      };
+      Object.entries(values).forEach(([token, value]) => {
+        rowXml = replaceTemplateToken(rowXml, token, value);
+      });
+      return rowXml;
+    }).join("");
+  xml = xml.replace(aircraftRowMatch[0], aircraftRows);
+
+  const birthYear = /^(\d{4})/.exec(payload.birthDate)?.[1] ?? "";
+  const values: Record<string, string> = {
+    ISSUE_DATE: displayDate(payload.issueDate),
+    CERTIFICATE_NUMBER: payload.certificateNumber,
+    PERSON_NAME: payload.personName,
+    BIRTH_YEAR: birthYear,
+    TOTAL_HOURS: String(Math.floor(payload.totalMinutes / 60)),
+    TOTAL_MINUTES: String(payload.totalMinutes % 60).padStart(2, "0"),
+  };
+  Object.entries(values).forEach(([token, value]) => {
+    xml = replaceTemplateToken(xml, token, value);
+  });
+  archive.file("word/document.xml", xml);
+  const blob = await archive.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+  downloadBlob(blob, `Справка_о_налёте_${safeFilePart(payload.personName)}.docx`);
 }
 
 export function buildQualificationCheckPdf(payload: QualificationCheckPayload): TDocumentDefinitions {

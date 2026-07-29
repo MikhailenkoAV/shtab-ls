@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   downloadPilotAppendixWord,
+  downloadPersonalFlightCertificateWord,
   downloadQualificationCheckPdf,
   downloadTrainingRequestWord,
   TrainingRequestRow,
@@ -16,6 +17,11 @@ import {
   nextRegistryNumber,
   registryKindLabels,
 } from "./documentation-rules";
+import {
+  buildFlightBook,
+  FlightBookBaseline,
+  FlightBookShiftRef,
+} from "./flight-book-rules";
 
 type DocumentationPerson = {
   id: string;
@@ -46,7 +52,7 @@ type DocumentationCompany = {
 };
 
 type DocumentationTab = "registry" | "forms" | "profiles" | "references";
-type FormKind = "pilot" | "training" | "qualification";
+type FormKind = "pilot" | "training" | "qualification" | "flight-certificate";
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const localIsoDate = () => {
   const date = new Date();
@@ -59,6 +65,8 @@ const displayDate = (value: string) => value
 export function DocumentationView({
   people,
   certifications,
+  shifts,
+  baselines,
   registry,
   profiles,
   settings,
@@ -71,6 +79,8 @@ export function DocumentationView({
 }: {
   people: DocumentationPerson[];
   certifications: DocumentationCertification[];
+  shifts: FlightBookShiftRef[];
+  baselines: FlightBookBaseline[];
   registry: DocumentRegistryRecord[];
   profiles: Record<string, DocumentPersonProfile>;
   settings: DocumentSettings;
@@ -147,6 +157,11 @@ export function DocumentationView({
     examinerLicence: "",
     examinerRole: "Пилот-инструктор",
   });
+  const [certificatePersonId, setCertificatePersonId] = useState(activePeople[0]?.id ?? "");
+  const [certificateIssueDate, setCertificateIssueDate] = useState(localIsoDate());
+  const [certificateNumber, setCertificateNumber] = useState(
+    nextRegistryNumber(registry, "certificate", localIsoDate()),
+  );
   const selectedProgramHours = settings.trainingProgramHours?.[trainingForm.programName] ?? [];
   const selectedProgramKind = settings.trainingProgramVariants?.[trainingForm.programName]
     ?.find((variant) => variant.hours === trainingForm.hours)?.kind
@@ -298,6 +313,7 @@ export function DocumentationView({
         ["pilot", "Приложение к пилотскому", "Word · данные личного дела"],
         ["training", "Заявка в АУЦ", "Word · ручная проверка полей"],
         ["qualification", "Вкладыш проверки", "PDF · формат 1/2 А5"],
+        ["flight-certificate", "Персональная справка о налёте", "Word · форма АО ЦА «Солярис»"],
       ] as const).map(([kind, title, detail]) => <button key={kind} className={formKind === kind ? "active" : ""} onClick={() => setFormKind(kind)}><strong>{title}</strong><small>{detail}</small></button>)}
       </aside>
 
@@ -420,6 +436,39 @@ export function DocumentationView({
               ...qualificationForm,
             }), "Вкладыш проверки сформирован");
           }}>Выгрузить в PDF</button></div>
+        </div>
+      </article>}
+
+      {formKind === "flight-certificate" && <article className="panel documentation-workspace">
+        <div className="panel-heading"><div><p className="eyebrow">Word-документ</p><h2>Персональная справка о налёте</h2></div></div>
+        <div className="document-profile-form form-stack">
+          {!activePeople.length ? <div className="panel-empty">Добавьте сотрудников для формирования справки.</div> : <>
+            <label className="field"><span>Сотрудник</span><select value={certificatePersonId} onChange={(event) => setCertificatePersonId(event.target.value)}>{activePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+            <div className="form-grid two">
+              <ProfileField label="Дата выдачи" type="date" value={certificateIssueDate} onChange={(value) => {
+                setCertificateIssueDate(value);
+                setCertificateNumber(nextRegistryNumber(registry, "certificate", value));
+              }} />
+              <ProfileField label="Номер справки из реестра" value={certificateNumber} onChange={setCertificateNumber} />
+            </div>
+            <div className="report-scope-note">ФИО и год рождения подставляются из личного дела. Общий налёт и налёт по типам ВС рассчитываются по актуальной лётной книжке сотрудника.</div>
+            <div className="form-actions"><button className="primary-button" disabled={!certificatePersonId} onClick={() => {
+              const person = activePeople.find((item) => item.id === certificatePersonId);
+              if (!person) return;
+              const flightBook = buildFlightBook(person.id, shifts, baselines, person.aircraftTypes);
+              void runExport(() => downloadPersonalFlightCertificateWord({
+                personName: person.name,
+                birthDate: resolvedProfile(person.id).birthDate,
+                issueDate: certificateIssueDate,
+                certificateNumber,
+                totalMinutes: flightBook.total.totalMinutes,
+                rows: flightBook.rows.map((row) => ({
+                  aircraftType: row.aircraftType,
+                  totalMinutes: row.totalMinutes,
+                })),
+              }), "Персональная справка о налёте сформирована");
+            }}>Выгрузить в Word</button></div>
+          </>}
         </div>
       </article>}
     </section>}

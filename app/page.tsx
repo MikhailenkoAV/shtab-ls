@@ -1009,6 +1009,8 @@ export default function Home() {
           ? <DocumentationView
             people={data.people}
             certifications={data.certifications}
+            shifts={data.shifts}
+            baselines={data.flightBookBaselines}
             registry={data.documentRegistry}
             profiles={data.documentProfiles}
             settings={data.documentSettings}
