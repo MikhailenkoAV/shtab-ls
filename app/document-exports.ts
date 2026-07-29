@@ -263,7 +263,7 @@ export async function downloadTrainingRequestWord(payload: TrainingRequestPayloa
   try {
     const response = await fetch(new URL("solaris-logo.png", window.location.href).pathname);
     const bytes = new Uint8Array(await response.arrayBuffer());
-    logo = new Paragraph({ children: [new ImageRun({ data: bytes, type: "png", transformation: { width: 170, height: 47 } })] });
+    logo = new Paragraph({ children: [new ImageRun({ data: bytes, type: "png", transformation: { width: 158, height: 45 } })] });
   } catch {
     logo = new Paragraph({ children: [new TextRun({ text: "СОЛЯРИС\nЦЕНТР АВИАЦИИ", bold: true, size: 18 })] });
   }
@@ -286,11 +286,16 @@ export async function downloadTrainingRequestWord(payload: TrainingRequestPayloa
   });
   const personHeader = ["№ п/п", "Фамилия Имя Отчество", "Дата рождения", "Тип ВС", "Должность", "СНИЛС", "Серия/номер документа о ВО/СПО", "Наименование квалификации, профессии, специальности", "Уровень образования ВО/СПО", "Серия/номер паспорта"];
   const doc = new Document({
+    styles: {
+      default: {
+        document: { run: { font: "Trebuchet MS", size: 22 } },
+      },
+    },
     sections: [{
       properties: {
         page: {
-          size: { orientation: "landscape", width: 16838, height: 11906 },
-          margin: { top: 520, right: 620, bottom: 430, left: 620 },
+          size: { orientation: "landscape", width: 11906, height: 16838 },
+          margin: { top: 1100, right: 1134, bottom: 850, left: 1134 },
         },
       },
       children: [
@@ -303,25 +308,43 @@ export async function downloadTrainingRequestWord(payload: TrainingRequestPayloa
           },
           rows: [new TableRow({ children: [
             new TableCell({ width: { size: 55, type: WidthType.PERCENTAGE }, children: [logo] }),
-            new TableCell({ width: { size: 45, type: WidthType.PERCENTAGE }, children: [new Paragraph({
-              alignment: AlignmentType.CENTER,
-              children: [new TextRun({ text: `${payload.trainingCenterHead || "Начальнику АУЦ"}\n${payload.trainingCenterName || "АО ЦА «Солярис»"}`, bold: true, size: 19 })],
-            })] }),
+            new TableCell({ width: { size: 45, type: WidthType.PERCENTAGE }, children: [
+              new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "Начальнику АУЦ", bold: true, size: 22, font: "Trebuchet MS" })] }),
+              new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: payload.trainingCenterName || "АО ЦА «Солярис»", bold: true, size: 22, font: "Trebuchet MS" })] }),
+              new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: payload.trainingCenterHead || "Бакпоков С.В.", bold: true, size: 22, font: "Trebuchet MS" })] }),
+            ] }),
           ] })],
         }),
-        new Paragraph({ spacing: { before: 70 }, children: [new TextRun({ text: `Дата: ${displayDate(payload.requestDate)}`, size: 19 })] }),
+        new Paragraph({ spacing: { before: 70 }, children: [new TextRun({ text: `Дата: ${displayDate(payload.requestDate)}`, size: 22, font: "Trebuchet MS" })] }),
         new Paragraph({
-          children: [new TextRun({ text: "Заявка на обучение персонала", bold: true, size: 28 })],
+          children: [new TextRun({ text: "Заявка на обучение персонала", bold: true, size: 30, font: "Trebuchet MS" })],
           alignment: AlignmentType.CENTER,
-          spacing: { before: 120, after: 180 },
+          spacing: { before: 500, after: 180 },
         }),
-        new Paragraph({ children: [new TextRun({ text: "Просим Вас провести обучение наших сотрудников", size: 20 })], spacing: { after: 130 } }),
-        new Paragraph({ children: [
-          new TextRun({ text: "Наименование программы: ", size: 15 }),
-          new TextRun({ text: payload.programName, bold: true, size: 15 }),
-          new TextRun({ text: `\nКоличество часов: ${payload.hours}`, size: 15 }),
-          new TextRun({ text: `\nВ период с ${displayDate(payload.dateFrom)} по ${displayDate(payload.dateTo)}`, size: 15 }),
-        ], spacing: { after: 130 }, indent: { left: 240 } }),
+        new Paragraph({ children: [new TextRun({ text: "Просим Вас провести обучение наших сотрудников", size: 22, font: "Trebuchet MS" })], spacing: { after: 130 } }),
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          borders: {
+            top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE },
+            left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE },
+            insideHorizontal: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE },
+          },
+          rows: [
+            new TableRow({ children: [
+              new TableCell({ width: { size: 1350, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: "Наименование\nпрограммы:", size: 16, font: "Trebuchet MS" })] })] }),
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: payload.programName, bold: true, size: 16, font: "Trebuchet MS" })] })] }),
+            ] }),
+            new TableRow({ children: [
+              new TableCell({ width: { size: 1350, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: "Количество часов:", size: 16, font: "Trebuchet MS" })] })] }),
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: payload.hours, size: 16, font: "Trebuchet MS" })] })] }),
+            ] }),
+            new TableRow({ children: [
+              new TableCell({ width: { size: 1350, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: "В период\nс", size: 16, font: "Trebuchet MS" })] })] }),
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `${displayDate(payload.dateFrom)}     по     ${displayDate(payload.dateTo)}`, size: 16, font: "Trebuchet MS" })] })] }),
+            ] }),
+          ],
+        }),
+        new Paragraph({ spacing: { after: 1500 } }),
         new Paragraph({ children: [new TextRun({ text: "Список сотрудников прилагается:", size: 20 })], spacing: { after: 90 } }),
         new Table({
           width: { size: 100, type: WidthType.PERCENTAGE },
@@ -342,14 +365,38 @@ export async function downloadTrainingRequestWord(payload: TrainingRequestPayloa
             ] })),
           ],
         }),
-        new Paragraph({ children: [new TextRun({ text: "Форма оплаты:\n    1.  Безналичный расчет", size: 19 })], spacing: { before: 120, after: 120 } }),
-        new Paragraph({ children: [
-          new TextRun({ text: `${payload.senderTitle || "Начальник штаба"}                                      `, bold: true, size: 18 }),
-          new TextRun({ text: "____________________    ", size: 18 }),
-          new TextRun({ text: payload.senderName, bold: true, size: 18 }),
-        ] }),
-        new Paragraph({ children: [new TextRun({ text: "       (должность заказчика обучения)                                      (подпись/Фамилия, инициалы)", size: 13 })], spacing: { after: 100 } }),
-        new Paragraph({ children: [new TextRun({ text: `Данные лица, отправившего заявку:\nФамилия, инициалы: ${payload.senderName}\nЭл.почта: ${payload.senderEmail}\nТелефон: ${payload.senderPhone}`, size: 15 })] }),
+        new Paragraph({ children: [new TextRun({ text: "Форма оплаты:", size: 22, font: "Trebuchet MS" })], spacing: { before: 120 } }),
+        new Paragraph({ indent: { left: 340 }, children: [new TextRun({ text: "1.  Безналичный расчет", size: 22, font: "Trebuchet MS" })], spacing: { after: 110 } }),
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          borders: {
+            top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE },
+            left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE },
+            insideHorizontal: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE },
+          },
+          rows: [
+            new TableRow({ children: [
+              new TableCell({ width: { size: 2600, type: WidthType.DXA }, children: [
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: payload.senderTitle || "Начальник штаба", bold: true, size: 20, font: "Trebuchet MS" })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "(должность заказчика обучения)", size: 12, font: "Trebuchet MS" })] }),
+              ] }),
+              new TableCell({ children: [
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `____________________    ${payload.senderName}`, bold: true, size: 18, font: "Trebuchet MS" })] }),
+                new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "(подпись/Фамилия, инициалы)", size: 12, font: "Trebuchet MS" })] }),
+              ] }),
+              new TableCell({ width: { size: 900, type: WidthType.DXA }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "м.п.", size: 18, font: "Trebuchet MS" })] })] }),
+            ] }),
+            new TableRow({ children: [
+              new TableCell({ columnSpan: 2, children: [
+                new Paragraph({ children: [new TextRun({ text: "Данные лица, отправившего заявку:", bold: true, size: 18, font: "Trebuchet MS" })] }),
+                new Paragraph({ children: [new TextRun({ text: `Фамилия, инициалы: ${payload.senderName}`, size: 16, font: "Trebuchet MS" })] }),
+                new Paragraph({ children: [new TextRun({ text: `Эл.почта: ${payload.senderEmail}`, size: 16, font: "Trebuchet MS" })] }),
+                new Paragraph({ children: [new TextRun({ text: `Телефон: ${payload.senderPhone}`, size: 16, font: "Trebuchet MS" })] }),
+              ] }),
+              new TableCell({ width: { size: 900, type: WidthType.DXA }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: "м.п.", size: 18, font: "Trebuchet MS" })] })] }),
+            ] }),
+          ],
+        }),
         new Paragraph({ spacing: { before: 80 }, children: [
           new TextRun({ text: "*Перечень документов при поступлении (копии): ", bold: true, size: 13 }),
           new TextRun({ text: "Документ о высшем/среднем-профессиональном образовании (номер, серия, специальность); паспорт; СНИЛС; свидетельство пилота/бортинженера/бортмеханика; документ, подтверждающий прохождение обучения по программе подготовки членов летного экипажа других видов авиации к выполнению полетов на воздушных судах гражданской авиации; Медицинское заключение (если требуется)", size: 13 }),

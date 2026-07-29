@@ -34,6 +34,14 @@ test("next registry number uses the selected section and year", () => {
   assert.equal(nextRegistryNumber(records, "protocol", "2026-07-28"), "1/ЛС");
 });
 
+test("order number contains two-digit year and personnel suffix", () => {
+  const records = [
+    { id: "1", kind: "order", number: "124/26-ЛС", date: "2026-07-01", subject: "", createdAt: "" },
+    { id: "2", kind: "order", number: "18/25-ЛС", date: "2025-12-20", subject: "", createdAt: "" },
+  ];
+  assert.equal(nextRegistryNumber(records, "order", "2026-07-29"), "125/26-ЛС");
+});
+
 test("pilot name is split for the bilingual licence appendix", () => {
   assert.deepEqual(splitPersonName("Пронин Александр Константинович"), {
     lastName: "Пронин",

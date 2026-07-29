@@ -154,7 +154,9 @@ export function nextRegistryNumber(
     .filter((record) => record.kind === kind && (!year || record.date.startsWith(year)))
     .map((record) => leadingNumber(record.number))
     .filter((value): value is number => value !== null);
-  return `${(numbers.length ? Math.max(...numbers) : 0) + 1}${registrySuffixes[kind]}`;
+  const next = (numbers.length ? Math.max(...numbers) : 0) + 1;
+  if (kind === "order") return `${next}/${year.slice(-2)}-ЛС`;
+  return `${next}${registrySuffixes[kind]}`;
 }
 
 export function splitPersonName(fullName: string): { lastName: string; firstName: string; patronymic: string } {

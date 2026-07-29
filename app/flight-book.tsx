@@ -256,10 +256,34 @@ function FlightBookImportModal({
         setLoading(true);
         try {
           const XLSX = await import("xlsx");
-          const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
-          const sheet = workbook.Sheets[workbook.SheetNames[0]];
-          const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: true });
-          const next = parseFlightBookImport(rows, file.name, person.aircraftTypes);
+          const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false });
+          const previews = workbook.SheetNames.map((sheetName) => parseFlightBookImport(
+            XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], { header: 1, defval: "", raw: false }),
+            `${file.name} · ${sheetName}`,
+            person.aircraftTypes,
+          ));
+          let next = previews.sort((left, right) =>
+            Number(right.format === "monthly") - Number(left.format === "monthly")
+            || right.rows.length - left.rows.length
+            || left.issues.filter((item) => item.level === "error").length - right.issues.filter((item) => item.level === "error").length)[0];
+          if (next.format === "monthly") {
+            const summary = previews.find((item) => item.format === "summary" && item.rows.length);
+            const knownTypes = new Set(next.rows.map((row) => row.aircraftType.toLocaleUpperCase("ru-RU")));
+            const historicalRows = (summary?.rows ?? []).filter((row) => !knownTypes.has(row.aircraftType.toLocaleUpperCase("ru-RU")));
+            if (historicalRows.length) next = {
+              ...next,
+              source: `${file.name} · помесячный лист + исторические типы`,
+              rows: [...next.rows, ...historicalRows],
+              issues: [
+                ...next.issues,
+                ...historicalRows.map((row) => ({
+                  level: "warning" as const,
+                  row: 0,
+                  message: `${row.aircraftType}: в исторической сводке нет колонки кресла — налёт включён только в общий.`,
+                })),
+              ],
+            };
+          }
           setPreview(next);
           setDate(next.date || localIsoDate());
         } finally {

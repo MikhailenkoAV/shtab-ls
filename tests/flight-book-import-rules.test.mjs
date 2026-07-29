@@ -30,3 +30,25 @@ test("duration parser accepts Excel fractions, decimal hours and compact time", 
   assert.equal(importDurationMinutes(1.5), 90);
   assert.equal(importDurationMinutes("1230"), 750);
 });
+
+test("monthly ELK table aggregates PIC, instructor and night time by aircraft type", () => {
+  const preview = parseFlightBookImport([
+    [2025, "", "", "", "", "", "2026 (ЦА Солярис)", "", "", "", "", ""],
+    ["Месяц", "Тип ВС", "Налет", "в т.ч. ночью", "Вид работ", "В качестве кого летал", "Месяц", "Тип ВС", "Налет", "в т.ч. ночью", "Вид работ", "В качестве кого летал"],
+    ["декабрь", "ВО105", "2:30", "0:20", "АОН", "ПИ", "январь", "AS350", "7:57", "", "КВП", "КВС"],
+    ["ИТОГО", "", "2:30", "0:20", "", "", "февраль", "AS350", "1:02", "0:15", "АОН", "ПИ"],
+  ], "ЭЛК.xlsx", ["BO105", "AS350"]);
+  assert.equal(preview.format, "monthly");
+  assert.equal(preview.date, "2026-02-28");
+  assert.deepEqual(preview.rows.map((row) => ({
+    type: row.aircraftType,
+    total: row.totalMinutes,
+    pic: row.picMinutes,
+    instructor: row.instructorMinutes,
+    night: row.nightMinutes,
+  })), [
+    { type: "AS350", total: 539, pic: 477, instructor: 62, night: 15 },
+    { type: "BO105", total: 150, pic: 0, instructor: 150, night: 20 },
+  ]);
+  assert.equal(preview.issues.length, 0);
+});
