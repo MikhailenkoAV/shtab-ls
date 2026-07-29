@@ -1,4 +1,4 @@
-import { aircraftNumbersByType } from "./aircraft-rules.ts";
+import { aircraftNumbersByType, canonicalAircraftType } from "./aircraft-rules.ts";
 
 export type FlightBookBaselineRow = {
   id: string;
@@ -19,6 +19,7 @@ export type FlightBookBaseline = {
   date: string;
   source: string;
   note: string;
+  siteFlightStartDate?: string;
   rows: FlightBookBaselineRow[];
   createdAt: string;
 };
@@ -84,7 +85,7 @@ const EMPTY_TOTALS: FlightBookTotals = {
 };
 
 function typeForSegment(segment: FlightBookShiftRef["segments"][number]): string {
-  if (segment.aircraftType?.trim()) return segment.aircraftType.trim();
+  if (segment.aircraftType?.trim()) return canonicalAircraftType(segment.aircraftType);
   return Object.entries(aircraftNumbersByType)
     .find(([, numbers]) => numbers.includes(segment.aircraft))?.[0] ?? "Без типа";
 }
@@ -126,8 +127,8 @@ export function buildFlightBook(
     return created;
   };
 
-  allowedAircraftTypes.filter(Boolean).forEach(ensure);
-  baseline?.rows.forEach((row) => addTotals(ensure(row.aircraftType || "Без типа"), {
+  allowedAircraftTypes.filter(Boolean).map(canonicalAircraftType).forEach(ensure);
+  baseline?.rows.forEach((row) => addTotals(ensure(canonicalAircraftType(row.aircraftType) || "Без типа"), {
     totalMinutes: row.totalMinutes,
     picMinutes: row.picMinutes,
     secondPilotMinutes: row.secondPilotMinutes,
@@ -142,7 +143,9 @@ export function buildFlightBook(
     .filter((shift) =>
       shift.personId === personId
       && shift.activity === "flight"
-      && (!baseline?.date || shift.date > baseline.date))
+      && (!baseline?.date || (baseline.siteFlightStartDate
+        ? shift.date >= baseline.siteFlightStartDate
+        : shift.date > baseline.date)))
     .forEach((shift) => shift.segments.forEach((segment, index) => {
       const aircraftType = typeForSegment(segment);
       const flightMinutes = Math.max(0, segment.flightMinutes || 0);
@@ -170,7 +173,8 @@ export function buildFlightBook(
     }));
 
   const rows = [...byType.values()]
-    .filter((row) => Object.values(row).some((value) => typeof value === "number" && value > 0) || allowedAircraftTypes.includes(row.aircraftType))
+    .filter((row) => Object.values(row).some((value) => typeof value === "number" && value > 0)
+      || allowedAircraftTypes.map(canonicalAircraftType).includes(row.aircraftType))
     .sort((left, right) => left.aircraftType.localeCompare(right.aircraftType, "ru-RU"));
   const total = { ...EMPTY_TOTALS };
   rows.forEach((row) => addTotals(total, row));

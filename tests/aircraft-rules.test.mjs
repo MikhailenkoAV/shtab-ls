@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   aircraftNumbersForType,
+  canonicalAircraftType,
   isAircraftNumberAllowed,
 } from "../app/aircraft-rules.ts";
 
@@ -13,6 +14,12 @@ test("aircraft types expose only their assigned registration numbers", () => {
   assert.deepEqual([...aircraftNumbersForType("R44")], ["RA-04186", "RA-04359"]);
   assert.deepEqual([...aircraftNumbersForType("AS350")], ["RA-07338", "RA-04063"]);
   assert.deepEqual([...aircraftNumbersForType("Bell407")], ["RA-01619"]);
+});
+
+test("Bell 407 and Bell407 use one canonical aircraft type", () => {
+  assert.equal(canonicalAircraftType("Bell 407"), "Bell407");
+  assert.equal(canonicalAircraftType("Bell407"), "Bell407");
+  assert.deepEqual([...aircraftNumbersForType("Bell 407")], ["RA-01619"]);
 });
 
 test("a registration number cannot be saved for another mapped aircraft type", () => {

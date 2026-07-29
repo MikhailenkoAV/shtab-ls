@@ -393,7 +393,7 @@ td strong { color: #314956; }
 .flight-book-summary { min-width: 0; }
 .flight-book-rule { display: flex; align-items: flex-start; gap: 14px; padding: 11px 20px; border-bottom: 1px solid #e7ecef; color: #637985; background: #f7fafb; font-size: 12px; line-height: 1.45; }
 .flight-book-rule strong { flex: none; color: #31546a; }
-.flight-book-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; padding: 14px 18px; }
+.flight-book-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; padding: 14px 18px; }
 .flight-book-metric { padding: 12px 13px; border: 1px solid #dfe7ea; border-top: 3px solid #79919d; border-radius: 10px; background: #fbfcfc; }
 .flight-book-metric span, .flight-book-metric strong { display: block; }
 .flight-book-metric span { color: #71838c; font-size: 11px; font-weight: 800; text-transform: uppercase; }
@@ -523,6 +523,8 @@ td strong { color: #314956; }
 .form-stack { display: grid; gap: 18px; padding: 22px 24px 24px; }
 .form-grid { display: grid; gap: 13px; }
 .form-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.certification-date-grid { align-items: end; }
+.document-validity-hint { display: block; margin-top: -5px; color: var(--muted); }
 .form-grid.three { grid-template-columns: 1.4fr 1fr 1fr; }
 .field { display: grid; gap: 7px; min-width: 0; }
 .field > span { color: #4a606c; font-size: 13px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }

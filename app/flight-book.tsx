@@ -8,6 +8,7 @@ import {
   FlightBookShiftRef,
 } from "./flight-book-rules";
 import { FlightBookImportPreview, parseFlightBookImport } from "./flight-book-import-rules";
+import { canonicalAircraftType } from "./aircraft-rules";
 
 type FlightBookPerson = {
   id: string;
@@ -59,7 +60,6 @@ export function FlightBookView({
         <FlightMetric label="КВС" value={result.total.picMinutes} tone="navy" />
         <FlightMetric label="Инструктором" value={result.total.instructorMinutes} tone="violet" />
         <FlightMetric label="Ночью" value={result.total.nightMinutes} tone="blue" />
-        <FlightMetric label="Добавлено сайтом" value={result.total.siteMinutes} tone="green" />
       </div>
       <div className="table-scroll"><table className="flight-book-table"><thead><tr><th>Тип ВС</th><th>Общий</th><th>КВС</th><th>2-й пилот</th><th>Пилот-инструктор</th><th>Ночь</th><th>ППП</th><th>Заходы ППП</th><th>Из журнала</th></tr></thead><tbody>
         {result.rows.map((row) => <tr key={row.aircraftType}><td><strong>{row.aircraftType}</strong></td><td><strong>{displayMinutes(row.totalMinutes)}</strong></td><td>{displayMinutes(row.picMinutes)}</td><td>{displayMinutes(row.secondPilotMinutes)}</td><td>{displayMinutes(row.instructorMinutes)}</td><td>{displayMinutes(row.nightMinutes)}</td><td>{displayMinutes(row.ifrMinutes)}</td><td>{row.ifrApproaches}</td><td><span className="site-flight-value">+ {displayMinutes(row.siteMinutes)}</span></td></tr>)}
@@ -192,7 +192,7 @@ function BaselineModal({
     event.preventDefault();
     const savedRows: FlightBookBaselineRow[] = rows.filter((row) => row.aircraftType.trim()).map((row) => ({
       id: row.id,
-      aircraftType: row.aircraftType.trim(),
+      aircraftType: canonicalAircraftType(row.aircraftType),
       totalMinutes: parseDuration(row.total),
       picMinutes: parseDuration(row.pic),
       secondPilotMinutes: parseDuration(row.secondPilot),
@@ -209,11 +209,12 @@ function BaselineModal({
       date,
       source: source.trim(),
       note: "",
+      siteFlightStartDate: baseline?.siteFlightStartDate,
       rows: savedRows,
       createdAt: baseline?.createdAt ?? new Date().toISOString(),
     });
   }}>
-    <div className="flight-book-form-note"><strong>Как считается итог</strong><span>Используется самая поздняя контрольная точка. К ней автоматически прибавляется налёт из полётных смен с последующих дат.</span></div>
+        <div className="flight-book-form-note"><strong>Как считается итог</strong><span>Используется самая поздняя контрольная точка. К ней автоматически прибавляется налёт из полётных смен с последующих дат.</span></div>
     <div className="form-grid two"><label className="field"><span>Дата контрольной точки</span><input required type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label className="field"><span>Источник</span><input value={source} onChange={(event) => setSource(event.target.value)} /></label></div>
     <fieldset className="flight-book-type-picker"><legend>Типы ВС сотрудника</legend>{person.aircraftTypes.map((aircraftType) => {
       const checked = rows.some((row) => row.aircraftType === aircraftType);
@@ -292,13 +293,14 @@ function FlightBookImportModal({
       }} /><strong>{loading ? "Чтение файла…" : "Выбрать Excel с исходным налётом"}</strong><span>.xlsx, .xls или .csv</span></label>
       {preview && <>
         <div className="form-grid two"><label className="field"><span>Дата контрольной точки</span><input required type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label className="field"><span>Источник</span><input readOnly value={preview.source} /></label></div>
+        {preview.format === "monthly" && <div className="flight-book-form-note"><strong>Граница учёта</strong><span>Excel учитывается по 30.06.2026 включительно. Полёты из журнала сайта добавляются с 01.07.2026 — июль не дублируется.</span></div>}
         <div className="import-summary-grid"><article><span>Распознано типов ВС</span><strong>{preview.rows.length}</strong></article><article><span>Предупреждения</span><strong>{preview.issues.filter((item) => item.level === "warning").length}</strong></article><article><span>Ошибки</span><strong>{preview.issues.filter((item) => item.level === "error").length}</strong></article></div>
         {preview.issues.length > 0 && <div className="import-issues">{preview.issues.map((issue, index) => <div className={issue.level} key={`${issue.row}-${index}`}><strong>{issue.level === "error" ? "Ошибка" : "Проверить"}{issue.row ? ` · строка ${issue.row}` : ""}</strong><span>{issue.message}</span></div>)}</div>}
         <div className="table-scroll"><table className="flight-book-table"><thead><tr><th>Тип ВС</th><th>Общий</th><th>КВС</th><th>2-й пилот</th><th>Пилот-инструктор</th><th>Ночь</th><th>ППП</th><th>Заходы ППП</th></tr></thead><tbody>{preview.rows.map((row) => <tr key={row.id}><td><strong>{row.aircraftType}</strong></td><td>{displayMinutes(row.totalMinutes)}</td><td>{displayMinutes(row.picMinutes)}</td><td>{displayMinutes(row.secondPilotMinutes)}</td><td>{displayMinutes(row.instructorMinutes)}</td><td>{displayMinutes(row.nightMinutes)}</td><td>{displayMinutes(row.ifrMinutes)}</td><td>{row.ifrApproaches}</td></tr>)}</tbody></table></div>
       </>}
       <div className="form-actions"><button className="secondary-button" type="button" onClick={onClose}>Отмена</button><button className="primary-button" type="button" disabled={!preview || blocking || !date || !preview.rows.length} onClick={() => {
         if (!preview) return;
-        onSave({ id: uid(), personId: person.id, date, source: preview.source, note: "", rows: preview.rows.map((row) => ({ ...row, id: uid() })), createdAt: new Date().toISOString() });
+        onSave({ id: uid(), personId: person.id, date, source: preview.source, note: "", siteFlightStartDate: preview.format === "monthly" ? "2026-07-01" : undefined, rows: preview.rows.map((row) => ({ ...row, aircraftType: canonicalAircraftType(row.aircraftType), id: uid() })), createdAt: new Date().toISOString() });
       }}>Подтвердить импорт</button></div>
     </div>
   </section></div>;

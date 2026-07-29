@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { activityUsesTime as usesTime, isRestNeutralActivity, normalizeActivityTiming } from "./activity-rules";
-import { aircraftNumbersByType, aircraftNumbersForType, isAircraftNumberAllowed } from "./aircraft-rules";
+import { aircraftNumbersByType, aircraftNumbersForType, canonicalAircraftType, isAircraftNumberAllowed } from "./aircraft-rules";
 import {
   downloadEmploymentReport,
   downloadFlightReport,
@@ -252,16 +252,17 @@ function normalizePerson(person: Person): Person {
   const qualifications = person.qualifications?.length ? person.qualifications.map((qualification, index) => ({
     id: qualification.id || `${person.id}-qualification-${index + 1}`,
     operators: orderedUnique(qualification.operators ?? [], operatorOptions),
-    aircraftTypes: orderedUnique(qualification.aircraftTypes ?? [], aircraftTypeOptions),
+    aircraftTypes: orderedUnique((qualification.aircraftTypes ?? []).map(canonicalAircraftType), aircraftTypeOptions),
     seats: orderedUnique(qualification.seats ?? [], positionOptions),
     nightAircraftTypes: orderedUnique(
-      (qualification.nightAircraftTypes ?? []).filter((aircraftType) => (qualification.aircraftTypes ?? []).includes(aircraftType)),
+      (qualification.nightAircraftTypes ?? []).map(canonicalAircraftType)
+        .filter((aircraftType) => (qualification.aircraftTypes ?? []).map(canonicalAircraftType).includes(aircraftType)),
       aircraftTypeOptions,
     ),
   })) : ((person.permissions?.length || person.aircraftTypes?.length || legacySeats.length) ? [{
     id: `${person.id}-legacy-qualification`,
     operators: orderedUnique(person.permissions ?? [], operatorOptions),
-    aircraftTypes: orderedUnique(person.aircraftTypes ?? [], aircraftTypeOptions),
+    aircraftTypes: orderedUnique((person.aircraftTypes ?? []).map(canonicalAircraftType), aircraftTypeOptions),
     seats: orderedUnique(legacySeats, positionOptions),
     nightAircraftTypes: [],
   }] : []);

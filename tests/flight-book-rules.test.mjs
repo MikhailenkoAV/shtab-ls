@@ -105,3 +105,12 @@ test("without a control point all journal flights are included", () => {
   assert.equal(result.total.totalMinutes, 60);
   assert.equal(result.entries.length, 1);
 });
+
+test("an imported baseline can add journal flights from July 2026", () => {
+  const result = buildFlightBook("pilot", [
+    shift({ id: "june", date: "2026-06-30" }),
+    shift({ id: "july", date: "2026-07-01" }),
+  ], [baseline({ date: "2026-06-30", siteFlightStartDate: "2026-07-01" })]);
+  assert.equal(result.total.totalMinutes, 660);
+  assert.deepEqual(result.entries.map((item) => item.date), ["2026-07-01"]);
+});

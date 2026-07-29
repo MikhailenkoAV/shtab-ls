@@ -1,4 +1,5 @@
 import type { FlightBookBaselineRow } from "./flight-book-rules.ts";
+import { canonicalAircraftType } from "./aircraft-rules.ts";
 
 export type FlightBookImportIssue = {
   level: "error" | "warning";
@@ -76,7 +77,7 @@ function normalizedAircraftType(value: unknown): string {
   if (source === "AS350") return "AS350";
   if (source === "EC130") return "EC130";
   if (source === "BO105") return "BO105";
-  return text(value);
+  return canonicalAircraftType(text(value));
 }
 
 function lastDayOfMonth(year: number, month: number): string {
@@ -88,6 +89,7 @@ function parseMonthlyFlightBookImport(
   rows: unknown[][],
   sourceFile: string,
   allowedAircraftTypes: string[],
+  siteFlightStartDate: string,
 ): FlightBookImportPreview {
   const issues: FlightBookImportIssue[] = [];
   const totals = new Map<string, FlightBookBaselineRow>();
@@ -107,6 +109,8 @@ function parseMonthlyFlightBookImport(
       }
       const month = monthIndexes[normalized(first)];
       if (month === undefined || !years[block]) continue;
+      const monthEnd = lastDayOfMonth(years[block], month);
+      if (siteFlightStartDate && monthEnd >= siteFlightStartDate) continue;
       const aircraftType = normalizedAircraftType(row[offset + 1]);
       const flightMinutes = importDurationMinutes(row[offset + 2]);
       const nightMinutes = importDurationMinutes(row[offset + 3]);
@@ -164,6 +168,7 @@ export function parseFlightBookImport(
   rows: unknown[][],
   sourceFile: string,
   allowedAircraftTypes: string[] = [],
+  siteFlightStartDate = "2026-07-01",
 ): FlightBookImportPreview {
   const isMonthly = rows.some((row) => {
     const values = row.map(normalized);
@@ -172,7 +177,7 @@ export function parseFlightBookImport(
       && values.includes("налет")
       && values.some((value) => /в качестве кого/.test(value));
   });
-  if (isMonthly) return parseMonthlyFlightBookImport(rows, sourceFile, allowedAircraftTypes);
+  if (isMonthly) return parseMonthlyFlightBookImport(rows, sourceFile, allowedAircraftTypes, siteFlightStartDate);
   const headerRow = rows.findIndex((row) => {
     const values = row.map(normalized);
     return values.some((value) => aliases.aircraftType.test(value))

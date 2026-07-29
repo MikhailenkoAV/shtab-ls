@@ -19,6 +19,8 @@ import {
 import { safeFilePart, splitPersonName } from "./documentation-rules.ts";
 import type { DocumentPersonProfile } from "./documentation-rules.ts";
 import type { TDocumentDefinitions } from "pdfmake/interfaces";
+import JSZip from "jszip";
+import { AUC_TRAINING_TEMPLATE_BASE64 } from "./auc-training-template-data.ts";
 
 export type DocumentCertificationRef = {
   category: string;
@@ -258,7 +260,7 @@ export async function downloadPilotAppendixWord(payload: PilotAppendixPayload): 
   downloadBlob(await Packer.toBlob(doc), `Приложение_к_свидетельству_${safeFilePart(payload.personName)}.docx`);
 }
 
-export async function downloadTrainingRequestWord(payload: TrainingRequestPayload): Promise<void> {
+async function downloadTrainingRequestWordLegacy(payload: TrainingRequestPayload): Promise<void> {
   let logo: Paragraph;
   try {
     const response = await fetch(new URL("solaris-logo.png", window.location.href).pathname);
@@ -405,6 +407,89 @@ export async function downloadTrainingRequestWord(payload: TrainingRequestPayloa
     }],
   });
   downloadBlob(await Packer.toBlob(doc), `Заявка_в_АУЦ_${safeFilePart(payload.programName || payload.requestDate)}.docx`);
+}
+
+function xmlValue(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function replaceTemplateToken(xml: string, token: string, value: string): string {
+  return xml.split(`{{${token}}}`).join(xmlValue(value));
+}
+
+export async function downloadTrainingRequestWord(payload: TrainingRequestPayload): Promise<void> {
+  const archive = await JSZip.loadAsync(AUC_TRAINING_TEMPLATE_BASE64, { base64: true });
+  const documentFile = archive.file("word/document.xml");
+  if (!documentFile) {
+    await downloadTrainingRequestWordLegacy(payload);
+    return;
+  }
+
+  let xml = await documentFile.async("string");
+  const staffRowMatch = [...xml.matchAll(/<w:tr\b[\s\S]*?<\/w:tr>/g)]
+    .find((match) => match[0].includes("{{INDEX}}"));
+  if (!staffRowMatch) {
+    await downloadTrainingRequestWordLegacy(payload);
+    return;
+  }
+
+  const staffRows = (payload.rows.length ? payload.rows : [{
+    personName: "",
+    birthDate: "",
+    aircraftType: "",
+    position: "",
+    snils: "",
+    educationDocument: "",
+    educationQualification: "",
+    educationLevel: "",
+    passport: "",
+  }]).map((row, index) => {
+    let rowXml = staffRowMatch[0];
+    const values: Record<string, string> = {
+      INDEX: String(index + 1),
+      PERSON_NAME: row.personName,
+      BIRTH_DATE: displayDate(row.birthDate),
+      AIRCRAFT_TYPE: row.aircraftType,
+      POSITION: row.position,
+      SNILS: row.snils,
+      EDUCATION_DOCUMENT: row.educationDocument,
+      EDUCATION_QUALIFICATION: row.educationQualification,
+      EDUCATION_LEVEL: row.educationLevel,
+      PASSPORT: row.passport,
+    };
+    Object.entries(values).forEach(([token, value]) => {
+      rowXml = replaceTemplateToken(rowXml, token, value);
+    });
+    return rowXml;
+  }).join("");
+  xml = xml.replace(staffRowMatch[0], staffRows);
+
+  const values: Record<string, string> = {
+    REQUEST_DATE: displayDate(payload.requestDate),
+    PROGRAM_NAME: payload.programName,
+    HOURS: payload.hours,
+    DATE_FROM: displayDate(payload.dateFrom),
+    DATE_TO: displayDate(payload.dateTo),
+    SENDER_TITLE: payload.senderTitle || "Начальник штаба",
+    SENDER_NAME: payload.senderName,
+    SENDER_SHORT: payload.senderName,
+    SENDER_EMAIL: payload.senderEmail,
+    SENDER_PHONE: payload.senderPhone,
+  };
+  Object.entries(values).forEach(([token, value]) => {
+    xml = replaceTemplateToken(xml, token, value);
+  });
+  archive.file("word/document.xml", xml);
+  const blob = await archive.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+  downloadBlob(blob, `Заявка_в_АУЦ_${safeFilePart(payload.requestDate || "без_даты")}.docx`);
 }
 
 export function buildQualificationCheckPdf(payload: QualificationCheckPayload): TDocumentDefinitions {

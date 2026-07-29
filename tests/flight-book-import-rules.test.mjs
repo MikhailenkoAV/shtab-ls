@@ -52,3 +52,15 @@ test("monthly ELK table aggregates PIC, instructor and night time by aircraft ty
   ]);
   assert.equal(preview.issues.length, 0);
 });
+
+test("monthly import stops before July 2026 because later flights come from the site journal", () => {
+  const preview = parseFlightBookImport([
+    [2026, "", "", "", "", ""],
+    ["Месяц", "Тип ВС", "Налет", "в т.ч. ночью", "Вид работ", "В качестве кого летал"],
+    ["июнь", "Bell 407", "2:00", "0:20", "АОН", "КВС"],
+    ["июль", "Bell407", "3:00", "0:30", "АОН", "КВС"],
+  ], "ЭЛК.xlsx", ["Bell407"]);
+  assert.equal(preview.date, "2026-06-30");
+  assert.equal(preview.rows[0].aircraftType, "Bell407");
+  assert.equal(preview.rows[0].totalMinutes, 120);
+});
