@@ -114,3 +114,15 @@ test("an imported baseline can add journal flights from July 2026", () => {
   assert.equal(result.total.totalMinutes, 660);
   assert.deepEqual(result.entries.map((item) => item.date), ["2026-07-01"]);
 });
+
+test("a legacy Excel baseline also adds July journal flights without re-import", () => {
+  const result = buildFlightBook("pilot", [
+    shift({ id: "july", date: "2026-07-01" }),
+  ], [baseline({
+    date: "2026-07-31",
+    source: "ЭЛК Ганжа.xlsx · помесячный лист",
+    siteFlightStartDate: undefined,
+  })]);
+  assert.equal(result.total.siteMinutes, 60);
+  assert.equal(result.entries.length, 1);
+});

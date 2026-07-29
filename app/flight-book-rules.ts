@@ -111,6 +111,15 @@ export function latestFlightBookBaseline(
       `${right.date}|${right.createdAt}`.localeCompare(`${left.date}|${left.createdAt}`))[0] ?? null;
 }
 
+function journalStartDate(baseline: FlightBookBaseline | null): string {
+  if (!baseline) return "";
+  if (baseline.siteFlightStartDate) return baseline.siteFlightStartDate;
+  // Compatibility with control points imported before the July boundary
+  // became part of the saved data model.
+  if (/\.(xlsx|xls|csv)\b|excel|элк/i.test(baseline.source)) return "2026-07-01";
+  return "";
+}
+
 export function buildFlightBook(
   personId: string,
   shifts: FlightBookShiftRef[],
@@ -118,6 +127,7 @@ export function buildFlightBook(
   allowedAircraftTypes: string[] = [],
 ): FlightBookResult {
   const baseline = latestFlightBookBaseline(baselines, personId);
+  const siteFlightStartDate = journalStartDate(baseline);
   const byType = new Map<string, FlightBookTypeTotal>();
   const ensure = (aircraftType: string) => {
     const current = byType.get(aircraftType);
@@ -143,8 +153,8 @@ export function buildFlightBook(
     .filter((shift) =>
       shift.personId === personId
       && shift.activity === "flight"
-      && (!baseline?.date || (baseline.siteFlightStartDate
-        ? shift.date >= baseline.siteFlightStartDate
+      && (!baseline?.date || (siteFlightStartDate
+        ? shift.date >= siteFlightStartDate
         : shift.date > baseline.date)))
     .forEach((shift) => shift.segments.forEach((segment, index) => {
       const aircraftType = typeForSegment(segment);
