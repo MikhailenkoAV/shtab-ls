@@ -8,6 +8,7 @@ import {
 
 test("aircraft types expose only their assigned registration numbers", () => {
   assert.deepEqual([...aircraftNumbersForType("AW109")], ["RA-01902"]);
+  assert.deepEqual([...aircraftNumbersForType("AW139")], ["RA-01697"]);
   assert.deepEqual([...aircraftNumbersForType("A109")], ["RA-07701"]);
   assert.deepEqual([...aircraftNumbersForType("BO105")], ["RA-02549", "RA-2991G"]);
   assert.deepEqual([...aircraftNumbersForType("R66")], ["RA-07375", "RA-05828"]);
@@ -26,9 +27,11 @@ test("a registration number cannot be saved for another mapped aircraft type", (
   assert.equal(isAircraftNumberAllowed("AW109", "RA-01902"), true);
   assert.equal(isAircraftNumberAllowed("AW109", "RA-07701"), false);
   assert.equal(isAircraftNumberAllowed("BO105", ""), false);
+  assert.equal(isAircraftNumberAllowed("AW139", "RA-01697"), true);
+  assert.equal(isAircraftNumberAllowed("AW139", "RA-00000"), false);
 });
 
 test("unmapped aircraft types keep existing imported registration numbers", () => {
-  assert.deepEqual([...aircraftNumbersForType("AW139")], []);
-  assert.equal(isAircraftNumberAllowed("AW139", "RA-00000"), true);
+  assert.deepEqual([...aircraftNumbersForType("EC130")], []);
+  assert.equal(isAircraftNumberAllowed("EC130", "RA-00000"), true);
 });

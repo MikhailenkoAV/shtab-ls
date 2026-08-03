@@ -1,5 +1,6 @@
 export const aircraftNumbersByType: Readonly<Record<string, readonly string[]>> = {
   AW109: ["RA-01902"],
+  AW139: ["RA-01697"],
   A109: ["RA-07701"],
   BO105: ["RA-02549", "RA-2991G"],
   R66: ["RA-07375", "RA-05828"],
