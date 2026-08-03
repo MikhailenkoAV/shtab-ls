@@ -32,6 +32,13 @@ test("GitHub Pages export contains the main application sections", async () => {
   assert.doesNotMatch(html, />Статус</);
 });
 
+test("monthly plan does not block saving factual journal entries", async () => {
+  const pageSource = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(pageSource, /Полёт не сохранён: у/);
+  assert.doesNotMatch(pageSource, /Занятость не сохранена: сначала удалите назначение/);
+  assert.match(pageSource, /Месячный план — ориентир, а не ограничение для фактических данных/);
+});
+
 test("period report aggregates chair, aircraft type, purpose, total and night flight time", () => {
   const report = buildFlightReport(
     "2026-06-15",

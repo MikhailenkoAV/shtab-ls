@@ -732,26 +732,8 @@ export default function Home() {
     const { dateTo, ...base } = shift;
     const hasPeriod = multiDayActivities.includes(shift.activity) && Boolean(dateTo && dateTo > shift.date);
     const dates = hasPeriod ? enumerateDates(shift.date, dateTo!) : [shift.date];
-    if (base.activity === "flight") {
-      const crewPersonIds = [...new Set([
-        base.personId,
-        ...base.segments.map((segment) => segment.commanderPersonId).filter((value): value is string => Boolean(value)),
-      ])];
-      const conflict = data.planBusyEntries.find((entry) =>
-        crewPersonIds.includes(entry.personId) && dates.some((date) => date >= entry.dateFrom && date <= entry.dateTo));
-      if (conflict) {
-        const personName = data.people.find((person) => person.id === conflict.personId)?.name ?? "Сотрудник";
-        setToast(`Полёт не сохранён: у ${personName} на эту дату указано «${planBusyLabels[conflict.activity]}».`);
-        return;
-      }
-    } else {
-      const conflict = data.planAssignments.find((assignment) =>
-        assignment.personId === base.personId && dates.includes(assignment.date));
-      if (conflict) {
-        setToast(`Занятость не сохранена: сначала удалите назначение на ${conflict.aircraft} за ${formatDate(conflict.date)}.`);
-        return;
-      }
-    }
+    // Месячный план — ориентир, а не ограничение для фактических данных.
+    // Факт всегда сохраняется в журнал и автоматически появляется в фактическом плане.
     const periodId = hasPeriod ? editing?.periodId ?? uid() : undefined;
     const createdAt = editing?.createdAt ?? new Date().toISOString();
     const records: Shift[] = dates.map((date) => {
