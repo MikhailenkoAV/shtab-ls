@@ -144,3 +144,12 @@ test("certification dates are included and attention is ordered by nearest overd
   assert.ok(compareAttentionDates("2026-07-25", "2026-07-27", "2026-07-26") < 0);
   assert.ok(compareAttentionDates("2026-07-25", "2026-07-20", "2026-07-26") < 0);
 });
+
+test("document headings without an expiry date do not create false certification warnings", () => {
+  const people = [{ id: "ilyin", name: "Ильин Иван Иванович", active: true, qualifications: [] }];
+  const certifications = [
+    { id: "id", personId: "ilyin", category: "Личная информация", certificationType: "ID", endDate: "" },
+    { id: "instructor", personId: "ilyin", category: "Лётная подготовка", certificationType: "Подготовка инструкторского состава", endDate: "" },
+  ];
+  assert.deepEqual(buildControlRows(people, [], certifications, "2026-08-04"), []);
+});

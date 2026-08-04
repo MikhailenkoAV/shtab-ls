@@ -11,6 +11,7 @@ import { buildCumulativeWorkbookModel } from "../app/cumulative-flight-report.ts
 test("GitHub Pages export contains the main application sections", async () => {
   const html = await readFile(new URL("../out/index.html", import.meta.url), "utf8");
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const documentationSource = await readFile(new URL("../app/documentation.tsx", import.meta.url), "utf8");
   assert.match(html, /ШТАБ ЛС/);
   assert.match(html, /Главная/);
   assert.match(html, /Документация/);
@@ -30,6 +31,10 @@ test("GitHub Pages export contains the main application sections", async () => {
   assert.doesNotMatch(html, /\+ Сотрудник/);
   assert.doesNotMatch(html, /\+ Добавить смену/);
   assert.doesNotMatch(html, />Статус</);
+  assert.match(documentationSource, /Направление на ВЛЭК/);
+  assert.match(documentationSource, /Медицинские направления/);
+  assert.match(documentationSource, /Справочник ВЛЭК/);
+  assert.doesNotMatch(documentationSource, /Приложение к пилотскому свидетельству/);
 });
 
 test("monthly plan does not block saving factual journal entries", async () => {

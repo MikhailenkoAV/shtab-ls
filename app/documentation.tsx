@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from "react";
 import {
-  downloadPilotAppendixWord,
+  downloadMedicalReferralWord,
   downloadPersonalFlightCertificateWord,
   downloadQualificationCheckPdf,
   downloadTrainingRequestWord,
+  qualificationResultText,
   TrainingRequestRow,
 } from "./document-exports";
 import {
@@ -14,6 +15,8 @@ import {
   DocumentRegistryRecord,
   DocumentSettings,
   EMPTY_DOCUMENT_PROFILE,
+  MedicalReferralRecord,
+  nextMedicalReferralNumber,
   nextRegistryNumber,
   registryKindLabels,
 } from "./documentation-rules";
@@ -29,6 +32,8 @@ type DocumentationPerson = {
   position: string;
   aircraftTypes: string[];
   active: boolean;
+  division: string;
+  qualifications: { aircraftTypes: string[]; seats: string[] }[];
 };
 
 type DocumentationCertification = {
@@ -52,7 +57,8 @@ type DocumentationCompany = {
 };
 
 type DocumentationTab = "registry" | "forms" | "references";
-type FormKind = "pilot" | "training" | "qualification" | "flight-certificate";
+type FormKind = "training" | "qualification" | "flight-certificate" | "medical-referral";
+type RegistrySection = DocumentRegistryKind | "medicalReferral";
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const localIsoDate = () => {
   const date = new Date();
@@ -68,11 +74,14 @@ export function DocumentationView({
   shifts,
   baselines,
   registry,
+  medicalReferrals,
   profiles,
   settings,
   company,
   onUpsertRegistry,
   onDeleteRegistry,
+  onUpsertMedicalReferral,
+  onDeleteMedicalReferral,
   onSettingsChange,
   onNotify,
 }: {
@@ -81,11 +90,14 @@ export function DocumentationView({
   shifts: FlightBookShiftRef[];
   baselines: FlightBookBaseline[];
   registry: DocumentRegistryRecord[];
+  medicalReferrals: MedicalReferralRecord[];
   profiles: Record<string, DocumentPersonProfile>;
   settings: DocumentSettings;
   company: DocumentationCompany;
   onUpsertRegistry: (record: DocumentRegistryRecord) => void;
   onDeleteRegistry: (recordId: string) => void;
+  onUpsertMedicalReferral: (record: MedicalReferralRecord) => void;
+  onDeleteMedicalReferral: (recordId: string) => void;
   onSettingsChange: (patch: Partial<DocumentSettings>) => void;
   onNotify: (message: string) => void;
 }) {
@@ -95,13 +107,17 @@ export function DocumentationView({
   );
   const [tab, setTab] = useState<DocumentationTab>("registry");
   const [formKind, setFormKind] = useState<FormKind>("training");
-  const [registryKind, setRegistryKind] = useState<DocumentRegistryKind>("order");
+  const [registryKind, setRegistryKind] = useState<RegistrySection>("order");
   const [registryQuery, setRegistryQuery] = useState("");
   const [registryYear, setRegistryYear] = useState("");
   const [registryEditing, setRegistryEditing] = useState<DocumentRegistryRecord | "new" | null>(null);
-  const years = useMemo(() => [...new Set(registry.map((record) => record.date.slice(0, 4)).filter(Boolean))].sort().reverse(), [registry]);
+  const [medicalEditing, setMedicalEditing] = useState<MedicalReferralRecord | "new" | null>(null);
+  const years = useMemo(() => [...new Set([
+    ...registry.map((record) => record.date.slice(0, 4)),
+    ...medicalReferrals.map((record) => record.issueDate.slice(0, 4)),
+  ].filter(Boolean))].sort().reverse(), [registry, medicalReferrals]);
   const visibleRegistry = useMemo(() => registry.filter((record) =>
-    record.kind === registryKind
+    registryKind !== "medicalReferral" && record.kind === registryKind
     && (!registryYear || record.date.startsWith(registryYear))
     && `${record.number} ${record.subject}`.toLocaleLowerCase("ru-RU")
       .includes(registryQuery.trim().toLocaleLowerCase("ru-RU")))
@@ -119,13 +135,6 @@ export function DocumentationView({
       pilotLicenceNumber: saved.pilotLicenceNumber || licence?.number || "",
     };
   }
-
-  const [pilotPersonId, setPilotPersonId] = useState(activePeople[0]?.id ?? "");
-  const [pilotIssueDate, setPilotIssueDate] = useState(localIsoDate());
-  const [pilotOperator, setPilotOperator] = useState(company.shortName || company.fullName);
-  const [pilotSignatory, setPilotSignatory] = useState(company.chiefOfStaff);
-  const [pilotLicenceKind, setPilotLicenceKind] = useState(() => resolvedProfile(activePeople[0]?.id ?? "").pilotLicenceKind);
-  const [pilotLicenceNumber, setPilotLicenceNumber] = useState(() => resolvedProfile(activePeople[0]?.id ?? "").pilotLicenceNumber);
 
   const [trainingSelected, setTrainingSelected] = useState<string[]>([]);
   const [trainingRows, setTrainingRows] = useState<Record<string, TrainingRequestRow>>({});
@@ -145,7 +154,7 @@ export function DocumentationView({
     landings: "",
     checkDate: localIsoDate(),
     checkPlace: "",
-    result: "Зачёт",
+    seat: "КВС",
     examinerName: "",
     examinerLicence: "",
     examinerRole: "Пилот-инструктор",
@@ -155,6 +164,17 @@ export function DocumentationView({
   const [certificateNumber, setCertificateNumber] = useState(
     nextRegistryNumber(registry, "certificate", localIsoDate()),
   );
+  const [medicalPersonId, setMedicalPersonId] = useState(activePeople[0]?.id ?? "");
+  const [medicalOrganizationId, setMedicalOrganizationId] = useState(settings.medicalOrganizations[0]?.id ?? "");
+  const [medicalForm, setMedicalForm] = useState({
+    issueDate: localIsoDate(),
+    referralNumber: nextMedicalReferralNumber(medicalReferrals),
+    examKind: "периодический",
+    basis: "Периодический (годовой)",
+    issuer: ["Начальник штаба", company.chiefOfStaff].filter(Boolean).join(" — "),
+    position: activePeople[0]?.position ?? "",
+    division: activePeople[0]?.division ?? "",
+  });
   const selectedProgramHours = settings.trainingProgramHours?.[trainingForm.programName] ?? [];
   const selectedProgramKind = settings.trainingProgramVariants?.[trainingForm.programName]
     ?.find((variant) => variant.hours === trainingForm.hours)?.kind
@@ -230,23 +250,35 @@ export function DocumentationView({
     </nav>
 
     {tab === "registry" && <section className="panel documentation-workspace">
-      <div className="panel-heading"><div><p className="eyebrow">Реестр ЛС</p><h2>{registryKindLabels[registryKind]}</h2></div><button className="primary-button" onClick={() => setRegistryEditing("new")}>+ Новая запись</button></div>
+      <div className="panel-heading"><div><p className="eyebrow">Реестр ЛС</p><h2>{registryKind === "medicalReferral" ? "Медицинские направления" : registryKindLabels[registryKind]}</h2></div><button className="primary-button" onClick={() => registryKind === "medicalReferral" ? setMedicalEditing("new") : setRegistryEditing("new")}>+ Новая запись</button></div>
       <div className="registry-kind-tabs">{(Object.keys(registryKindLabels) as DocumentRegistryKind[]).map((kind) =>
-        <button key={kind} className={registryKind === kind ? "active" : ""} onClick={() => setRegistryKind(kind)}><span>{registryKindLabels[kind]}</span><i>{registry.filter((record) => record.kind === kind).length}</i></button>)}</div>
+        <button key={kind} className={registryKind === kind ? "active" : ""} onClick={() => setRegistryKind(kind)}><span>{registryKindLabels[kind]}</span><i>{registry.filter((record) => record.kind === kind).length}</i></button>)}
+        <button className={registryKind === "medicalReferral" ? "active" : ""} onClick={() => setRegistryKind("medicalReferral")}><span>Медицинские направления</span><i>{medicalReferrals.length}</i></button>
+      </div>
       <div className="records-toolbar registry-toolbar">
         <input value={registryQuery} onChange={(event) => setRegistryQuery(event.target.value)} placeholder="Поиск по номеру или содержанию…" />
         <select value={registryYear} onChange={(event) => setRegistryYear(event.target.value)}><option value="">Все годы</option>{years.map((year) => <option key={year}>{year}</option>)}</select>
       </div>
-      {!visibleRegistry.length ? <div className="panel-empty tall">Записи по выбранному фильтру не найдены.</div> : <div className="table-scroll"><table className="registry-table"><thead><tr><th>Номер</th><th>Дата</th><th>Содержание</th><th /></tr></thead><tbody>{visibleRegistry.map((record) =>
+      {registryKind === "medicalReferral" ? <MedicalReferralTable records={medicalReferrals} query={registryQuery} year={registryYear} onEdit={setMedicalEditing} /> : !visibleRegistry.length ? <div className="panel-empty tall">Записи по выбранному фильтру не найдены.</div> : <div className="table-scroll"><table className="registry-table"><thead><tr><th>Номер</th><th>Дата</th><th>Содержание</th><th /></tr></thead><tbody>{visibleRegistry.map((record) =>
         <tr key={record.id}><td><strong>{record.number || "—"}</strong></td><td>{displayDate(record.date)}</td><td className="note-cell">{record.subject || "—"}</td><td><button className="row-action" onClick={() => setRegistryEditing(record)}>Изменить</button></td></tr>)}</tbody></table></div>}
     </section>}
 
     {tab === "references" && <section className="panel documentation-workspace">
-      <div className="panel-heading"><div><p className="eyebrow">Справочники форм</p><h2>АУЦ и программы обучения</h2></div><span className="settings-auto-save">Сохраняется автоматически</span></div>
+      <div className="panel-heading"><div><p className="eyebrow">Справочники форм</p><h2>АУЦ, ВЛЭК и программы обучения</h2></div><span className="settings-auto-save">Сохраняется автоматически</span></div>
       <div className="document-profile-form form-stack">
         <div className="form-grid two">
           <ProfileField label="Наименование АУЦ" value={settings.trainingCenterName} onChange={(value) => onSettingsChange({ trainingCenterName: value })} />
           <ProfileField label="Руководитель / адресат" value={settings.trainingCenterHead} onChange={(value) => onSettingsChange({ trainingCenterHead: value })} />
+        </div>
+        <div className="training-program-settings">
+          <div className="training-program-settings-head"><strong>Справочник ВЛЭК</strong><button className="secondary-button compact" type="button" onClick={() => onSettingsChange({ medicalOrganizations: [...settings.medicalOrganizations, { id: uid(), name: "", address: "", ogrn: "" }] })}>+ Добавить ВЛЭК</button></div>
+          {settings.medicalOrganizations.map((organization) => <article key={organization.id}>
+            <ProfileField label="Наименование" value={organization.name} onChange={(value) => onSettingsChange({ medicalOrganizations: settings.medicalOrganizations.map((item) => item.id === organization.id ? { ...item, name: value } : item) })} />
+            <ProfileField label="Адрес" value={organization.address} onChange={(value) => onSettingsChange({ medicalOrganizations: settings.medicalOrganizations.map((item) => item.id === organization.id ? { ...item, address: value } : item) })} />
+            <ProfileField label="ОГРН" value={organization.ogrn} onChange={(value) => onSettingsChange({ medicalOrganizations: settings.medicalOrganizations.map((item) => item.id === organization.id ? { ...item, ogrn: value } : item) })} />
+            <button type="button" className="danger-button compact" onClick={() => onSettingsChange({ medicalOrganizations: settings.medicalOrganizations.filter((item) => item.id !== organization.id) })}>Удалить</button>
+          </article>)}
+          {!settings.medicalOrganizations.length && <div className="panel-empty">Добавьте организацию ВЛЭК: наименование, адрес и ОГРН.</div>}
         </div>
         <div className="training-program-settings">
           <div className="training-program-settings-head"><strong>Программы, вид обучения и часы</strong><button className="secondary-button compact" type="button" onClick={() => onSettingsChange({ trainingPrograms: [...settings.trainingPrograms, "Новая программа"] })}>+ Добавить программу</button></div>
@@ -276,46 +308,9 @@ export function DocumentationView({
         ["training", "Заявка в АУЦ", "Word · ручная проверка полей"],
         ["flight-certificate", "Персональная справка о налёте", "Word · форма АО ЦА «Солярис»"],
         ["qualification", "Вкладыш квалификационной проверки", "PDF · 105 × 148 мм"],
-        ["pilot", "Приложение к свидетельству", "Word · строго по образцу"],
+        ["medical-referral", "Направление на ВЛЭК", "Word · строго по образцу"],
       ] as const).map(([kind, title, detail]) => <button key={kind} className={formKind === kind ? "active" : ""} onClick={() => setFormKind(kind)}><strong>{title}</strong><small>{detail}</small></button>)}
       </aside>
-
-      {formKind === "pilot" && <article className="panel documentation-workspace">
-        <div className="panel-heading"><div><p className="eyebrow">Word-документ</p><h2>Приложение к пилотскому свидетельству</h2></div></div>
-        <div className="document-profile-form form-stack">
-          {!activePeople.length ? <div className="panel-empty">Добавьте сотрудников для формирования документа.</div> : <>
-            <label className="field"><span>Сотрудник</span><select value={pilotPersonId} onChange={(event) => {
-              const personId = event.target.value;
-              const nextProfile = resolvedProfile(personId);
-              setPilotPersonId(personId);
-              setPilotLicenceKind(nextProfile.pilotLicenceKind);
-              setPilotLicenceNumber(nextProfile.pilotLicenceNumber);
-            }}>{activePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
-            <div className="form-grid three">
-              <ProfileField label="Дата оформления" type="date" value={pilotIssueDate} onChange={setPilotIssueDate} />
-              <ProfileField label="Эксплуатант" value={pilotOperator} onChange={setPilotOperator} />
-              <ProfileField label="Подписант" value={pilotSignatory} onChange={setPilotSignatory} />
-            </div>
-            <div className="form-grid two">
-              <ProfileField label="Вид свидетельства" value={pilotLicenceKind} onChange={setPilotLicenceKind} />
-              <ProfileField label="Номер свидетельства" value={pilotLicenceNumber} onChange={setPilotLicenceNumber} />
-            </div>
-            <AutofillStatus profile={resolvedProfile(pilotPersonId)} />
-            <div className="form-actions"><button className="primary-button" onClick={() => {
-              const person = activePeople.find((item) => item.id === pilotPersonId);
-              if (!person) return;
-              void runExport(() => downloadPilotAppendixWord({
-                personName: person.name,
-                profile: { ...resolvedProfile(pilotPersonId), pilotLicenceKind, pilotLicenceNumber },
-                issueDate: pilotIssueDate,
-                operator: pilotOperator,
-                signatory: pilotSignatory,
-                certifications: certifications.filter((record) => record.personId === pilotPersonId),
-              }), "Приложение сформировано");
-            }}>Выгрузить в Word</button></div>
-          </>}
-        </div>
-      </article>}
 
       {formKind === "training" && <article className="panel documentation-workspace">
         <div className="panel-heading"><div><p className="eyebrow">Word-документ</p><h2>Заявка на обучение в АУЦ</h2></div></div>
@@ -369,11 +364,19 @@ export function DocumentationView({
         <div className="document-profile-form form-stack">
           <label className="field"><span>Сотрудник</span><select value={qualificationPersonId} onChange={(event) => {
             const personId = event.target.value;
+            const person = activePeople.find((item) => item.id === personId);
+            const aircraftType = person?.aircraftTypes[0] ?? "";
             setQualificationPersonId(personId);
-            setQualificationForm((current) => ({ ...current, aircraftType: activePeople.find((person) => person.id === personId)?.aircraftTypes[0] ?? "" }));
+            const seats = person?.qualifications.filter((item) => item.aircraftTypes.includes(aircraftType)).flatMap((item) => item.seats) ?? [];
+            setQualificationForm((current) => ({ ...current, aircraftType, seat: seats[0] ?? "КВС" }));
           }}>{activePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
           <div className="form-grid three">
-            <ProfileField label="Тип ВС" value={qualificationForm.aircraftType} onChange={(value) => setQualificationForm((current) => ({ ...current, aircraftType: value }))} />
+            <label className="field"><span>Тип ВС</span><select value={qualificationForm.aircraftType} onChange={(event) => {
+              const aircraftType = event.target.value;
+              const person = activePeople.find((item) => item.id === qualificationPersonId);
+              const seats = person?.qualifications.filter((item) => item.aircraftTypes.includes(aircraftType)).flatMap((item) => item.seats) ?? [];
+              setQualificationForm((current) => ({ ...current, aircraftType, seat: seats[0] ?? "КВС" }));
+            }}><option value="">Выберите тип ВС</option>{activePeople.find((item) => item.id === qualificationPersonId)?.aircraftTypes.map((item) => <option key={item}>{item}</option>)}</select></label>
             <ProfileField label="Бортовой номер" value={qualificationForm.aircraftNumber} onChange={(value) => setQualificationForm((current) => ({ ...current, aircraftNumber: value }))} />
             <ProfileField label="Дата проверки" type="date" value={qualificationForm.checkDate} onChange={(value) => setQualificationForm((current) => ({ ...current, checkDate: value }))} />
           </div>
@@ -383,10 +386,11 @@ export function DocumentationView({
             <ProfileField label="Место проверки" value={qualificationForm.checkPlace} onChange={(value) => setQualificationForm((current) => ({ ...current, checkPlace: value }))} />
           </div>
           <div className="form-grid three">
-            <ProfileField label="Результат" value={qualificationForm.result} onChange={(value) => setQualificationForm((current) => ({ ...current, result: value }))} />
+            <label className="field"><span>Квалификационная отметка</span><select value={qualificationForm.seat} onChange={(event) => setQualificationForm((current) => ({ ...current, seat: event.target.value }))}>{[...new Set(activePeople.find((item) => item.id === qualificationPersonId)?.qualifications.filter((item) => item.aircraftTypes.includes(qualificationForm.aircraftType)).flatMap((item) => item.seats) ?? ["КВС"])].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
             <ProfileField label="Проверяющий" value={qualificationForm.examinerName} onChange={(value) => setQualificationForm((current) => ({ ...current, examinerName: value }))} />
             <ProfileField label="№ свидетельства проверяющего" value={qualificationForm.examinerLicence} onChange={(value) => setQualificationForm((current) => ({ ...current, examinerLicence: value }))} />
           </div>
+          <div className="report-scope-note"><strong>Результат:</strong> {qualificationResultText(qualificationForm.aircraftType, qualificationForm.seat)}</div>
           <label className="field"><span>Должность проверяющего</span><select value={qualificationForm.examinerRole} onChange={(event) => setQualificationForm((current) => ({ ...current, examinerRole: event.target.value }))}><option>Пилот-инструктор</option><option>Пилот-инструктор-экзаменатор</option></select></label>
           <div className="form-actions"><button className="primary-button" disabled={!qualificationPersonId} onClick={() => {
             const person = activePeople.find((item) => item.id === qualificationPersonId);
@@ -434,11 +438,50 @@ export function DocumentationView({
           </>}
         </div>
       </article>}
+
+      {formKind === "medical-referral" && <article className="panel documentation-workspace">
+        <div className="panel-heading"><div><p className="eyebrow">Word-документ</p><h2>Направление на ВЛЭК</h2></div></div>
+        <div className="document-profile-form form-stack">
+          {!activePeople.length ? <div className="panel-empty">Добавьте сотрудника для формирования направления.</div> : <>
+            <label className="field"><span>Сотрудник</span><select value={medicalPersonId} onChange={(event) => {
+              const person = activePeople.find((item) => item.id === event.target.value);
+              setMedicalPersonId(event.target.value);
+              setMedicalForm((current) => ({ ...current, position: person?.position ?? "", division: person?.division ?? "" }));
+            }}>{activePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+            <div className="form-grid three">
+              <ProfileField label="Дата выдачи" type="date" value={medicalForm.issueDate} onChange={(value) => setMedicalForm((current) => ({ ...current, issueDate: value }))} />
+              <ProfileField label="№ направления" value={medicalForm.referralNumber} onChange={(value) => setMedicalForm((current) => ({ ...current, referralNumber: value }))} />
+              <label className="field"><span>Вид освидетельствования</span><select value={medicalForm.examKind} onChange={(event) => setMedicalForm((current) => ({ ...current, examKind: event.target.value }))}><option value="предварительный">Предварительный</option><option value="периодический">Периодический</option></select></label>
+            </div>
+            <div className="form-grid two">
+              <ProfileField label="Должность" value={medicalForm.position} onChange={(value) => setMedicalForm((current) => ({ ...current, position: value }))} />
+              <ProfileField label="Подразделение" value={medicalForm.division} onChange={(value) => setMedicalForm((current) => ({ ...current, division: value }))} />
+            </div>
+            <div className="form-grid two">
+              <label className="field"><span>Основание</span><select value={medicalForm.basis} onChange={(event) => setMedicalForm((current) => ({ ...current, basis: event.target.value }))}><option>Предварительный</option><option>Периодический (квартальный)</option><option>Периодический (полугодовой)</option><option>Периодический (годовой)</option><option>Осмотр после авиационного происшествия</option></select></label>
+              <ProfileField label="ФИО и должность выдавшего" value={medicalForm.issuer} onChange={(value) => setMedicalForm((current) => ({ ...current, issuer: value }))} />
+            </div>
+            <label className="field"><span>Организация ВЛЭК</span><select value={medicalOrganizationId} onChange={(event) => setMedicalOrganizationId(event.target.value)}><option value="">Выберите из справочника</option>{settings.medicalOrganizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name || "Без наименования"}</option>)}</select></label>
+            <div className="report-scope-note">Дата рождения берётся из личного дела. После формирования запись автоматически добавится в раздел «Медицинские направления» реестра.</div>
+            <div className="form-actions"><button className="primary-button" disabled={!medicalPersonId || !medicalOrganizationId} onClick={() => {
+              const person = activePeople.find((item) => item.id === medicalPersonId);
+              const organization = settings.medicalOrganizations.find((item) => item.id === medicalOrganizationId);
+              if (!person || !organization) return;
+              const record: MedicalReferralRecord = { id: uid(), personName: person.name, position: medicalForm.position, division: medicalForm.division, basis: medicalForm.basis, number: medicalForm.referralNumber, issueDate: medicalForm.issueDate, issuer: medicalForm.issuer, createdAt: new Date().toISOString() };
+              void runExport(async () => {
+                await downloadMedicalReferralWord({ personName: person.name, birthDate: resolvedProfile(person.id).birthDate, position: medicalForm.position, division: medicalForm.division, issueDate: medicalForm.issueDate, referralNumber: medicalForm.referralNumber, examKind: medicalForm.examKind, medicalOrganizationName: organization.name, medicalOrganizationAddress: organization.address, medicalOrganizationOgrn: organization.ogrn });
+                onUpsertMedicalReferral(record);
+                setMedicalForm((current) => ({ ...current, referralNumber: nextMedicalReferralNumber([...medicalReferrals, record]) }));
+              }, "Направление сформировано и добавлено в реестр");
+            }}>Выгрузить в Word</button></div>
+          </>}
+        </div>
+      </article>}
     </section>}
 
     {registryEditing && <RegistryModal
       record={registryEditing === "new" ? null : registryEditing}
-      kind={registryKind}
+      kind={registryKind === "medicalReferral" ? "order" : registryKind}
       records={registry}
       onClose={() => setRegistryEditing(null)}
       onSave={(record) => { onUpsertRegistry(record); setRegistryEditing(null); }}
@@ -449,19 +492,41 @@ export function DocumentationView({
         }
       }}
     />}
+    {medicalEditing && <MedicalReferralModal
+      record={medicalEditing === "new" ? null : medicalEditing}
+      records={medicalReferrals}
+      people={activePeople}
+      onClose={() => setMedicalEditing(null)}
+      onSave={(record) => { onUpsertMedicalReferral(record); setMedicalEditing(null); }}
+      onDelete={medicalEditing === "new" ? undefined : () => {
+        if (window.confirm("Удалить медицинское направление из реестра?")) {
+          onDeleteMedicalReferral(medicalEditing.id);
+          setMedicalEditing(null);
+        }
+      }}
+    />}
   </section>;
+}
+
+function MedicalReferralTable({ records, query, year, onEdit }: { records: MedicalReferralRecord[]; query: string; year: string; onEdit: (record: MedicalReferralRecord) => void }) {
+  const visible = records.filter((record) => (!year || record.issueDate.startsWith(year)) && `${record.number} ${record.personName} ${record.position} ${record.division} ${record.basis} ${record.issuer}`.toLocaleLowerCase("ru-RU").includes(query.trim().toLocaleLowerCase("ru-RU"))).sort((left, right) => `${right.issueDate}|${right.number}`.localeCompare(`${left.issueDate}|${left.number}`, "ru-RU"));
+  if (!visible.length) return <div className="panel-empty tall">Медицинские направления по выбранному фильтру не найдены.</div>;
+  return <div className="table-scroll"><table className="registry-table medical-registry-table"><thead><tr><th>№</th><th>Дата выдачи</th><th>Сотрудник</th><th>Должность</th><th>Подразделение</th><th>Основание</th><th>Выдал направление</th><th /></tr></thead><tbody>{visible.map((record) => <tr key={record.id}><td><strong>{record.number}</strong></td><td>{displayDate(record.issueDate)}</td><td>{record.personName}</td><td>{record.position || "—"}</td><td>{record.division || "—"}</td><td>{record.basis || "—"}</td><td>{record.issuer || "—"}</td><td><button className="row-action" onClick={() => onEdit(record)}>Изменить</button></td></tr>)}</tbody></table></div>;
+}
+
+function MedicalReferralModal({ record, records, people, onClose, onSave, onDelete }: { record: MedicalReferralRecord | null; records: MedicalReferralRecord[]; people: DocumentationPerson[]; onClose: () => void; onSave: (record: MedicalReferralRecord) => void; onDelete?: () => void }) {
+  const [form, setForm] = useState<MedicalReferralRecord>(record ?? { id: uid(), personName: "", position: "", division: "", basis: "Периодический (годовой)", number: nextMedicalReferralNumber(records), issueDate: localIsoDate(), issuer: "", createdAt: new Date().toISOString() });
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal wide" role="dialog" aria-modal="true"><header><div><p className="eyebrow">Реестр ЛС</p><h2>{record ? "Изменить медицинское направление" : "Новое медицинское направление"}</h2></div><button className="modal-close" aria-label="Закрыть" onClick={onClose}>×</button></header><form className="form-stack" onSubmit={(event) => { event.preventDefault(); onSave(form); }}>
+    <label className="field"><span>Сотрудник</span><select required value={form.personName} onChange={(event) => { const person = people.find((item) => item.name === event.target.value); setForm((current) => ({ ...current, personName: event.target.value, position: person?.position ?? current.position, division: person?.division ?? current.division })); }}><option value="">Выберите сотрудника</option>{people.map((person) => <option key={person.id}>{person.name}</option>)}</select></label>
+    <div className="form-grid three"><ProfileField label="Должность" value={form.position} onChange={(value) => setForm((current) => ({ ...current, position: value }))} /><ProfileField label="Подразделение" value={form.division} onChange={(value) => setForm((current) => ({ ...current, division: value }))} /><ProfileField label="Основание" value={form.basis} onChange={(value) => setForm((current) => ({ ...current, basis: value }))} /></div>
+    <div className="form-grid two"><ProfileField label="№ направления" value={form.number} onChange={(value) => setForm((current) => ({ ...current, number: value }))} /><ProfileField label="Дата выдачи" type="date" value={form.issueDate} onChange={(value) => setForm((current) => ({ ...current, issueDate: value }))} /></div>
+    <ProfileField label="ФИО и должность сотрудника, выдавшего направление" value={form.issuer} onChange={(value) => setForm((current) => ({ ...current, issuer: value }))} />
+    <div className="form-actions split">{onDelete && <button type="button" className="danger-button" onClick={onDelete}>Удалить</button>}<span /><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button">Сохранить</button></div>
+  </form></section></div>;
 }
 
 function ProfileField({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
   return <label className="field"><span>{label}</span><input type={type} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
-}
-
-function AutofillStatus({ profile }: { profile: DocumentPersonProfile }) {
-  const missing = [
-    !profile.pilotLicenceNumber && "номер свидетельства",
-    !profile.birthDate && "дата рождения",
-  ].filter(Boolean);
-  return <div className={`autofill-status ${missing.length ? "warning" : "ready"}`}><strong>{missing.length ? "Нужно проверить данные" : "Данные готовы"}</strong><span>{missing.length ? `Не заполнено: ${missing.join(", ")}. Документ всё равно можно сформировать.` : "Основные поля будут взяты из анкетных данных и личного дела."}</span></div>;
 }
 
 function RegistryModal({

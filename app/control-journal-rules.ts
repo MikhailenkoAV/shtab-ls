@@ -192,7 +192,10 @@ export function buildControlRows(
   const todayDate = parseIso(today) ?? new Date();
   const certificationRows = certifications.flatMap((record): ControlRow[] => {
     const person = peopleById.get(record.personId);
-    if (!person?.active) return [];
+    // A placeholder/imported row without an expiry date is not an existing
+    // document and must not create a false warning (for example “ID” or an
+    // instructor-training heading imported without an actual document).
+    if (!person?.active || !record.endDate) return [];
     const state = getExpiryState(record, new Date(todayDate.getUTCFullYear(), todayDate.getUTCMonth(), todayDate.getUTCDate()));
     return [{
       id: `certification-${record.id}`,

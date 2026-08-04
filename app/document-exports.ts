@@ -23,6 +23,7 @@ import JSZip from "jszip";
 import { AUC_TRAINING_TEMPLATE_BASE64 } from "./auc-training-template-data.ts";
 import { FLIGHT_CERTIFICATE_TEMPLATE_BASE64 } from "./flight-certificate-template-data.ts";
 import { PILOT_APPENDIX_TEMPLATE_BASE64 } from "./pilot-appendix-template-data.ts";
+import { MEDICAL_REFERRAL_TEMPLATE_BASE64 } from "./medical-referral-template-data.ts";
 
 export type DocumentCertificationRef = {
   category: string;
@@ -84,10 +85,23 @@ export type QualificationCheckPayload = {
   landings: string;
   checkDate: string;
   checkPlace: string;
-  result: string;
+  seat: string;
   examinerName: string;
   examinerLicence: string;
   examinerRole: string;
+};
+
+export type MedicalReferralPayload = {
+  personName: string;
+  birthDate: string;
+  position: string;
+  division: string;
+  issueDate: string;
+  referralNumber: string;
+  examKind: string;
+  medicalOrganizationName: string;
+  medicalOrganizationAddress: string;
+  medicalOrganizationOgrn: string;
 };
 
 export type PersonalFlightCertificatePayload = {
@@ -624,11 +638,45 @@ export async function downloadPersonalFlightCertificateWord(
   downloadBlob(blob, `Справка_о_налёте_${safeFilePart(payload.personName)}.docx`);
 }
 
+export async function downloadMedicalReferralWord(payload: MedicalReferralPayload): Promise<void> {
+  const archive = await JSZip.loadAsync(MEDICAL_REFERRAL_TEMPLATE_BASE64, { base64: true });
+  const documentFile = archive.file("word/document.xml");
+  if (!documentFile) throw new Error("Не удалось открыть шаблон направления на ВЛЭК");
+  let xml = await documentFile.async("string");
+  const values: Record<string, string> = {
+    ISSUE_DATE: displayDate(payload.issueDate),
+    REFERRAL_NUMBER: payload.referralNumber,
+    VLEK_NAME: payload.medicalOrganizationName,
+    VLEK_ADDRESS: payload.medicalOrganizationAddress,
+    VLEK_OGRN: payload.medicalOrganizationOgrn,
+    EXAM_KIND: payload.examKind,
+    PERSON_NAME: payload.personName,
+    BIRTH_DATE: displayDate(payload.birthDate),
+    DIVISION: payload.division,
+    POSITION: payload.position,
+  };
+  Object.entries(values).forEach(([token, value]) => {
+    xml = replaceTemplateToken(xml, token, value);
+  });
+  archive.file("word/document.xml", xml);
+  const blob = await archive.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+  downloadBlob(blob, `Направление_на_ВЛЭК_${safeFilePart(payload.personName)}.docx`);
+}
+
+export function qualificationResultText(aircraftType: string, seat: string): string {
+  const type = aircraftType || "тип ВС";
+  const seatMark = seat === "Пилот-инструктор"
+    ? `, Инструктор ${type}`
+    : seat === "2-й пилот"
+      ? `, Второй пилот ${type}`
+      : "";
+  return `Уровень навыков управления вертолётом соответствует требованиям, предъявляемым к обладателю свидетельства пилота с квалификационной отметкой (${type}${seatMark}).`;
+}
+
 export function buildQualificationCheckPdf(payload: QualificationCheckPayload): TDocumentDefinitions {
-  const licenceText = payload.licenceKind?.trim().toLocaleLowerCase("ru-RU") || "свидетельство пилота";
-  const licenceHolder = licenceText.startsWith("свидетельство")
-    ? licenceText.replace(/^свидетельство/, "свидетельства")
-    : `свидетельства ${licenceText}`;
   const line = (label: string, value: string) => ({
     columns: [
       { width: 80, text: label, color: "#36434a" },
@@ -700,7 +748,7 @@ export function buildQualificationCheckPdf(payload: QualificationCheckPayload): 
         table: {
           widths: ["*"],
           heights: [29],
-          body: [[{ text: payload.result || " ", bold: true, alignment: "center", margin: [3, 8, 3, 8] }]],
+          body: [[{ text: qualificationResultText(payload.aircraftType, payload.seat), bold: true, alignment: "center", margin: [3, 8, 3, 8] }]],
         },
         layout: {
           hLineWidth: () => 0.7,
@@ -718,13 +766,6 @@ export function buildQualificationCheckPdf(payload: QualificationCheckPayload): 
           { width: "*", text: "Подпись проверяющего ____________________", margin: [0, 10, 0, 0] },
           { width: 70, text: "М. П.", alignment: "center", margin: [0, 10, 0, 0] },
         ],
-      },
-      {
-        text: `Уровень навыков управления вертолётом соответствует требованиям, предъявляемым к обладателю ${licenceHolder} с квалификационной отметкой (${payload.aircraftType || "тип ВС"}, Инструктор ${payload.aircraftType || "тип ВС"}).`,
-        alignment: "justify",
-        bold: true,
-        fontSize: 6.2,
-        margin: [0, 9, 0, 0],
       },
     ],
     defaultStyle: {

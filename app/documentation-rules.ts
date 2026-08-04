@@ -9,6 +9,25 @@ export type DocumentRegistryRecord = {
   createdAt: string;
 };
 
+export type MedicalReferralRecord = {
+  id: string;
+  personName: string;
+  position: string;
+  division: string;
+  basis: string;
+  number: string;
+  issueDate: string;
+  issuer: string;
+  createdAt: string;
+};
+
+export type MedicalOrganization = {
+  id: string;
+  name: string;
+  address: string;
+  ogrn: string;
+};
+
 export type DocumentPersonProfile = {
   birthDate: string;
   pilotLicenceKind: string;
@@ -34,6 +53,7 @@ export type DocumentSettings = {
   trainingProgramsVersion: number;
   senderEmail: string;
   senderPhone: string;
+  medicalOrganizations: MedicalOrganization[];
 };
 
 export const TRAINING_PROGRAMS_VERSION = 1;
@@ -107,6 +127,7 @@ export const EMPTY_DOCUMENT_SETTINGS: DocumentSettings = {
   trainingProgramsVersion: TRAINING_PROGRAMS_VERSION,
   senderEmail: "",
   senderPhone: "",
+  medicalOrganizations: [],
 };
 
 export function normalizeDocumentSettings(value?: Partial<DocumentSettings>): DocumentSettings {
@@ -122,7 +143,15 @@ export function normalizeDocumentSettings(value?: Partial<DocumentSettings>): Do
     trainingProgramKinds: { ...defaultProgramKinds, ...(saved.trainingProgramKinds ?? {}) },
     trainingProgramVariants: { ...defaultProgramVariants, ...(saved.trainingProgramVariants ?? {}) },
     trainingProgramsVersion: TRAINING_PROGRAMS_VERSION,
+    medicalOrganizations: saved.medicalOrganizations ?? [],
   };
+}
+
+export function nextMedicalReferralNumber(records: MedicalReferralRecord[]): string {
+  const numbers = records
+    .map((record) => leadingNumber(record.number))
+    .filter((value): value is number => value !== null);
+  return String((numbers.length ? Math.max(...numbers) : 0) + 1);
 }
 
 export const registryKindLabels: Record<DocumentRegistryKind, string> = {

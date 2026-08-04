@@ -41,10 +41,11 @@ import {
   isControlAttention,
 } from "./control-journal-rules";
 import { expandLinkedCrewShifts } from "./crew-rules";
-import { dashboardRows } from "./dashboard-rules";
+import { dashboardRows, isCurrentMonthDate } from "./dashboard-rules";
 import { backupFileName } from "./backup-rules";
 import { DocumentationView } from "./documentation";
 import registrySeedJson from "./document-registry-seed.json";
+import medicalReferralsSeedJson from "./medical-referrals-seed.json";
 import {
   DocumentPersonProfile,
   DocumentRegistryRecord,
@@ -52,6 +53,7 @@ import {
   EMPTY_DOCUMENT_PROFILE,
   EMPTY_DOCUMENT_SETTINGS,
   normalizeDocumentSettings,
+  MedicalReferralRecord,
 } from "./documentation-rules";
 import { FlightBookBaseline } from "./flight-book-rules";
 import {
@@ -118,6 +120,7 @@ type AppData = {
   planBusyEntries: PlanBusyEntry[];
   settings: CompanySettings;
   documentRegistry: DocumentRegistryRecord[];
+  medicalReferrals: MedicalReferralRecord[];
   documentProfiles: Record<string, DocumentPersonProfile>;
   documentSettings: DocumentSettings;
   flightBookBaselines: FlightBookBaseline[];
@@ -126,6 +129,7 @@ type AppData = {
   personalDocumentDefinitionsVersion: number;
 };
 const REGISTRY_SEED = registrySeedJson as DocumentRegistryRecord[];
+const MEDICAL_REFERRALS_SEED = medicalReferralsSeedJson as MedicalReferralRecord[];
 
 const EMPTY_SETTINGS: CompanySettings = {
   fullName: "",
@@ -147,6 +151,7 @@ const EMPTY_DATA: AppData = {
   planBusyEntries: [],
   settings: EMPTY_SETTINGS,
   documentRegistry: REGISTRY_SEED,
+  medicalReferrals: MEDICAL_REFERRALS_SEED,
   documentProfiles: {},
   documentSettings: EMPTY_DOCUMENT_SETTINGS,
   flightBookBaselines: [],
@@ -298,6 +303,7 @@ async function loadData(): Promise<AppData> {
         planBusyEntries: stored?.planBusyEntries ?? [],
         settings: { ...EMPTY_SETTINGS, ...(stored?.settings ?? {}) },
         documentRegistry: stored?.documentRegistry ?? REGISTRY_SEED,
+        medicalReferrals: stored?.medicalReferrals ?? MEDICAL_REFERRALS_SEED,
         documentProfiles: stored?.documentProfiles ?? {},
         documentSettings: normalizeDocumentSettings(stored?.documentSettings),
         flightBookBaselines: stored?.flightBookBaselines ?? [],
@@ -648,7 +654,7 @@ export default function Home() {
   );
   const alerts = useMemo(() => {
     const result: DashboardAlert[] = [];
-    restIssues.filter((issue) => issue.date.startsWith(monthKey) && isRestIssueVisible(issue)).forEach((issue) => {
+    restIssues.filter((issue) => isCurrentMonthDate(issue.date, todayIso) && isRestIssueVisible(issue)).forEach((issue) => {
       const person = data.people.find((item) => item.id === issue.personId);
       result.push({
         id: issue.id,
@@ -678,7 +684,7 @@ export default function Home() {
     return result.sort((left, right) =>
       compareAttentionDates(left.sortDate, right.sortDate, todayIso)
       || left.title.localeCompare(right.title, "ru-RU"));
-  }, [controlRows, data.people, restIssues, monthKey, todayIso]);
+  }, [controlRows, data.people, restIssues, todayIso]);
   const sortedShifts = useMemo(() => [...data.shifts].sort((a, b) => `${b.date}${b.start}`.localeCompare(`${a.date}${a.start}`)), [data.shifts]);
   const monthSortedShifts = useMemo(() => [...monthShifts].sort((a, b) => `${b.date}${b.start}`.localeCompare(`${a.date}${a.start}`)), [monthShifts]);
   const totalWork = monthShifts.reduce((sum, shift) => sum + shift.workMinutes, 0);
@@ -871,6 +877,14 @@ export default function Home() {
     setData((current) => ({ ...current, documentRegistry: current.documentRegistry.filter((record) => record.id !== recordId) }));
     setToast("Запись реестра удалена");
   }
+  function upsertMedicalReferral(record: MedicalReferralRecord) {
+    setData((current) => ({ ...current, medicalReferrals: current.medicalReferrals.some((item) => item.id === record.id) ? current.medicalReferrals.map((item) => item.id === record.id ? record : item) : [...current.medicalReferrals, record] }));
+    setToast("Медицинское направление сохранено");
+  }
+  function deleteMedicalReferral(recordId: string) {
+    setData((current) => ({ ...current, medicalReferrals: current.medicalReferrals.filter((item) => item.id !== recordId) }));
+    setToast("Медицинское направление удалено");
+  }
   function savePlanAssignment(assignment: PlanAssignment) {
     setData((current) => ({
       ...current,
@@ -933,6 +947,7 @@ export default function Home() {
         planBusyEntries: restored.planBusyEntries ?? [],
         settings: { ...EMPTY_SETTINGS, ...(restored.settings ?? {}) },
         documentRegistry: restored.documentRegistry ?? REGISTRY_SEED,
+        medicalReferrals: restored.medicalReferrals ?? MEDICAL_REFERRALS_SEED,
         documentProfiles: restored.documentProfiles ?? {},
         documentSettings: normalizeDocumentSettings(restored.documentSettings),
         flightBookBaselines: restored.flightBookBaselines ?? [],
@@ -983,16 +998,19 @@ export default function Home() {
         />
         : view === "documentation"
           ? <DocumentationView
-            people={data.people}
+            people={data.people.map((person) => ({ ...person, division: data.personalProfiles[person.id]?.division ?? "" }))}
             certifications={data.certifications}
             shifts={data.shifts}
             baselines={data.flightBookBaselines}
             registry={data.documentRegistry}
+            medicalReferrals={data.medicalReferrals}
             profiles={data.documentProfiles}
             settings={data.documentSettings}
             company={data.settings}
             onUpsertRegistry={upsertRegistryRecord}
             onDeleteRegistry={deleteRegistryRecord}
+            onUpsertMedicalReferral={upsertMedicalReferral}
+            onDeleteMedicalReferral={deleteMedicalReferral}
             onSettingsChange={(patch) => setData((current) => ({ ...current, documentSettings: { ...current.documentSettings, ...patch } }))}
             onNotify={setToast}
           />
