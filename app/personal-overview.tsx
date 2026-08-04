@@ -6,7 +6,7 @@ import type {
   FlightTimeShiftRef,
   PersonRef,
 } from "./personal-files";
-import { getExpiryState, isExpiryAttention } from "./personal-files-rules";
+import { getExpiryState, isExpiryAttention, isMedicalCertificationSuperseded, latestCertificationRecords } from "./personal-files-rules";
 import { FlightBookView } from "./flight-book";
 import {
   buildFlightBook,
@@ -106,6 +106,7 @@ export function PersonalFilesView({
   const [profileEditing, setProfileEditing] = useState<EditProfileSection | null>(null);
   const [recordEditing, setRecordEditing] = useState<{ record: CertificationRecord | null; group: PersonalDocumentGroup } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const operatorOptions = useMemo(
     () => [...new Set(people.flatMap((person) => person.qualifications.flatMap((item) => item.operators)))].sort(),
     [people],
@@ -168,7 +169,10 @@ export function PersonalFilesView({
       </div>
       <div className="pilot-items">{filteredPeople.map((item) => {
         const total = buildFlightBook(item.id, shifts, baselines, item.aircraftTypes).total.totalMinutes;
-        const warnings = records.filter((record) => record.personId === item.id)
+        const medicalExpiry = normalizePilotPersonalProfile(profiles[item.id]).medical.expiryDate;
+        const currentRecords = latestCertificationRecords(records.filter((record) => record.personId === item.id));
+        const warnings = currentRecords
+          .filter((record) => !isMedicalCertificationSuperseded(record, medicalExpiry))
           .filter((record) => isExpiryAttention(record)).length;
         return <button key={item.id} className={item.id === personId ? "active" : ""} onClick={() => { setSelected(item.id); setMode("overview"); }}>
           <span className="person-avatar small">{item.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</span>
@@ -187,6 +191,7 @@ export function PersonalFilesView({
             <div className="monthly-flight-card total"><span>Общий налёт</span><strong>{displayMinutes(flightBook.total.totalMinutes)}</strong></div>
           </div>
           <div className="hero-actions">
+            <button className="row-action" onClick={() => setHistoryOpen(true)}>История</button>
             <button className="secondary-button" onClick={() => void downloadPersonalFlightPdf(person.name, flightBook.rows, flightBook.total.totalMinutes).then(() => onNotify("PDF личного дела сформирован")).catch(() => onNotify("Не удалось сформировать PDF"))}>PDF</button>
             <button className="primary-button" onClick={onImportClick}>Импорт Авиабит</button>
           </div>
@@ -258,6 +263,12 @@ export function PersonalFilesView({
           setRecordEditing(null);
         }
       } : undefined}
+    />}
+    {historyOpen && person && <DocumentHistoryModal
+      personName={person.name}
+      records={personRecords}
+      currentMedicalExpiry={profile.medical.expiryDate}
+      onClose={() => setHistoryOpen(false)}
     />}
     {settingsOpen && <PersonalDocumentSettingsModal
       definitions={definitions}
@@ -418,6 +429,22 @@ function AviationWorksFrame({ person, profile, onEdit }: { person: PersonRef; pr
       return <section key={aircraftType}><strong>{aircraftType}</strong><span>{selected.length ? `${selected.length} видов работ` : "Допуски не указаны"}</span>{selected.slice(0, 3).map((id) => <small key={id}>{aviationWorkLabel(id)}</small>)}</section>;
     })}</div>
   </Frame>;
+}
+
+function DocumentHistoryModal({ personName, records, currentMedicalExpiry, onClose }: { personName: string; records: CertificationRecord[]; currentMedicalExpiry: string; onClose: () => void }) {
+  const [query, setQuery] = useState("");
+  const currentIds = new Set(latestCertificationRecords(records).map((record) => record.id));
+  const visible = [...records].filter((record) => `${record.category} ${record.certificationType} ${record.documentType} ${record.aircraftType} ${record.number}`.toLocaleLowerCase("ru-RU").includes(query.trim().toLocaleLowerCase("ru-RU"))).sort((left, right) => `${right.startDate || right.issuedDate || right.endDate}|${right.id}`.localeCompare(`${left.startDate || left.issuedDate || left.endDate}|${left.id}`));
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal wide document-history-modal" role="dialog" aria-modal="true"><header><div><p className="eyebrow">Личное дело</p><h2>История документов</h2><span>{personName} · {records.length} записей</span></div><button className="modal-close" aria-label="Закрыть" onClick={onClose}>×</button></header>
+    <div className="records-toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по названию, типу ВС или номеру…" /></div>
+    {!visible.length ? <div className="panel-empty tall">Записи не найдены.</div> : <div className="table-scroll"><table className="records-table"><thead><tr><th>Документ / подготовка</th><th>Тип ВС</th><th>Реквизиты</th><th>Выдан</th><th>Действует до</th><th>Состояние</th><th>Источник</th></tr></thead><tbody>{visible.map((record) => {
+      const supersededMedical = isMedicalCertificationSuperseded(record, currentMedicalExpiry);
+      const archived = !currentIds.has(record.id) || supersededMedical;
+      const state = getExpiryState(record);
+      return <tr key={record.id}><td><strong>{record.certificationType || record.category || "—"}</strong><small>{record.category || "—"}</small></td><td>{record.aircraftType || "—"}</td><td>{[record.documentType, record.series, record.number].filter(Boolean).join(" · ") || "—"}</td><td>{displayDate(record.issuedDate || record.startDate)}</td><td>{displayDate(record.endDate)}</td><td>{archived ? <span className="expiry-pill undated">Архив</span> : <span className={`expiry-pill ${state.level}`}>{state.label}</span>}</td><td>{record.source === "aviabit" ? "Авиабит" : "Ручная запись"}</td></tr>;
+    })}</tbody></table></div>}
+    <div className="form-actions"><button className="secondary-button" onClick={onClose}>Закрыть</button></div>
+  </section></div>;
 }
 
 function ProfileModal({

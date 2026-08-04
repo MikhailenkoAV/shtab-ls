@@ -22,6 +22,7 @@ import {
   PlanBusyEntry,
 } from "./monthly-plan-rules";
 import { CertificationRecord, ImportAviabitModal, ImportPayload } from "./personal-files";
+import { isMedicalCertificationSuperseded, latestCertificationRecords } from "./personal-files-rules";
 import { PersonalFilesView } from "./personal-overview";
 import {
   calculateRestIssues,
@@ -648,9 +649,12 @@ export default function Home() {
   const todayIso = localIsoDate(new Date());
   const monthKey = todayIso.slice(0, 7);
   const monthShifts = useMemo(() => data.shifts.filter((shift) => shift.date.startsWith(monthKey)), [data.shifts, monthKey]);
+  const controlCertifications = useMemo(() => latestCertificationRecords(data.certifications).filter((record) =>
+    !isMedicalCertificationSuperseded(record, data.personalProfiles[record.personId]?.medical.expiryDate ?? "")),
+  [data.certifications, data.personalProfiles]);
   const controlRows = useMemo(
-    () => buildControlRows(data.people, expandedShifts, data.certifications, todayIso),
-    [data.people, expandedShifts, data.certifications, todayIso],
+    () => buildControlRows(data.people, expandedShifts, controlCertifications, todayIso),
+    [data.people, expandedShifts, controlCertifications, todayIso],
   );
   const alerts = useMemo(() => {
     const result: DashboardAlert[] = [];
