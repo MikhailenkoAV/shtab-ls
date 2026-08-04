@@ -6,7 +6,7 @@ import type {
   FlightTimeShiftRef,
   PersonRef,
 } from "./personal-files";
-import { getExpiryState } from "./personal-files-rules";
+import { getExpiryState, isExpiryAttention } from "./personal-files-rules";
 import { FlightBookView } from "./flight-book";
 import {
   buildFlightBook,
@@ -169,7 +169,7 @@ export function PersonalFilesView({
       <div className="pilot-items">{filteredPeople.map((item) => {
         const total = buildFlightBook(item.id, shifts, baselines, item.aircraftTypes).total.totalMinutes;
         const warnings = records.filter((record) => record.personId === item.id)
-          .filter((record) => ["expired", "alert14", "alert45", "incomplete"].includes(getExpiryState(record).level)).length;
+          .filter((record) => isExpiryAttention(record)).length;
         return <button key={item.id} className={item.id === personId ? "active" : ""} onClick={() => { setSelected(item.id); setMode("overview"); }}>
           <span className="person-avatar small">{item.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</span>
           <span><strong>{item.name}</strong><small>{displayMinutes(total)} · {item.aircraftTypes.join(", ")}</small></span>

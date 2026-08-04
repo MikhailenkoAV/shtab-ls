@@ -26,3 +26,8 @@ export function getExpiryState(record: ExpiryRecordRef, today = new Date()): Exp
   if (days <= 45) return { level: "alert45", label: `Осталось ${days} дн.`, days };
   return { level: "valid", label: "Действует", days };
 }
+
+export function isExpiryAttention(record: ExpiryRecordRef, today = new Date()): boolean {
+  if (!record.endDate) return false;
+  return ["expired", "alert14", "alert45", "incomplete"].includes(getExpiryState(record, today).level);
+}
