@@ -13,6 +13,8 @@ export function canonicalAircraftType(value: string): string {
   const compact = value.trim().replace(/\s+/g, "").toUpperCase();
   if (compact === "BELL407") return "Bell407";
   if (compact === "BO105" || compact === "ВО105") return "BO105";
+  if (compact === "R66" || compact === "ROBINSON66" || compact === "ROBINSONR66") return "R66";
+  if (compact === "R44" || compact === "ROBINSON44" || compact === "ROBINSONR44") return "R44";
   return value.trim();
 }
 

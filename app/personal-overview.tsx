@@ -27,6 +27,7 @@ import {
 } from "./pilot-profile-rules";
 import { downloadPersonalFlightPdf } from "./personal-file-pdf";
 import { employeeReadiness, readinessLabels } from "./readiness-rules";
+import { operatorsForDocument } from "./personal-document-rules";
 
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const localIsoDate = () => {
@@ -584,10 +585,7 @@ function CertificationModal({
   const selectedDefinitionId = groupDefinitions.find((item) => item.name === form.certificationType)?.id
     ?? (form.certificationType ? "__legacy" : "");
   const selectedDefinition = groupDefinitions.find((item) => item.id === selectedDefinitionId);
-  const relevantOperators = [...new Set(personQualifications
-    .filter((item) => !form.aircraftType || item.aircraftTypes.includes(form.aircraftType))
-    .flatMap((item) => item.operators)
-    .filter((item) => item === "КВП" || item === "АОН"))];
+  const relevantOperators = operatorsForDocument(personQualifications, form.aircraftType, form.operator);
   const needsOperator = Boolean(selectedDefinition?.validityByOperatorMonths);
   const updateWithCalculatedEnd = (patch: Partial<CertificationRecord>) => setForm((current) => {
     const next = { ...current, ...patch };
