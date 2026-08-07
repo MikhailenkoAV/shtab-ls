@@ -67,6 +67,12 @@ import {
 import { FlightBookBaseline } from "./flight-book-rules";
 import { employeeReadiness, EmployeeReadiness, readinessBlockReason } from "./readiness-rules";
 import { CrewDeploymentView } from "./crew-deployment";
+import { TrainingMatrixView } from "./training-matrix";
+import { ImportCenterView } from "./import-center";
+import { AnalyticsView } from "./analytics";
+import type { Session } from "@supabase/supabase-js";
+import { supabase } from "./cloud-client";
+import { CloudLogin, CloudMigration } from "./cloud-access";
 import {
   DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
   migratePersonalDocumentDefinitions,
@@ -76,7 +82,7 @@ import {
   PilotPersonalProfile,
 } from "./pilot-profile-rules";
 
-type View = "dashboard" | "shifts" | "people" | "personal" | "control" | "crew" | "planning" | "actual" | "documentation" | "settings";
+type View = "dashboard" | "shifts" | "people" | "personal" | "control" | "crew" | "training" | "import" | "analytics" | "planning" | "actual" | "documentation" | "settings";
 type Activity = "flight" | "trip" | "office" | "periodic_training" | "ground_training" | "standby" | "vacation" | "dayoff";
 type Seat = "КВС" | "Пилот-инструктор";
 
@@ -659,12 +665,28 @@ export default function Home() {
   const [shiftModal, setShiftModal] = useState<Shift | "new" | null>(null);
   const [newShiftDefaults, setNewShiftDefaults] = useState<{ personId: string; date: string } | null>(null);
   const [aviabitModal, setAviabitModal] = useState(false);
+  const [workTimeImportModal, setWorkTimeImportModal] = useState(false);
   const [planEditRequest, setPlanEditRequest] = useState<PlanEditRequest | null>(null);
   const [personalTargetId, setPersonalTargetId] = useState("");
   const [toast, setToast] = useState("");
   const [checkpoints, setCheckpoints] = useState<RecoveryCheckpoint<AppData>[]>([]);
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
+  const [cloudPhase, setCloudPhase] = useState<"checking"|"migration"|"ready"|"offline"|"conflict"|"error">("checking");
+  const [cloudError, setCloudError] = useState("");
+  const [cloudBusy, setCloudBusy] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
   const previousDataRef = useRef<AppData | null>(null);
+  const cloudVersionRef = useRef(0);
+  const cloudPhaseRef = useRef(cloudPhase);
+  const dataRef = useRef(data);
+  useEffect(() => { cloudPhaseRef.current = cloudPhase; }, [cloudPhase]);
+  useEffect(() => { dataRef.current = data; }, [data]);
+
+  useEffect(() => {
+    void supabase.auth.getSession().then(({data:auth})=>setSession(auth.session));
+    const {data:listener}=supabase.auth.onAuthStateChange((_event,next)=>setSession(next));
+    return ()=>listener.subscription.unsubscribe();
+  },[]);
 
   useEffect(() => {
     Promise.all([loadData(), loadCheckpoints()]).then(([loadedData, loadedCheckpoints]) => {
@@ -675,6 +697,17 @@ export default function Home() {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register(new URL("sw.js", window.location.href).pathname).catch(() => undefined);
   }, []);
   useEffect(() => {
+    if (!hydrated || !session) return;
+    let active=true;
+    void supabase.from("shtab_workspace").select("data,version").eq("user_id",session.user.id).maybeSingle().then(({data:remote,error})=>{
+      if(!active)return;
+      if(error){setCloudError("Не удалось прочитать облачную базу.");setCloudPhase(navigator.onLine?"error":"offline");return;}
+      if(!remote){setCloudPhase("migration");return;}
+      const restored=normalizeAppData(remote.data as Partial<AppData>);cloudVersionRef.current=Number(remote.version)||1;previousDataRef.current=structuredClone(restored);setData(restored);setCloudPhase("ready");
+    });
+    return()=>{active=false};
+  },[hydrated,session]);
+  useEffect(() => {
     if (!hydrated) return;
     const timer = window.setTimeout(() => {
       setSaveState("saving");
@@ -682,6 +715,20 @@ export default function Home() {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [data, hydrated]);
+  useEffect(() => {
+    if(!hydrated||!session||cloudPhaseRef.current!=="ready")return;
+    const timer=window.setTimeout(async()=>{
+      const expected=cloudVersionRef.current;
+      const {data:updated,error}=await supabase.from("shtab_workspace").update({data}).eq("user_id",session.user.id).eq("version",expected).select("version").maybeSingle();
+      if(error){setCloudPhase(navigator.onLine?"error":"offline");setCloudError("Изменения сохранены на устройстве и ожидают синхронизации.");return;}
+      if(!updated){setCloudPhase("conflict");setCloudError("В облаке уже есть более новая версия. Автоматическая перезапись остановлена.");return;}
+      cloudVersionRef.current=Number(updated.version);setCloudPhase("ready");setCloudError("");
+    },900);return()=>window.clearTimeout(timer);
+  },[data,hydrated,session]);
+  useEffect(()=>{const online=()=>{if(cloudPhaseRef.current==="offline"||cloudPhaseRef.current==="error"){setCloudPhase("ready");setData(structuredClone(dataRef.current));}};window.addEventListener("online",online);return()=>window.removeEventListener("online",online)},[]);
+
+  async function migrateToCloud(){if(!session)return;setCloudBusy(true);setCloudError("");const {data:row,error}=await supabase.from("shtab_workspace").insert({user_id:session.user.id,data}).select("version").single();if(error){setCloudError("Перенос не выполнен: "+error.message);}else{cloudVersionRef.current=Number(row.version)||1;setCloudPhase("ready");setToast("Локальная база перенесена в облако");}setCloudBusy(false);}
+  async function reloadCloud(){if(!session)return;const {data:remote,error}=await supabase.from("shtab_workspace").select("data,version").eq("user_id",session.user.id).single();if(error){setCloudError("Не удалось загрузить облачную версию.");return;}const restored=normalizeAppData(remote.data as Partial<AppData>);cloudVersionRef.current=Number(remote.version);previousDataRef.current=structuredClone(restored);setData(restored);setCloudPhase("ready");setCloudError("");}
   useEffect(() => {
     if (!hydrated || !previousDataRef.current) return;
     const previous = previousDataRef.current;
@@ -1098,6 +1145,9 @@ export default function Home() {
     event.target.value = "";
   }
 
+  if(session===undefined||!hydrated||cloudPhase==="checking")return <Loading/>;
+  if(!session)return <CloudLogin/>;
+  if(cloudPhase==="migration")return <CloudMigration counts={{people:data.people.length,shifts:data.shifts.length,documents:data.certifications.length}} onUpload={()=>void migrateToCloud()} onSignOut={()=>void supabase.auth.signOut()} loading={cloudBusy} error={cloudError}/>;
   return <div className="app-shell">
     <header className="app-header">
       <div className="brand"><div className="brand-mark">
@@ -1108,9 +1158,11 @@ export default function Home() {
       <nav className="quick-nav" aria-label="Быстрый доступ">
         <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")} label="Главная" glyph="⌂" />
         <NavButton active={view === "documentation"} onClick={() => setView("documentation")} label="Документация" glyph="▤" />
+        <NavButton active={view === "analytics"} onClick={() => setView("analytics")} label="Аналитика" glyph="◫" />
+        <NavButton active={view === "import"} onClick={() => setView("import")} label="Импорт" glyph="⇩" />
         <NavButton active={view === "settings"} onClick={() => setView("settings")} label="Настройки" glyph="⚙" />
       </nav>
-      <div className="header-status"><span className="status-dot" /><div><strong>Локальная база</strong><span className={`save-state ${saveState}`}>{saveState === "saved" ? "Сохранено" : saveState === "saving" ? "Сохраняю…" : "Ошибка сохранения"}</span></div></div>
+      <div className="header-status"><span className="status-dot" /><div><strong>{cloudPhase==="ready"?"Облачная база":cloudPhase==="offline"?"Нет подключения":cloudPhase==="conflict"?"Конфликт версий":"Синхронизация"}</strong><span className={`save-state ${saveState}`}>{cloudPhase==="ready"?(saveState === "saving" ? "Сохраняю…" : "Синхронизировано"):cloudError||"Локальная копия сохранена"}</span></div>{cloudPhase==="conflict"&&<button className="row-action" onClick={()=>void reloadCloud()}>Загрузить облачную</button>}<button className="row-action" onClick={()=>void supabase.auth.signOut()}>Выйти</button></div>
       <input ref={importRef} hidden type="file" accept="application/json,.json" onChange={importBackup} />
     </header>
     <main className="workspace" style={{ backgroundImage: 'linear-gradient(180deg, rgba(242, 245, 246, .62), rgba(242, 245, 246, .82)), url("solaris-berassom-bg.jpeg")' }}>
@@ -1131,6 +1183,15 @@ export default function Home() {
           onRestore={() => importRef.current?.click()}
           onNavigate={setView}
         />
+        : view === "analytics"
+          ? <AnalyticsView people={data.people} shifts={expandedShifts} assignments={data.planAssignments} busyEntries={data.planBusyEntries} alerts={alerts} onNavigate={setView} />
+        : view === "import"
+          ? <ImportCenterView counts={{ people: data.people.length, shifts: data.shifts.length, documents: data.certifications.length, baselines: data.flightBookBaselines.length }} onStart={(kind) => {
+            if (kind === "backup") importRef.current?.click();
+            else if (kind === "worktime") setWorkTimeImportModal(true);
+            else if (kind === "aviabit") setAviabitModal(true);
+            else { setView("personal"); setToast("Выберите сотрудника, откройте «Лётная книжка» и нажмите «Импорт из Excel»"); }
+          }} />
         : view === "documentation"
           ? <DocumentationView
             people={data.people.map((person) => ({ ...person, division: data.personalProfiles[person.id]?.division ?? "" }))}
@@ -1182,6 +1243,8 @@ export default function Home() {
           />
           : view === "crew"
             ? <CrewDeploymentView people={data.people} assignments={data.planAssignments} shifts={expandedShifts} readiness={readinessByPerson} onOpenPlan={(assignment) => { setPlanEditRequest(assignment ? { kind: "assignment", id: assignment.id } : null); setView("planning"); }} />
+          : view === "training"
+            ? <TrainingMatrixView people={data.people} records={data.certifications} definitions={data.personalDocumentDefinitions} busyEntries={data.planBusyEntries} onOpenPerson={(personId) => { setPersonalTargetId(personId); setView("personal"); }} onPlan={savePlanBusy} onNotify={setToast} />
           : view === "people"
             ? <PeopleView people={data.people} shifts={expandedShifts} readinessByPerson={readinessByPerson} onAdd={() => setPersonModal("new")} onEdit={setPersonModal} onOpenPersonal={(personId) => { setPersonalTargetId(personId); setView("personal"); }} />
             : view === "personal"
@@ -1216,7 +1279,7 @@ export default function Home() {
                     }}
                   />
                   : <MonthlyPlanView
-                people={data.people.map((person) => ({ ...person, readinessStatus: readinessByPerson[person.id]?.status, readinessReason: readinessBlockReason(readinessByPerson[person.id]) ?? readinessByPerson[person.id]?.reasons[0]?.detail ?? "" }))}
+                people={data.people.map((person) => ({ ...person, readiness: readinessByPerson[person.id], readinessStatus: readinessByPerson[person.id]?.status, readinessReason: readinessBlockReason(readinessByPerson[person.id]) ?? readinessByPerson[person.id]?.reasons[0]?.detail ?? "" }))}
                 shifts={expandedShifts}
                 assignments={data.planAssignments}
                 busyEntries={data.planBusyEntries}
@@ -1243,6 +1306,7 @@ export default function Home() {
       onDelete={shiftModal === "new" ? undefined : () => deleteShift(shiftModal)}
     />}
     {aviabitModal && <ImportAviabitModal people={data.people} onClose={() => setAviabitModal(false)} onSubmit={importAviabit} />}
+    {workTimeImportModal && <WorkTimeImportModal people={data.people} shifts={data.shifts} onClose={() => setWorkTimeImportModal(false)} onSubmit={(records) => { importWorkTime(records); setWorkTimeImportModal(false); }} />}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>;
 }
@@ -1256,6 +1320,9 @@ function viewTitle(view: View): string {
     personal: "Личные дела",
     control: "Контрольный журнал",
     crew: "Расстановка экипажей",
+    training: "Матрица подготовки",
+    import: "Единый центр импорта",
+    analytics: "Документация и аналитика",
     planning: "Месячный план",
     actual: "Фактический план",
     documentation: "Документация",
@@ -1312,6 +1379,7 @@ function Dashboard({
       <div className="dashboard-area dashboard-crews">
       <DashboardBlock eyebrow="Расстановка экипажей" title="Планирование">
         <DashboardShortcut glyph="✈" title="Расстановка экипажей" detail="Суточный состав, готовность и фактические полёты" onClick={() => onNavigate("crew")} />
+        <DashboardShortcut glyph="✓" title="Матрица подготовки" detail="Сроки, пробелы и предложения в план" onClick={() => onNavigate("training")} />
         <DashboardShortcut glyph="▦" title="Месячный план" detail="Борта, экипажи и занятость" onClick={() => onNavigate("planning")} />
         <DashboardShortcut glyph="▦" title="Фактический план" detail="Фактическая занятость по дням" onClick={() => onNavigate("actual")} />
       </DashboardBlock>

@@ -17,6 +17,7 @@
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.2",
     "@types/pdfmake": "^0.2.12",
     "docx": "^9.7.1",
     "drizzle-orm": "0.45.2",

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { employeeReadiness, readinessBlockReason } from "../app/readiness-rules.ts";
+import { employeeReadiness, readinessBlockReason, readinessForOperator } from "../app/readiness-rules.ts";
 
 const profile = (medicalExpiry = "", override = "auto") => ({
   medical: { expiryDate: medicalExpiry, examinationDate: "2026-01-01", seriesNumber: "1" },
@@ -24,4 +24,12 @@ test("readiness warns before expiry and accepts a manual override", () => {
 
 test("readiness stays undetermined until a dated control point exists", () => {
   assert.equal(employeeReadiness([], profile(""), new Date("2026-08-07T12:00:00")).status, "undetermined");
+});
+
+test("simulator and cabin training restrict KVP but do not block an AON assignment", () => {
+  const simulator = { ...record("2026-07-01"), certificationType: "Тренажерная подготовка" };
+  const result = employeeReadiness([simulator], profile("2027-01-01"), new Date("2026-08-07T12:00:00"));
+  assert.equal(result.status, "not_allowed");
+  assert.equal(readinessForOperator(result, "КВП").status, "not_allowed");
+  assert.equal(readinessForOperator(result, "АОН").status, "allowed");
 });

@@ -7,6 +7,7 @@ export type PlanAssignment = {
   role: PlanRole;
   personId: string;
   activity?: "flight" | "standby";
+  operator?: "КВП" | "АОН" | "АР";
 };
 
 export type PlanBusyActivity =

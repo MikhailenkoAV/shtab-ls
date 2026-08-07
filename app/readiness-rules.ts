@@ -10,6 +10,7 @@ export type ReadinessIssue = {
   label: string;
   detail: string;
   level: "warning" | "danger";
+  operatorScope?: "КВП";
 };
 
 export type EmployeeReadiness = {
@@ -52,17 +53,20 @@ export function employeeReadiness(
     if (!record.endDate) return;
     hasDatedControl = true;
     const state = getExpiryState(record, today);
+    const operatorScope = /тренаж.*кабин|тренажерн.*подготов/i.test(`${record.certificationType} ${record.documentType}`) ? "КВП" as const : undefined;
     if (state.level === "expired" || state.level === "incomplete") issues.push({
       id: record.id,
       label: record.certificationType || record.documentType || record.category || "Документ",
       detail: state.label,
       level: "danger",
+      operatorScope,
     });
     else if (state.level === "alert14" || state.level === "alert45") issues.push({
       id: record.id,
       label: record.certificationType || record.documentType || record.category || "Документ",
       detail: state.label,
       level: "warning",
+      operatorScope,
     });
   });
 
@@ -94,4 +98,17 @@ export function readinessBlockReason(readiness?: EmployeeReadiness): string | nu
   if (!readiness || readiness.status !== "not_allowed") return null;
   const reason = readiness.reasons[0];
   return reason ? `${readiness.label}: ${reason.label} — ${reason.detail}` : readiness.label;
+}
+
+export function readinessForOperator(readiness: EmployeeReadiness | undefined, operator?: string): EmployeeReadiness | undefined {
+  if (!readiness || operator !== "АОН" || readiness.manual) return readiness;
+  const reasons = readiness.reasons.filter((item) => item.operatorScope !== "КВП");
+  const status: ReadinessStatus = reasons.some((item) => item.level === "danger")
+    ? "not_allowed"
+    : reasons.length
+      ? "restricted"
+      : readiness.automaticStatus === "undetermined"
+        ? "undetermined"
+        : "allowed";
+  return { ...readiness, status, label: readinessLabels[status], reasons };
 }
