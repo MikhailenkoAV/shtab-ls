@@ -683,9 +683,11 @@ export default function Home() {
   useEffect(() => { dataRef.current = data; }, [data]);
 
   useEffect(() => {
-    void supabase.auth.getSession().then(({data:auth})=>setSession(auth.session));
+    let active=true;
+    const timeout=window.setTimeout(()=>{if(active)setSession((current)=>current===undefined?null:current)},5000);
+    void supabase.auth.getSession().then(({data:auth})=>{if(active)setSession(auth.session)}).catch(()=>{if(active)setSession(null)}).finally(()=>window.clearTimeout(timeout));
     const {data:listener}=supabase.auth.onAuthStateChange((_event,next)=>setSession(next));
-    return ()=>listener.subscription.unsubscribe();
+    return ()=>{active=false;window.clearTimeout(timeout);listener.subscription.unsubscribe()};
   },[]);
 
   useEffect(() => {
