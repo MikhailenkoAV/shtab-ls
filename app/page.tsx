@@ -1187,7 +1187,7 @@ export default function Home() {
           onNavigate={setView}
         />
         : view === "analytics"
-          ? <AnalyticsView people={data.people} shifts={expandedShifts} assignments={data.planAssignments} busyEntries={data.planBusyEntries} alerts={alerts} onNavigate={setView} />
+          ? <AnalyticsView people={data.people} shifts={expandedShifts} busyEntries={data.planBusyEntries} alerts={alerts} onNavigate={setView} />
         : view === "import"
           ? <ImportCenterView counts={{ people: data.people.length, shifts: data.shifts.length, documents: data.certifications.length, baselines: data.flightBookBaselines.length }} onStart={(kind) => {
             if (kind === "backup") importRef.current?.click();
