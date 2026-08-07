@@ -1147,8 +1147,9 @@ export default function Home() {
     event.target.value = "";
   }
 
-  if(session===undefined||!hydrated||cloudPhase==="checking")return <Loading/>;
+  if(session===undefined||!hydrated)return <Loading/>;
   if(!session)return <CloudLogin/>;
+  if(cloudPhase==="checking")return <Loading/>;
   if(cloudPhase==="migration")return <CloudMigration counts={{people:data.people.length,shifts:data.shifts.length,documents:data.certifications.length}} onUpload={()=>void migrateToCloud()} onSignOut={()=>void supabase.auth.signOut()} loading={cloudBusy} error={cloudError}/>;
   return <div className="app-shell">
     <header className="app-header">
