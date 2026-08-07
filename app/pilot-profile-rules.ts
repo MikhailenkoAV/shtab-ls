@@ -38,6 +38,11 @@ export type PilotPersonalProfile = {
   medical: PilotMedicalProfile;
   personalInfo: PilotPersonalInfo;
   aviationWorks: Record<string, string[]>;
+  readiness: {
+    override: "auto" | "allowed" | "restricted" | "not_allowed";
+    reason: string;
+    until: string;
+  };
 };
 
 export type PersonalDocumentGroup =
@@ -177,6 +182,7 @@ export const EMPTY_PILOT_PERSONAL_PROFILE: PilotPersonalProfile = {
     snils: "",
   },
   aviationWorks: {},
+  readiness: { override: "auto", reason: "", until: "" },
 };
 
 export function normalizePilotPersonalProfile(
@@ -196,6 +202,10 @@ export function normalizePilotPersonalProfile(
       ...(value?.personalInfo ?? {}),
     },
     aviationWorks: value?.aviationWorks ?? {},
+    readiness: {
+      ...EMPTY_PILOT_PERSONAL_PROFILE.readiness,
+      ...(value?.readiness ?? {}),
+    },
   };
 }
 

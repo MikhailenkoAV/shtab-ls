@@ -44,6 +44,14 @@ import {
 import { expandLinkedCrewShifts } from "./crew-rules";
 import { dashboardRows, isCurrentMonthDate } from "./dashboard-rules";
 import { backupFileName } from "./backup-rules";
+import {
+  backupChecksum,
+  changedDataSections,
+  RecoveryCheckpoint,
+  TrashEntry,
+  TrashKind,
+  validateBackupEnvelope,
+} from "./recovery-rules";
 import { DocumentationView } from "./documentation";
 import registrySeedJson from "./document-registry-seed.json";
 import medicalReferralsSeedJson from "./medical-referrals-seed.json";
@@ -57,6 +65,8 @@ import {
   MedicalReferralRecord,
 } from "./documentation-rules";
 import { FlightBookBaseline } from "./flight-book-rules";
+import { employeeReadiness, EmployeeReadiness, readinessBlockReason } from "./readiness-rules";
+import { CrewDeploymentView } from "./crew-deployment";
 import {
   DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
   migratePersonalDocumentDefinitions,
@@ -66,7 +76,7 @@ import {
   PilotPersonalProfile,
 } from "./pilot-profile-rules";
 
-type View = "dashboard" | "shifts" | "people" | "personal" | "control" | "planning" | "actual" | "documentation" | "settings";
+type View = "dashboard" | "shifts" | "people" | "personal" | "control" | "crew" | "planning" | "actual" | "documentation" | "settings";
 type Activity = "flight" | "trip" | "office" | "periodic_training" | "ground_training" | "standby" | "vacation" | "dayoff";
 type Seat = "КВС" | "Пилот-инструктор";
 
@@ -128,6 +138,7 @@ type AppData = {
   personalProfiles: Record<string, PilotPersonalProfile>;
   personalDocumentDefinitions: PersonalDocumentDefinition[];
   personalDocumentDefinitionsVersion: number;
+  trash: TrashEntry[];
 };
 const REGISTRY_SEED = registrySeedJson as DocumentRegistryRecord[];
 const MEDICAL_REFERRALS_SEED = medicalReferralsSeedJson as MedicalReferralRecord[];
@@ -159,10 +170,13 @@ const EMPTY_DATA: AppData = {
   personalProfiles: {},
   personalDocumentDefinitions: DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
   personalDocumentDefinitionsVersion: PERSONAL_DOCUMENT_DEFINITIONS_VERSION,
+  trash: [],
 };
 const DB_NAME = "shtab-ls";
 const STORE_NAME = "workspace";
 const STATE_KEY = "primary";
+const RECOVERY_KEY = "recovery-checkpoints-v1";
+const MAX_CHECKPOINTS = 20;
 const activityLabels: Record<Activity, string> = {
   flight: "Полётная смена",
   trip: "Командировка",
@@ -289,14 +303,8 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
-async function loadData(): Promise<AppData> {
-  const db = await openDatabase();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readonly");
-    const request = tx.objectStore(STORE_NAME).get(STATE_KEY);
-    request.onsuccess = () => {
-      const stored = request.result as Partial<AppData> | undefined;
-      resolve({
+function normalizeAppData(stored?: Partial<AppData>): AppData {
+  return {
         people: (stored?.people ?? []).map(normalizePerson),
         shifts: (stored?.shifts ?? []).map(normalizeShift),
         certifications: stored?.certifications ?? [],
@@ -315,10 +323,41 @@ async function loadData(): Promise<AppData> {
           stored?.personalDocumentDefinitionsVersion,
         ),
         personalDocumentDefinitionsVersion: PERSONAL_DOCUMENT_DEFINITIONS_VERSION,
-      });
+        trash: stored?.trash ?? [],
+  };
+}
+
+async function loadData(): Promise<AppData> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const request = tx.objectStore(STORE_NAME).get(STATE_KEY);
+    request.onsuccess = () => {
+      resolve(normalizeAppData(request.result as Partial<AppData> | undefined));
     };
     request.onerror = () => reject(request.error);
     tx.oncomplete = () => db.close();
+  });
+}
+
+async function loadCheckpoints(): Promise<RecoveryCheckpoint<AppData>[]> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const request = tx.objectStore(STORE_NAME).get(RECOVERY_KEY);
+    request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : []);
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => db.close();
+  });
+}
+
+async function saveCheckpoints(checkpoints: RecoveryCheckpoint<AppData>[]): Promise<void> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    tx.objectStore(STORE_NAME).put(checkpoints, RECOVERY_KEY);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => reject(tx.error);
   });
 }
 
@@ -621,11 +660,18 @@ export default function Home() {
   const [newShiftDefaults, setNewShiftDefaults] = useState<{ personId: string; date: string } | null>(null);
   const [aviabitModal, setAviabitModal] = useState(false);
   const [planEditRequest, setPlanEditRequest] = useState<PlanEditRequest | null>(null);
+  const [personalTargetId, setPersonalTargetId] = useState("");
   const [toast, setToast] = useState("");
+  const [checkpoints, setCheckpoints] = useState<RecoveryCheckpoint<AppData>[]>([]);
   const importRef = useRef<HTMLInputElement>(null);
+  const previousDataRef = useRef<AppData | null>(null);
 
   useEffect(() => {
-    loadData().then(setData).finally(() => setHydrated(true));
+    Promise.all([loadData(), loadCheckpoints()]).then(([loadedData, loadedCheckpoints]) => {
+      previousDataRef.current = structuredClone(loadedData);
+      setData(loadedData);
+      setCheckpoints(loadedCheckpoints);
+    }).finally(() => setHydrated(true));
     if ("serviceWorker" in navigator) navigator.serviceWorker.register(new URL("sw.js", window.location.href).pathname).catch(() => undefined);
   }, []);
   useEffect(() => {
@@ -635,6 +681,24 @@ export default function Home() {
       saveData(data).then(() => setSaveState("saved")).catch(() => setSaveState("error"));
     }, 250);
     return () => window.clearTimeout(timer);
+  }, [data, hydrated]);
+  useEffect(() => {
+    if (!hydrated || !previousDataRef.current) return;
+    const previous = previousDataRef.current;
+    const sections = changedDataSections(previous as unknown as Record<string, unknown>, data as unknown as Record<string, unknown>);
+    if (!sections.length) return;
+    previousDataRef.current = structuredClone(data);
+    const checkpoint: RecoveryCheckpoint<AppData> = {
+      id: uid(),
+      createdAt: new Date().toISOString(),
+      sections,
+      snapshot: structuredClone(previous),
+    };
+    setCheckpoints((current) => {
+      const next = [checkpoint, ...current].slice(0, MAX_CHECKPOINTS);
+      void saveCheckpoints(next);
+      return next;
+    });
   }, [data, hydrated]);
   useEffect(() => {
     if (!toast) return;
@@ -656,6 +720,13 @@ export default function Home() {
     () => buildControlRows(data.people, expandedShifts, controlCertifications, todayIso),
     [data.people, expandedShifts, controlCertifications, todayIso],
   );
+  const readinessByPerson = useMemo(() => Object.fromEntries(data.people.map((person) => [
+    person.id,
+    employeeReadiness(
+      data.certifications.filter((record) => record.personId === person.id),
+      normalizePilotPersonalProfile(data.personalProfiles[person.id]),
+    ),
+  ])), [data.certifications, data.people, data.personalProfiles]);
   const alerts = useMemo(() => {
     const result: DashboardAlert[] = [];
     restIssues.filter((issue) => isCurrentMonthDate(issue.date, todayIso) && isRestIssueVisible(issue)).forEach((issue) => {
@@ -706,6 +777,67 @@ export default function Home() {
     setShiftModal(null);
     setNewShiftDefaults(null);
   }
+  function trashEntry(kind: TrashKind, label: string, payload: unknown): TrashEntry {
+    return { id: uid(), kind, label, deletedAt: new Date().toISOString(), payload: structuredClone(payload) };
+  }
+  function restoreTrashItem(entry: TrashEntry) {
+    setData((current) => {
+      const next = { ...current, trash: current.trash.filter((item) => item.id !== entry.id) };
+      if (entry.kind === "person") {
+        const bundle = entry.payload as { person: Person; shifts: Shift[]; certifications: CertificationRecord[]; planAssignments: PlanAssignment[]; planBusyEntries: PlanBusyEntry[]; baselines: FlightBookBaseline[]; documentProfile?: DocumentPersonProfile; personalProfile?: PilotPersonalProfile };
+        return {
+          ...next,
+          people: next.people.some((item) => item.id === bundle.person.id) ? next.people : [...next.people, bundle.person],
+          shifts: [...next.shifts.filter((item) => !bundle.shifts.some((saved) => saved.id === item.id)), ...bundle.shifts],
+          certifications: [...next.certifications.filter((item) => !bundle.certifications.some((saved) => saved.id === item.id)), ...bundle.certifications],
+          planAssignments: [...next.planAssignments.filter((item) => !bundle.planAssignments.some((saved) => saved.id === item.id)), ...bundle.planAssignments],
+          planBusyEntries: [...next.planBusyEntries.filter((item) => !bundle.planBusyEntries.some((saved) => saved.id === item.id)), ...bundle.planBusyEntries],
+          flightBookBaselines: [...next.flightBookBaselines.filter((item) => !bundle.baselines.some((saved) => saved.id === item.id)), ...bundle.baselines],
+          documentProfiles: bundle.documentProfile ? { ...next.documentProfiles, [bundle.person.id]: bundle.documentProfile } : next.documentProfiles,
+          personalProfiles: bundle.personalProfile ? { ...next.personalProfiles, [bundle.person.id]: bundle.personalProfile } : next.personalProfiles,
+        };
+      }
+      if (entry.kind === "shift") {
+        const items = entry.payload as Shift[];
+        return { ...next, shifts: [...next.shifts.filter((item) => !items.some((saved) => saved.id === item.id)), ...items] };
+      }
+      if (entry.kind === "shiftSnapshot") {
+        const item = entry.payload as Shift;
+        return { ...next, shifts: [...next.shifts.filter((currentShift) => currentShift.id !== item.id), item] };
+      }
+      if (entry.kind === "certification") return { ...next, certifications: [...next.certifications.filter((item) => item.id !== (entry.payload as CertificationRecord).id), entry.payload as CertificationRecord] };
+      if (entry.kind === "baseline") return { ...next, flightBookBaselines: [...next.flightBookBaselines.filter((item) => item.id !== (entry.payload as FlightBookBaseline).id), entry.payload as FlightBookBaseline] };
+      if (entry.kind === "registry") return { ...next, documentRegistry: [...next.documentRegistry.filter((item) => item.id !== (entry.payload as DocumentRegistryRecord).id), entry.payload as DocumentRegistryRecord] };
+      if (entry.kind === "medicalReferral") return { ...next, medicalReferrals: [...next.medicalReferrals.filter((item) => item.id !== (entry.payload as MedicalReferralRecord).id), entry.payload as MedicalReferralRecord] };
+      if (entry.kind === "planAssignment") return { ...next, planAssignments: [...next.planAssignments.filter((item) => item.id !== (entry.payload as PlanAssignment).id), entry.payload as PlanAssignment] };
+      if (entry.kind === "planBusy") return { ...next, planBusyEntries: [...next.planBusyEntries.filter((item) => item.id !== (entry.payload as PlanBusyEntry).id), entry.payload as PlanBusyEntry] };
+      return next;
+    });
+    setToast("Запись восстановлена из корзины");
+  }
+  function permanentlyDeleteTrashItem(entryId: string) {
+    if (!window.confirm("Удалить запись из корзины без возможности восстановления?")) return;
+    setData((current) => ({ ...current, trash: current.trash.filter((item) => item.id !== entryId) }));
+    setToast("Запись окончательно удалена");
+  }
+  function restoreCheckpoint(checkpoint: RecoveryCheckpoint<AppData>) {
+    if (!window.confirm(`Восстановить состояние до изменения «${checkpoint.sections.join(", ")}»?`)) return;
+    previousDataRef.current = structuredClone(checkpoint.snapshot);
+    setData(normalizeAppData(checkpoint.snapshot));
+    setToast("Контрольная точка восстановлена");
+  }
+  function undoLastChange() {
+    const checkpoint = checkpoints[0];
+    if (!checkpoint) { setToast("Нет изменений для отмены"); return; }
+    previousDataRef.current = structuredClone(checkpoint.snapshot);
+    setData(normalizeAppData(checkpoint.snapshot));
+    setCheckpoints((current) => {
+      const next = current.slice(1);
+      void saveCheckpoints(next);
+      return next;
+    });
+    setToast("Последнее изменение отменено");
+  }
 
   function savePerson(person: Omit<Person, "id" | "active">) {
     if (personModal && personModal !== "new") setData((current) => ({ ...current, people: current.people.map((item) => item.id === personModal.id ? { ...item, ...person } : item) }));
@@ -720,6 +852,16 @@ export default function Home() {
     if (!window.confirm(related ? `Удалить ${person.name} вместе со связанными записями (${related})?` : `Удалить ${person.name} из состава?`)) return;
     setData((current) => ({
       ...current,
+      trash: [trashEntry("person", person.name, {
+        person,
+        shifts: current.shifts.filter((shift) => shift.personId === person.id || shift.segments.some((segment) => segment.commanderPersonId === person.id)),
+        certifications: current.certifications.filter((record) => record.personId === person.id),
+        planAssignments: current.planAssignments.filter((assignment) => assignment.personId === person.id),
+        planBusyEntries: current.planBusyEntries.filter((entry) => entry.personId === person.id),
+        baselines: current.flightBookBaselines.filter((baseline) => baseline.personId === person.id),
+        documentProfile: current.documentProfiles[person.id],
+        personalProfile: current.personalProfiles[person.id],
+      }), ...current.trash],
       people: current.people.filter((item) => item.id !== person.id),
       shifts: current.shifts
         .filter((shift) => shift.personId !== person.id)
@@ -778,7 +920,10 @@ export default function Home() {
   function deleteShift(shift: Shift) {
     const periodText = shift.periodId && shift.periodStart && shift.periodEnd ? ` весь период ${formatDate(shift.periodStart)} — ${formatDate(shift.periodEnd)}` : ` запись ${formatDate(shift.date)}`;
     if (!window.confirm(`Удалить${periodText}?`)) return;
-    setData((current) => ({ ...current, shifts: current.shifts.filter((item) => shift.periodId ? item.periodId !== shift.periodId : item.id !== shift.id) })); closeShiftModal(); setToast(shift.periodId ? "Период удалён" : "Запись удалена");
+    setData((current) => {
+      const removed = current.shifts.filter((item) => shift.periodId ? item.periodId === shift.periodId : item.id === shift.id);
+      return { ...current, shifts: current.shifts.filter((item) => shift.periodId ? item.periodId !== shift.periodId : item.id !== shift.id), trash: [trashEntry("shift", shift.periodId ? `Период с ${formatDate(shift.periodStart ?? shift.date)}` : `Смена ${formatDate(shift.date)}`, removed), ...current.trash] };
+    }); closeShiftModal(); setToast(shift.periodId ? "Период перемещён в корзину" : "Запись перемещена в корзину");
   }
   function deleteFlight(shift: Shift, segmentId: string) {
     const selectedSegment = shift.segments.find((segment) => segment.id === segmentId);
@@ -790,6 +935,7 @@ export default function Home() {
     if (!window.confirm(`${selectedSegment?.splitGroupId ? "Удалить обе части разделённой смены" : "Удалить выбранный полёт"} за ${formatDate(shift.date)}?`)) return;
     setData((current) => ({
       ...current,
+      trash: [trashEntry("shiftSnapshot", `Полёт ${formatDate(shift.date)}`, current.shifts.find((item) => item.id === shift.id) ?? shift), ...current.trash],
       shifts: current.shifts.map((item) => item.id === shift.id
         ? deriveFlightTiming({ ...item, segments: item.segments.filter((segment) => !removedIds.has(segment.id)) })
         : item),
@@ -825,7 +971,7 @@ export default function Home() {
   function upsertCertification(record: CertificationRecord) {
     setData((current) => ({ ...current, certifications: current.certifications.some((item) => item.id === record.id) ? current.certifications.map((item) => item.id === record.id ? record : item) : [...current.certifications, record] })); setToast("Запись личного дела сохранена");
   }
-  function deleteCertification(recordId: string) { setData((current) => ({ ...current, certifications: current.certifications.filter((record) => record.id !== recordId) })); setToast("Запись удалена"); }
+  function deleteCertification(recordId: string) { setData((current) => { const record = current.certifications.find((item) => item.id === recordId); return { ...current, certifications: current.certifications.filter((item) => item.id !== recordId), trash: record ? [trashEntry("certification", record.certificationType || record.category || "Документ", record), ...current.trash] : current.trash }; }); setToast("Запись перемещена в корзину"); }
   function upsertFlightBookBaseline(baseline: FlightBookBaseline) {
     setData((current) => ({
       ...current,
@@ -836,11 +982,12 @@ export default function Home() {
     setToast("Исходный налёт сохранён");
   }
   function deleteFlightBookBaseline(baselineId: string) {
-    setData((current) => ({
+    setData((current) => { const baseline = current.flightBookBaselines.find((item) => item.id === baselineId); return {
       ...current,
       flightBookBaselines: current.flightBookBaselines.filter((item) => item.id !== baselineId),
-    }));
-    setToast("Контрольная точка удалена");
+      trash: baseline ? [trashEntry("baseline", `Исходный налёт ${baseline.date}`, baseline), ...current.trash] : current.trash,
+    }; });
+    setToast("Контрольная точка перемещена в корзину");
   }
   function savePilotPersonalProfile(personId: string, profile: PilotPersonalProfile) {
     const passportParts = profile.personalInfo.passportSeriesNumber.trim().split(/\s+/);
@@ -878,16 +1025,16 @@ export default function Home() {
     setToast("Запись реестра сохранена");
   }
   function deleteRegistryRecord(recordId: string) {
-    setData((current) => ({ ...current, documentRegistry: current.documentRegistry.filter((record) => record.id !== recordId) }));
-    setToast("Запись реестра удалена");
+    setData((current) => { const record = current.documentRegistry.find((item) => item.id === recordId); return { ...current, documentRegistry: current.documentRegistry.filter((item) => item.id !== recordId), trash: record ? [trashEntry("registry", `Реестр ${record.number}`, record), ...current.trash] : current.trash }; });
+    setToast("Запись реестра перемещена в корзину");
   }
   function upsertMedicalReferral(record: MedicalReferralRecord) {
     setData((current) => ({ ...current, medicalReferrals: current.medicalReferrals.some((item) => item.id === record.id) ? current.medicalReferrals.map((item) => item.id === record.id ? record : item) : [...current.medicalReferrals, record] }));
     setToast("Медицинское направление сохранено");
   }
   function deleteMedicalReferral(recordId: string) {
-    setData((current) => ({ ...current, medicalReferrals: current.medicalReferrals.filter((item) => item.id !== recordId) }));
-    setToast("Медицинское направление удалено");
+    setData((current) => { const record = current.medicalReferrals.find((item) => item.id === recordId); return { ...current, medicalReferrals: current.medicalReferrals.filter((item) => item.id !== recordId), trash: record ? [trashEntry("medicalReferral", `Направление № ${record.number}`, record), ...current.trash] : current.trash }; });
+    setToast("Медицинское направление перемещено в корзину");
   }
   function savePlanAssignment(assignment: PlanAssignment) {
     setData((current) => ({
@@ -912,8 +1059,8 @@ export default function Home() {
     setToast(`Назначения сохранены: ${assignments.length}`);
   }
   function deletePlanAssignment(assignmentId: string) {
-    setData((current) => ({ ...current, planAssignments: current.planAssignments.filter((item) => item.id !== assignmentId) }));
-    setToast("Назначение удалено");
+    setData((current) => { const record = current.planAssignments.find((item) => item.id === assignmentId); return { ...current, planAssignments: current.planAssignments.filter((item) => item.id !== assignmentId), trash: record ? [trashEntry("planAssignment", `Назначение ${record.aircraft} · ${formatDate(record.date)}`, record), ...current.trash] : current.trash }; });
+    setToast("Назначение перемещено в корзину");
   }
   function savePlanBusy(entry: PlanBusyEntry) {
     setData((current) => ({
@@ -929,41 +1076,25 @@ export default function Home() {
     setToast(`Дни занятости сохранены: ${entries.length}`);
   }
   function deletePlanBusy(entryId: string) {
-    setData((current) => ({ ...current, planBusyEntries: current.planBusyEntries.filter((item) => item.id !== entryId) }));
-    setToast("Занятость удалена");
+    setData((current) => { const record = current.planBusyEntries.find((item) => item.id === entryId); return { ...current, planBusyEntries: current.planBusyEntries.filter((item) => item.id !== entryId), trash: record ? [trashEntry("planBusy", `${planBusyLabels[record.activity]} · ${formatDate(record.dateFrom)}`, record), ...current.trash] : current.trash }; });
+    setToast("Занятость перемещена в корзину");
   }
   function exportBackup() {
     const now = new Date();
-    download(backupFileName(now), JSON.stringify({ version: 15, exportedAt: now.toISOString(), data }, null, 2));
-    setToast("Резервная копия сохранена");
+    download(backupFileName(now), JSON.stringify({ version: 16, exportedAt: now.toISOString(), checksum: backupChecksum(data), data }, null, 2));
+    setToast("Проверенная резервная копия сохранена");
   }
   function importBackup(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]; if (!file) return;
     file.text().then((text) => {
-      const parsed = JSON.parse(text) as { data?: AppData } | AppData;
-      const restored = "data" in parsed && parsed.data ? parsed.data : parsed as AppData;
-      if (!Array.isArray(restored.people) || !Array.isArray(restored.shifts)) throw new Error("Invalid backup");
-      setData({
-        people: restored.people.map(normalizePerson),
-        shifts: restored.shifts.map(normalizeShift),
-        certifications: restored.certifications ?? [],
-        planAssignments: restored.planAssignments ?? [],
-        planBusyEntries: restored.planBusyEntries ?? [],
-        settings: { ...EMPTY_SETTINGS, ...(restored.settings ?? {}) },
-        documentRegistry: restored.documentRegistry ?? REGISTRY_SEED,
-        medicalReferrals: restored.medicalReferrals ?? MEDICAL_REFERRALS_SEED,
-        documentProfiles: restored.documentProfiles ?? {},
-        documentSettings: normalizeDocumentSettings(restored.documentSettings),
-        flightBookBaselines: restored.flightBookBaselines ?? [],
-        personalProfiles: Object.fromEntries(Object.entries(restored.personalProfiles ?? {})
-          .map(([personId, profile]) => [personId, normalizePilotPersonalProfile(profile)])),
-        personalDocumentDefinitions: migratePersonalDocumentDefinitions(
-          restored.personalDocumentDefinitions,
-          restored.personalDocumentDefinitionsVersion,
-        ),
-        personalDocumentDefinitionsVersion: PERSONAL_DOCUMENT_DEFINITIONS_VERSION,
-      }); setToast("Резервная копия восстановлена");
-    }).catch(() => setToast("Не удалось прочитать резервную копию"));
+      const parsed = JSON.parse(text) as unknown;
+      const validation = validateBackupEnvelope(parsed);
+      if (!validation.valid) throw new Error(validation.error);
+      const restored = normalizeAppData(validation.data as Partial<AppData>);
+      previousDataRef.current = structuredClone(restored);
+      setData(restored);
+      setToast("Резервная копия проверена и восстановлена");
+    }).catch((caught) => setToast(caught instanceof Error ? caught.message : "Не удалось прочитать резервную копию"));
     event.target.value = "";
   }
 
@@ -1021,9 +1152,15 @@ export default function Home() {
           : view === "settings"
             ? <SettingsView
               settings={data.settings}
+              checkpoints={checkpoints}
+              trash={data.trash}
               onChange={(patch) => setData((current) => ({ ...current, settings: { ...current.settings, ...patch } }))}
               onExport={exportBackup}
               onRestore={() => importRef.current?.click()}
+              onUndo={undoLastChange}
+              onRestoreCheckpoint={restoreCheckpoint}
+              onRestoreTrash={restoreTrashItem}
+              onDeleteTrash={permanentlyDeleteTrashItem}
             />
         : view === "shifts"
           ? <ShiftsView
@@ -1043,8 +1180,10 @@ export default function Home() {
             onImport={importWorkTime}
             onNotify={setToast}
           />
+          : view === "crew"
+            ? <CrewDeploymentView people={data.people} assignments={data.planAssignments} shifts={expandedShifts} readiness={readinessByPerson} onOpenPlan={(assignment) => { setPlanEditRequest(assignment ? { kind: "assignment", id: assignment.id } : null); setView("planning"); }} />
           : view === "people"
-            ? <PeopleView people={data.people} shifts={expandedShifts} onAdd={() => setPersonModal("new")} onEdit={setPersonModal} onOpenPersonal={() => setView("personal")} />
+            ? <PeopleView people={data.people} shifts={expandedShifts} readinessByPerson={readinessByPerson} onAdd={() => setPersonModal("new")} onEdit={setPersonModal} onOpenPersonal={(personId) => { setPersonalTargetId(personId); setView("personal"); }} />
             : view === "personal"
               ? <PersonalFilesView
                 people={data.people}
@@ -1061,6 +1200,7 @@ export default function Home() {
                 onProfileChange={savePilotPersonalProfile}
                 onDefinitionsChange={(definitions) => setData((current) => ({ ...current, personalDocumentDefinitions: definitions }))}
                 onNotify={setToast}
+                initialPersonId={personalTargetId}
               />
               : view === "control"
                 ? <ControlJournalView rows={controlRows} alerts={alerts} onNotify={setToast} />
@@ -1076,7 +1216,7 @@ export default function Home() {
                     }}
                   />
                   : <MonthlyPlanView
-                people={data.people}
+                people={data.people.map((person) => ({ ...person, readinessStatus: readinessByPerson[person.id]?.status, readinessReason: readinessBlockReason(readinessByPerson[person.id]) ?? readinessByPerson[person.id]?.reasons[0]?.detail ?? "" }))}
                 shifts={expandedShifts}
                 assignments={data.planAssignments}
                 busyEntries={data.planBusyEntries}
@@ -1094,6 +1234,7 @@ export default function Home() {
     {personModal && <PersonModal person={personModal === "new" ? null : personModal} onClose={() => setPersonModal(null)} onSubmit={savePerson} onDelete={personModal === "new" ? undefined : () => deletePerson(personModal)} />}
     {shiftModal && <ShiftModal
       people={data.people}
+      readinessByPerson={readinessByPerson}
       shift={shiftModal === "new" ? null : shiftModal}
       initialPersonId={shiftModal === "new" ? newShiftDefaults?.personId : undefined}
       initialDate={shiftModal === "new" ? newShiftDefaults?.date : undefined}
@@ -1114,6 +1255,7 @@ function viewTitle(view: View): string {
     people: "Сотрудники",
     personal: "Личные дела",
     control: "Контрольный журнал",
+    crew: "Расстановка экипажей",
     planning: "Месячный план",
     actual: "Фактический план",
     documentation: "Документация",
@@ -1169,6 +1311,7 @@ function Dashboard({
       <article className="panel alerts-panel dashboard-area dashboard-control"><div className="panel-heading"><div><p className="eyebrow">Контроль</p><h2>Требует внимания</h2></div><span className="count-badge">{alerts.length}</span></div><div className="control-rules"><strong>Нормы отдыха · приказ № 381</strong><span>12 ч ежедневно · 42 ч после 6 рабочих дней · 48 ч после двух разделённых смен</span></div>{!alerts.length ? <div className="good-state"><span>✓</span><div><strong>Критических замечаний нет</strong><p>Новые предупреждения появятся после расчёта смен.</p></div></div> : dashboardRows(alerts).map((alert) => <div className={`alert-row ${alert.severity}`} key={alert.id}><span className="alert-icon">!</span><div><strong>{alert.title}</strong><p>{alert.detail}</p></div></div>)}</article>
       <div className="dashboard-area dashboard-crews">
       <DashboardBlock eyebrow="Расстановка экипажей" title="Планирование">
+        <DashboardShortcut glyph="✈" title="Расстановка экипажей" detail="Суточный состав, готовность и фактические полёты" onClick={() => onNavigate("crew")} />
         <DashboardShortcut glyph="▦" title="Месячный план" detail="Борта, экипажи и занятость" onClick={() => onNavigate("planning")} />
         <DashboardShortcut glyph="▦" title="Фактический план" detail="Фактическая занятость по дням" onClick={() => onNavigate("actual")} />
       </DashboardBlock>
@@ -1193,14 +1336,26 @@ function DashboardShortcut({ glyph, title, detail, onClick }: { glyph: string; t
 
 function SettingsView({
   settings,
+  checkpoints,
+  trash,
   onChange,
   onExport,
   onRestore,
+  onUndo,
+  onRestoreCheckpoint,
+  onRestoreTrash,
+  onDeleteTrash,
 }: {
   settings: CompanySettings;
+  checkpoints: RecoveryCheckpoint<AppData>[];
+  trash: TrashEntry[];
   onChange: (patch: Partial<CompanySettings>) => void;
   onExport: () => void;
   onRestore: () => void;
+  onUndo: () => void;
+  onRestoreCheckpoint: (checkpoint: RecoveryCheckpoint<AppData>) => void;
+  onRestoreTrash: (entry: TrashEntry) => void;
+  onDeleteTrash: (entryId: string) => void;
 }) {
   return <section className="settings-layout">
     <article className="panel settings-card"><div className="panel-heading"><div><p className="eyebrow">Реквизиты</p><h2>Карточка предприятия</h2></div><span className="settings-auto-save">Сохраняется автоматически</span></div><div className="settings-form form-stack">
@@ -1220,7 +1375,14 @@ function SettingsView({
       <Field label="Генеральный директор"><input value={settings.generalDirector} onChange={(event) => onChange({ generalDirector: event.target.value })} placeholder="Фамилия Имя Отчество" /></Field>
       <div className="report-scope-note">Эти данные подготовлены для будущего автоматического заполнения Word-форм, приказов, заявок и приложений.</div>
     </div></article>
-    <article className="panel backup-card"><div><p className="eyebrow">Локальная база</p><h2>Резервное копирование</h2><p>Скачивайте резервную копию перед переносом на другое устройство. Имя файла формируется как BaseShtab_дата_время.</p></div><div><button type="button" className="primary-button" onClick={onExport}>Скачать резервную копию</button><button type="button" className="secondary-button" onClick={onRestore}>Восстановить базу из файла</button></div></article>
+    <article className="panel backup-card"><div><p className="eyebrow">Локальная база</p><h2>Резервное копирование</h2><p>Новая копия содержит контрольную сумму. Перед восстановлением сайт автоматически проверяет целостность файла.</p></div><div><button type="button" className="primary-button" onClick={onExport}>Скачать проверенную копию</button><button type="button" className="secondary-button" onClick={onRestore}>Восстановить базу из файла</button></div></article>
+    <article className="panel settings-card recovery-card"><div className="panel-heading"><div><p className="eyebrow">Автоматическое сохранение</p><h2>История изменений</h2></div><button className="secondary-button compact" disabled={!checkpoints.length} onClick={onUndo}>↶ Отменить последнее</button></div>
+      {!checkpoints.length ? <div className="panel-empty">Контрольные точки появятся после первого изменения данных.</div> : <div className="recovery-list">{checkpoints.slice(0, 10).map((checkpoint) => <div key={checkpoint.id}><span><strong>{checkpoint.sections.join(", ")}</strong><small>{new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium", timeStyle: "short" }).format(new Date(checkpoint.createdAt))}</small></span><button className="row-action" onClick={() => onRestoreCheckpoint(checkpoint)}>Восстановить</button></div>)}</div>}
+      <div className="report-scope-note">Хранится до {MAX_CHECKPOINTS} последних состояний базы. Восстановление применяется только после вашего подтверждения.</div>
+    </article>
+    <article className="panel settings-card recovery-card"><div className="panel-heading"><div><p className="eyebrow">Защита от удаления</p><h2>Корзина</h2></div><span className="settings-auto-save">{trash.length} записей</span></div>
+      {!trash.length ? <div className="panel-empty">Удалённые сотрудники, смены, документы и записи планов будут временно храниться здесь.</div> : <div className="recovery-list">{trash.map((entry) => <div key={entry.id}><span><strong>{entry.label}</strong><small>{new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium", timeStyle: "short" }).format(new Date(entry.deletedAt))}</small></span><div className="row-actions"><button onClick={() => onRestoreTrash(entry)}>Восстановить</button><button className="delete" onClick={() => onDeleteTrash(entry.id)}>Удалить навсегда</button></div></div>)}</div>}
+    </article>
   </section>;
 }
 
@@ -1402,23 +1564,25 @@ function FlightReportModal({ people, shifts, assignments, busyEntries, onClose, 
   }}><option value="flight">Справка о налёте</option><option value="employment">Отчёт о занятости</option><option value="cumulative">Отчёт по нарастающему налёту</option><option value="summary">Итоговая справка о налёте</option></select></Field>{reportType === "cumulative" ? <Field label="Дополнить исходный отчёт по дату"><input required min={CUMULATIVE_APPEND_START} type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field> : <><div className="form-grid two"><Field label="Период с"><input required type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></Field><Field label="Период по"><input required type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field></div><Field label="Состав отчёта"><select value={personId} onChange={(event) => setPersonId(event.target.value)}><option value="">Все сотрудники — общий отчёт</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field></>}<div className="report-scope-note">{reportHint}</div>{error && <div className="form-error">{error}</div>}<div className="form-actions"><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button" disabled={exporting}>{exporting ? "Формирую…" : reportType === "cumulative" ? "Скачать Excel" : "Скачать PDF"}</button></div></form></Modal>;
 }
 
-function PeopleView({ people, shifts, onAdd, onEdit, onOpenPersonal }: { people: Person[]; shifts: Shift[]; onAdd: () => void; onEdit: (person: Person) => void; onOpenPersonal: () => void }) {
+function PeopleView({ people, shifts, readinessByPerson, onAdd, onEdit, onOpenPersonal }: { people: Person[]; shifts: Shift[]; readinessByPerson: Record<string, EmployeeReadiness>; onAdd: () => void; onEdit: (person: Person) => void; onOpenPersonal: (personId: string) => void }) {
   return <section className="panel people-panel">
     <div className="panel-heading"><div><p className="eyebrow">Реестр</p><h2>Сотрудники</h2></div><button className="primary-button" onClick={onAdd}>+ Добавить</button></div>
     {!people.length ? <div className="panel-empty tall">Карточки сотрудников ещё не созданы.</div> : <div className="people-grid">{people.map((person) => {
       const personShifts = shifts.filter((shift) => shift.personId === person.id);
+      const readiness = readinessByPerson[person.id];
       return <article className="person-card" key={person.id}>
         <div className="person-avatar">{person.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</div>
         <div className="person-body">
           <strong>{person.name}</strong>
           <span>{person.position || "Кресла не указаны"}</span>
+          {readiness && <div className={`readiness-badge ${readiness.status}`}><span>{readiness.label}</span>{readiness.reasons[0] && <small>{readiness.reasons[0].label}: {readiness.reasons[0].detail}</small>}</div>}
           <div className="person-qualification-list">{person.qualifications.length ? person.qualifications.map((qualification) => <div key={qualification.id}>
             <b>{qualification.operators.join(", ") || "Эксплуатант не указан"}</b>
             <span>{qualification.aircraftTypes.join(", ") || "Тип ВС не указан"}</span>
             <small>{qualification.seats.join(", ") || "Кресла не указаны"}</small>
             {qualification.nightAircraftTypes.length > 0 && <small>Ночь: {qualification.nightAircraftTypes.join(", ")}</small>}
           </div>) : <div><span>Наборы допуска не указаны</span></div>}</div>
-          <div className="person-card-actions"><button onClick={onOpenPersonal}>Личное дело</button><button onClick={() => onEdit(person)}>Изменить</button></div>
+          <div className="person-card-actions"><button onClick={() => onOpenPersonal(person.id)}>Личное дело</button><button onClick={() => onEdit(person)}>Изменить</button></div>
         </div>
         <div className="person-stat"><strong>{personShifts.length}</strong><span>смен</span></div>
       </article>;
@@ -1625,6 +1789,7 @@ function groupSegmentDrafts(segments: SegmentDraft[]): SegmentDraft[][] {
 
 function ShiftModal({
   people,
+  readinessByPerson,
   shift,
   initialPersonId,
   initialDate,
@@ -1633,6 +1798,7 @@ function ShiftModal({
   onDelete,
 }: {
   people: Person[];
+  readinessByPerson: Record<string, EmployeeReadiness>;
   shift: Shift | null;
   initialPersonId?: string;
   initialDate?: string;
@@ -1698,12 +1864,28 @@ function ShiftModal({
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!personId) { setError("Выберите сотрудника."); return; }
+    if (activity === "flight") {
+      const blocked = readinessBlockReason(readinessByPerson[personId]);
+      if (blocked) { setError(`Полётная смена недоступна. ${blocked}`); return; }
+    }
     if (supportsPeriod && (!dateTo || dateTo < date)) { setError("Дата окончания периода не может быть раньше даты начала."); return; }
     const safeStart = usesTime(activity) && activity !== "flight" ? normalizeTime(start, true) : "";
     const safeWork = usesTime(activity) && activity !== "flight" ? normalizeTime(work) : "";
     if (usesTime(activity) && activity !== "flight" && (!safeStart || !safeWork)) { setError("Проверьте время: минуты должны быть от 00 до 59."); return; }
     if (activity === "flight" && !selectedAircraftTypes.length) { setError("Сначала укажите типы ВС в карточке выбранного сотрудника."); return; }
     if (activity === "flight" && segments.some((item) => !item.aircraftType || !selectedAircraftTypes.includes(item.aircraftType))) { setError("Выберите тип ВС из допусков выбранного сотрудника."); return; }
+    if (activity === "flight" && segments.some((item) => {
+      const requiredOperator = item.purpose.startsWith("АОН") ? "АОН" : item.purpose;
+      if (!requiredOperator || !["КВП", "АОН", "АР"].includes(requiredOperator)) return false;
+      const person = people.find((candidate) => candidate.id === personId);
+      return !person?.qualifications.some((qualification) => qualification.aircraftTypes.includes(item.aircraftType) && qualification.operators.includes(requiredOperator));
+    })) { setError("Цель полёта не соответствует эксплуатанту в допуске сотрудника на выбранный тип ВС."); return; }
+    if (activity === "flight" && segments.some((item) => {
+      const night = parseDuration(normalizeTime(item.night) || "00:00");
+      if (!night) return false;
+      const person = people.find((candidate) => candidate.id === personId);
+      return !person?.qualifications.some((qualification) => qualification.aircraftTypes.includes(item.aircraftType) && qualification.nightAircraftTypes.includes(item.aircraftType));
+    })) { setError("Для внесения ночного налёта нужен ночной допуск на выбранный тип ВС."); return; }
     if (activity === "flight" && segments.some((item) => aircraftNumbersForType(item.aircraftType).length > 0 && !isAircraftNumberAllowed(item.aircraftType, item.aircraft))) { setError("Выберите бортовой номер из списка для указанного типа ВС."); return; }
     if (activity === "flight" && segments.some((item) => {
       const dutyStart = normalizeTime(item.dutyStart, true); const dutyEnd = normalizeTime(item.dutyEnd, true);

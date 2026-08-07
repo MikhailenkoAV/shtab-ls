@@ -32,6 +32,8 @@ type PlanPerson = {
   name: string;
   aircraftTypes: string[];
   active: boolean;
+  readinessStatus?: "allowed" | "restricted" | "not_allowed" | "undetermined";
+  readinessReason?: string;
 };
 
 type PlanShift = ActualBusyInput;
@@ -310,13 +312,16 @@ function AssignmentModal({
   onDelete?: () => void;
 }) {
   const aircraftType = aircraftTypeForNumber(cell.aircraft, aircraftNumbersByType);
-  const availablePeople = availablePeopleForAssignment(people, assignments, busyEntries, actualBusy, cell.date, aircraftType, cell.aircraft, assignment?.id);
+  const qualifiedPeople = availablePeopleForAssignment(people, assignments, busyEntries, actualBusy, cell.date, aircraftType, cell.aircraft, assignment?.id);
+  const availablePeople = qualifiedPeople.filter((person) => person.readinessStatus !== "not_allowed");
   const [personId, setPersonId] = useState(assignment?.personId ?? "");
   const selectedPersonId = availablePeople.some((person) => person.id === personId) ? personId : "";
 
   return <PlanModal title="Назначение на борт" subtitle={`${cell.aircraft} · ${aircraftType} · ${planRoleLabels[cell.role]} · ${new Intl.DateTimeFormat("ru-RU").format(new Date(`${cell.date}T12:00:00`))}`} onClose={onClose}>
     <form className="form-stack" onSubmit={(event) => { event.preventDefault(); if (selectedPersonId) onSave(selectedPersonId); }}>
       <label className="field"><span>Сотрудник</span><select required autoFocus value={selectedPersonId} onChange={(event) => setPersonId(event.target.value)}><option value="">Выберите доступного сотрудника</option>{availablePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+      {selectedPersonId && (() => { const selected = availablePeople.find((person) => person.id === selectedPersonId); return selected?.readinessStatus === "restricted" || selected?.readinessStatus === "undetermined" ? <div className="precheck-warning"><strong>{selected.readinessStatus === "restricted" ? "Допущен с ограничениями" : "Статус допуска не определён"}</strong><span>{selected.readinessReason || "Перед фактическим полётом проверьте документы сотрудника."}</span></div> : null; })()}
+      {qualifiedPeople.length > availablePeople.length && <div className="precheck-blocked">Не допущенные сотрудники скрыты из списка назначения.</div>}
       {!availablePeople.length && <div className="form-error">Нет доступных сотрудников с допуском на {aircraftType}. Проверьте занятость и назначение на этот борт.</div>}
       <div className="form-actions split">{onDelete && <button type="button" className="danger-button" onClick={onDelete}>Очистить ячейку</button>}<span /><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button" disabled={!selectedPersonId}>Сохранить</button></div>
     </form>
@@ -430,6 +435,7 @@ function EmploymentPlannerModal({
 
   function dateBlockReason(date: string): string | null {
     if (!person) return "Сначала выберите сотрудника.";
+    if (usesAircraftPlacement && person.readinessStatus === "not_allowed") return person.readinessReason || "Сотрудник не допущен к полётам.";
     if (!usesAircraftPlacement) {
       return busyBlockReason(person.id, date, assignments, busyEntries, actualBusy);
     }
@@ -505,7 +511,7 @@ function EmploymentPlannerModal({
           setPersonId(event.target.value);
           setSelectedAircraft([]);
           setError("");
-        }}><option value="">Выберите сотрудника</option>{people.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        }}><option value="">Выберите сотрудника</option>{people.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name}{item.readinessStatus === "not_allowed" ? " — не допущен" : item.readinessStatus === "restricted" ? " — с ограничениями" : ""}</option>)}</select></label>
         <label className="field"><span>Вид занятости</span><select value={activity} onChange={(event) => {
           setActivity(event.target.value as EmploymentActivity);
           setError("");

@@ -26,6 +26,7 @@ import {
   PilotPersonalProfile,
 } from "./pilot-profile-rules";
 import { downloadPersonalFlightPdf } from "./personal-file-pdf";
+import { employeeReadiness, readinessLabels } from "./readiness-rules";
 
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const localIsoDate = () => {
@@ -58,7 +59,7 @@ function recordGroup(
   return "other";
 }
 
-type EditProfileSection = "pilot" | "meteo" | "medical" | "personal" | "aviation";
+type EditProfileSection = "pilot" | "meteo" | "medical" | "personal" | "aviation" | "readiness";
 
 export function PersonalFilesView({
   people,
@@ -75,6 +76,7 @@ export function PersonalFilesView({
   onProfileChange,
   onDefinitionsChange,
   onNotify,
+  initialPersonId,
 }: {
   people: PersonRef[];
   shifts: FlightTimeShiftRef[];
@@ -90,6 +92,7 @@ export function PersonalFilesView({
   onProfileChange: (personId: string, profile: PilotPersonalProfile) => void;
   onDefinitionsChange: (definitions: PersonalDocumentDefinition[]) => void;
   onNotify: (message: string) => void;
+  initialPersonId?: string;
 }) {
   const definitions = documentDefinitions.length
     ? documentDefinitions
@@ -98,7 +101,7 @@ export function PersonalFilesView({
     () => [...people].filter((person) => person.active).sort((left, right) => left.name.localeCompare(right.name, "ru-RU")),
     [people],
   );
-  const [selected, setSelected] = useState(sortedPeople[0]?.id ?? "");
+  const [selected, setSelected] = useState(initialPersonId ?? sortedPeople[0]?.id ?? "");
   const [mode, setMode] = useState<"overview" | "flightbook">("overview");
   const [operatorFilter, setOperatorFilter] = useState("");
   const [aircraftFilter, setAircraftFilter] = useState("");
@@ -174,9 +177,11 @@ export function PersonalFilesView({
         const warnings = currentRecords
           .filter((record) => !isMedicalCertificationSuperseded(record, medicalExpiry))
           .filter((record) => isExpiryAttention(record)).length;
+        const readiness = employeeReadiness(records.filter((record) => record.personId === item.id), normalizePilotPersonalProfile(profiles[item.id]));
         return <button key={item.id} className={item.id === personId ? "active" : ""} onClick={() => { setSelected(item.id); setMode("overview"); }}>
           <span className="person-avatar small">{item.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</span>
           <span><strong>{item.name}</strong><small>{displayMinutes(total)} · {item.aircraftTypes.join(", ")}</small></span>
+          <em className={`readiness-dot ${readiness.status}`} title={readiness.label} />
           {warnings > 0 && <i>{warnings}</i>}
         </button>;
       })}{!filteredPeople.length && <div className="pilot-filter-empty">Сотрудники по фильтрам не найдены.</div>}</div>
@@ -186,6 +191,11 @@ export function PersonalFilesView({
       <div className="record-hero panel">
         <div className="record-person"><p className="eyebrow">Личное дело</p><h2>{person.name}</h2><span>{[person.position, person.aircraftTypes.join(", ")].filter(Boolean).join(" · ")}</span></div>
         <div className="record-hero-side">
+          {(() => { const readiness = employeeReadiness(personRecords, profile); return <div className={`readiness-summary ${readiness.status}`}>
+            <div><span>Готовность к работе</span><strong>{readiness.label}</strong>{readiness.manual && <small>Установлено вручную</small>}</div>
+            <button className="row-action" onClick={() => setProfileEditing("readiness")}>Настроить</button>
+            {readiness.reasons.length > 0 && <button className="readiness-reason" onClick={() => setHistoryOpen(true)}>{readiness.reasons[0].label}: {readiness.reasons[0].detail}</button>}
+          </div>; })()}
           <div className="record-flight-cards">
             <div className="monthly-flight-card"><span>Налёт в текущем месяце</span><strong>{displayMinutes(currentMonthFlight)}</strong></div>
             <div className="monthly-flight-card total"><span>Общий налёт</span><strong>{displayMinutes(flightBook.total.totalMinutes)}</strong></div>
@@ -468,6 +478,7 @@ function ProfileModal({
     medical: "Медицинское заключение",
     personal: "Личная информация",
     aviation: "Авиационные работы",
+    readiness: "Готовность к работе",
   }[section];
   const updateRoot = (key: "division" | "phone" | "email" | "birthDate", value: string) =>
     setDraft((current) => ({ ...current, [key]: value }));
@@ -479,6 +490,17 @@ function ProfileModal({
           <div className="form-grid two"><label className="field"><span>Должность</span><input disabled value={person.position} /></label><label className="field"><span>Подразделение — необязательно</span><input value={draft.division} onChange={(event) => updateRoot("division", event.target.value)} /></label></div>
           <div className="form-grid two"><label className="field"><span>Телефон</span><input value={draft.phone} onChange={(event) => updateRoot("phone", event.target.value)} /></label><label className="field"><span>E-mail</span><input type="email" value={draft.email} onChange={(event) => updateRoot("email", event.target.value)} /></label></div>
           <label className="field"><span>Дата рождения</span><input type="date" value={draft.birthDate} onChange={(event) => updateRoot("birthDate", event.target.value)} /></label>
+        </>}
+        {section === "readiness" && <>
+          <label className="field"><span>Статус допуска</span><select value={draft.readiness.override} onChange={(event) => setDraft((current) => ({ ...current, readiness: { ...current.readiness, override: event.target.value as PilotPersonalProfile["readiness"]["override"] } }))}>
+            <option value="auto">Определять автоматически</option>
+            <option value="allowed">{readinessLabels.allowed}</option>
+            <option value="restricted">{readinessLabels.restricted}</option>
+            <option value="not_allowed">{readinessLabels.not_allowed}</option>
+          </select></label>
+          <label className="field"><span>Причина ручного ограничения</span><textarea value={draft.readiness.reason} onChange={(event) => setDraft((current) => ({ ...current, readiness: { ...current.readiness, reason: event.target.value } }))} placeholder="Например: временно отстранён от полётов" /></label>
+          <label className="field"><span>Действует до — необязательно</span><input type="date" value={draft.readiness.until} onChange={(event) => setDraft((current) => ({ ...current, readiness: { ...current.readiness, until: event.target.value } }))} /></label>
+          <div className="report-scope-note">Автоматический статус рассчитывается по действующим документам и медицинскому заключению. Ручной статус имеет приоритет и сохраняет причину.</div>
         </>}
         {section === "meteo" && <div className="meteo-edit-list">{person.aircraftTypes.map((aircraftType) => {
           const minimum = draft.meteoMinimums[aircraftType] ?? { day: "", night: "", mountains: "" };
