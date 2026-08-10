@@ -33,3 +33,17 @@ test("simulator and cabin training restrict KVP but do not block an AON assignme
   assert.equal(readinessForOperator(result, "КВП").status, "not_allowed");
   assert.equal(readinessForOperator(result, "АОН").status, "allowed");
 });
+
+test("a type-specific expired document blocks only its own aircraft type", () => {
+  const asp = { ...record("2026-07-01"), certificationType: "АСП суша (на типе)", aircraftType: "R66" };
+  const result = employeeReadiness([asp], profile("2027-01-01"), new Date("2026-08-07T12:00:00"));
+  assert.equal(readinessForOperator(result, "АОН", "R66").status, "not_allowed");
+  assert.equal(readinessForOperator(result, "АОН", "R44").status, "allowed");
+});
+
+test("a document valid for another 36 days is a warning, not a flight block", () => {
+  const asp = { ...record("2026-09-12"), certificationType: "АСП суша (на типе)", aircraftType: "R66" };
+  const result = employeeReadiness([asp], profile("2027-01-01"), new Date("2026-08-07T12:00:00"));
+  assert.equal(readinessForOperator(result, "АОН", "R66").status, "restricted");
+  assert.equal(readinessBlockReason(readinessForOperator(result, "АОН", "R66")), null);
+});

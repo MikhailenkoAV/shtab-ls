@@ -65,7 +65,7 @@ import {
   MedicalReferralRecord,
 } from "./documentation-rules";
 import { FlightBookBaseline } from "./flight-book-rules";
-import { employeeReadiness, EmployeeReadiness, readinessBlockReason } from "./readiness-rules";
+import { employeeReadiness, EmployeeReadiness, readinessBlockReason, readinessForOperator } from "./readiness-rules";
 import { CrewDeploymentView } from "./crew-deployment";
 import { TrainingMatrixView } from "./training-matrix";
 import { ImportCenterView } from "./import-center";
@@ -1891,6 +1891,13 @@ function ShiftModal({
   const [segments, setSegments] = useState<SegmentDraft[]>(() => initializeSegmentDrafts(shift, defaultAircraftType));
   const supportsPeriod = multiDayActivities.includes(activity);
   const segmentGroups = groupSegmentDrafts(segments);
+  const factualReadinessNotices = activity === "flight" && personId
+    ? segments.flatMap((item) => {
+      const operator = item.purpose.startsWith("АОН") ? "АОН" : item.purpose;
+      const scoped = readinessForOperator(readinessByPerson[personId], operator, item.aircraftType);
+      return scoped && (scoped.status === "restricted" || scoped.status === "not_allowed") ? scoped.reasons : [];
+    }).filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index)
+    : [];
 
   function changePerson(nextPersonId: string) {
     const availableTypes = people.find((person) => person.id === nextPersonId)?.aircraftTypes ?? [];
@@ -1935,10 +1942,6 @@ function ShiftModal({
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!personId) { setError("Выберите сотрудника."); return; }
-    if (activity === "flight") {
-      const blocked = readinessBlockReason(readinessByPerson[personId]);
-      if (blocked) { setError(`Полётная смена недоступна. ${blocked}`); return; }
-    }
     if (supportsPeriod && (!dateTo || dateTo < date)) { setError("Дата окончания периода не может быть раньше даты начала."); return; }
     const safeStart = usesTime(activity) && activity !== "flight" ? normalizeTime(start, true) : "";
     const safeWork = usesTime(activity) && activity !== "flight" ? normalizeTime(work) : "";
@@ -2058,6 +2061,7 @@ function ShiftModal({
           </div>;
         })}
       </div>}
+      {activity === "flight" && factualReadinessNotices.length > 0 && <div className="precheck-warning"><strong>Требуется проверка допуска</strong><span>{factualReadinessNotices.map((item) => `${item.label}: ${item.detail}`).join("; ")}. Фактическую смену можно сохранить — предупреждение останется в контроле.</span></div>}
       {supportsPeriod && <div className="report-scope-note">{activity === "periodic_training" ? "Время начала и рабочее время не указываются. Отдых между периодической подготовкой и полётной сменой принимается соответствующим установленным нормам. Каждое воскресенье внутри периода будет автоматически отмечено как «Выходной». " : ""}Запись будет показана отдельно за каждый календарный день периода. Редактирование или удаление одного дня откроет весь связанный период.</div>}
       {error && <div className="form-error">{error}</div>}
       <Field label="Примечание"><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Проверка, тренаж, особые обстоятельства…" /></Field>

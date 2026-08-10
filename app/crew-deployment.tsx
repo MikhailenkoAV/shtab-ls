@@ -35,12 +35,12 @@ export function CrewDeploymentView({ people, assignments, shifts, readiness, onO
     <div className="crew-grid">{aircraft.map((board) => {
       const rows = dailyAssignments.filter((item) => item.aircraft === board.number);
       const fact = dailyShifts.filter((shift) => shift.segments.some((segment) => segment.aircraft === board.number));
-      const boardBlocked = rows.some((item) => readinessForOperator(readiness[item.personId], item.operator)?.status === "not_allowed");
-      const boardRestricted = rows.some((item) => ["restricted", "undetermined"].includes(readinessForOperator(readiness[item.personId], item.operator)?.status ?? ""));
+      const boardBlocked = rows.some((item) => readinessForOperator(readiness[item.personId], item.operator, board.type)?.status === "not_allowed");
+      const boardRestricted = rows.some((item) => ["restricted", "undetermined"].includes(readinessForOperator(readiness[item.personId], item.operator, board.type)?.status ?? ""));
       const state = boardBlocked ? "not_allowed" : boardRestricted ? "restricted" : rows.length ? "allowed" : "undetermined";
       return <article className={`panel crew-board ${state}`} key={board.number}>
         <header><div><strong>{board.number}</strong><span>{board.type}</span></div><i>{state === "allowed" ? "Экипаж готов" : state === "restricted" ? "Требует проверки" : state === "not_allowed" ? "Есть запрет" : "Не назначен"}</i></header>
-        {(["primary", "reserve"] as const).map((role) => { const row = rows.find((item) => item.role === role); const person = people.find((item) => item.id === row?.personId); const status = person ? readinessForOperator(readiness[person.id], row?.operator) : undefined; return <button className="crew-slot" key={role} onClick={() => onOpenPlan(row)}><span>{planRoleLabels[role]}{row?.operator ? ` · ${row.operator}` : ""}</span><strong>{person?.name ?? "+ Назначить"}</strong>{status && <small className={status.status}>{status.label}{status.reasons[0] ? ` · ${status.reasons[0].detail}` : ""}</small>}</button>; })}
+        {(["primary", "reserve"] as const).map((role) => { const row = rows.find((item) => item.role === role); const person = people.find((item) => item.id === row?.personId); const status = person ? readinessForOperator(readiness[person.id], row?.operator, board.type) : undefined; return <button className="crew-slot" key={role} onClick={() => onOpenPlan(row)}><span>{planRoleLabels[role]}{row?.operator ? ` · ${row.operator}` : ""}</span><strong>{person?.name ?? "+ Назначить"}</strong>{status && <small className={status.status}>{status.label}{status.reasons[0] ? ` · ${status.reasons[0].detail}` : ""}</small>}</button>; })}
         <footer>{fact.length ? <><b>Факт:</b>{fact.map((shift) => <span key={shift.id}>{people.find((item) => item.id === shift.personId)?.name ?? "Сотрудник"}</span>)}</> : <span>Фактических полётов за дату нет</span>}</footer>
       </article>;
     })}</div>

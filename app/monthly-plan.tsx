@@ -316,7 +316,7 @@ function AssignmentModal({
   const aircraftType = aircraftTypeForNumber(cell.aircraft, aircraftNumbersByType);
   const [operator, setOperator] = useState<"КВП" | "АОН" | "АР">(assignment?.operator ?? "АОН");
   const qualifiedPeople = availablePeopleForAssignment(people, assignments, busyEntries, actualBusy, cell.date, aircraftType, cell.aircraft, assignment?.id);
-  const availablePeople = qualifiedPeople.filter((person) => readinessForOperator(person.readiness, operator)?.status !== "not_allowed");
+  const availablePeople = qualifiedPeople.filter((person) => readinessForOperator(person.readiness, operator, aircraftType)?.status !== "not_allowed");
   const [personId, setPersonId] = useState(assignment?.personId ?? "");
   const selectedPersonId = availablePeople.some((person) => person.id === personId) ? personId : "";
 
@@ -324,7 +324,7 @@ function AssignmentModal({
     <form className="form-stack" onSubmit={(event) => { event.preventDefault(); if (selectedPersonId) onSave(selectedPersonId, operator); }}>
       <label className="field"><span>Эксплуатант</span><select value={operator} onChange={(event) => { setOperator(event.target.value as "КВП" | "АОН" | "АР"); setPersonId(""); }}><option>КВП</option><option>АОН</option><option>АР</option></select></label>
       <label className="field"><span>Сотрудник</span><select required autoFocus value={selectedPersonId} onChange={(event) => setPersonId(event.target.value)}><option value="">Выберите доступного сотрудника</option>{availablePeople.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
-      {selectedPersonId && (() => { const selected = availablePeople.find((person) => person.id === selectedPersonId); const scoped = readinessForOperator(selected?.readiness, operator); return scoped?.status === "restricted" || scoped?.status === "undetermined" ? <div className="precheck-warning"><strong>{scoped.status === "restricted" ? "Допущен с ограничениями" : "Статус допуска не определён"}</strong><span>{scoped.reasons[0]?.detail || "Перед фактическим полётом проверьте документы сотрудника."}</span></div> : null; })()}
+      {selectedPersonId && (() => { const selected = availablePeople.find((person) => person.id === selectedPersonId); const scoped = readinessForOperator(selected?.readiness, operator, aircraftType); return scoped?.status === "restricted" || scoped?.status === "undetermined" ? <div className="precheck-warning"><strong>{scoped.status === "restricted" ? "Допущен с ограничениями" : "Статус допуска не определён"}</strong><span>{scoped.reasons[0]?.detail || "Перед фактическим полётом проверьте документы сотрудника."}</span></div> : null; })()}
       {qualifiedPeople.length > availablePeople.length && <div className="precheck-blocked">Не допущенные сотрудники скрыты из списка назначения.</div>}
       {!availablePeople.length && <div className="form-error">Нет доступных сотрудников с допуском на {aircraftType}. Проверьте занятость и назначение на этот борт.</div>}
       <div className="form-actions split">{onDelete && <button type="button" className="danger-button" onClick={onDelete}>Очистить ячейку</button>}<span /><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button" disabled={!selectedPersonId}>Сохранить</button></div>

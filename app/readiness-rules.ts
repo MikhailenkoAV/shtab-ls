@@ -1,6 +1,7 @@
 import type { CertificationRecord } from "./personal-files.tsx";
 import { getExpiryState, isMedicalCertificationSuperseded, latestCertificationRecords } from "./personal-files-rules.ts";
 import type { PilotPersonalProfile } from "./pilot-profile-rules.ts";
+import { canonicalAircraftType } from "./aircraft-rules.ts";
 
 export type ReadinessStatus = "allowed" | "restricted" | "not_allowed" | "undetermined";
 export type ReadinessOverride = "auto" | Exclude<ReadinessStatus, "undetermined">;
@@ -11,6 +12,7 @@ export type ReadinessIssue = {
   detail: string;
   level: "warning" | "danger";
   operatorScope?: "КВП";
+  aircraftType?: string;
 };
 
 export type EmployeeReadiness = {
@@ -60,6 +62,7 @@ export function employeeReadiness(
       detail: state.label,
       level: "danger",
       operatorScope,
+      aircraftType: record.aircraftType,
     });
     else if (state.level === "alert14" || state.level === "alert45") issues.push({
       id: record.id,
@@ -67,6 +70,7 @@ export function employeeReadiness(
       detail: state.label,
       level: "warning",
       operatorScope,
+      aircraftType: record.aircraftType,
     });
   });
 
@@ -100,9 +104,14 @@ export function readinessBlockReason(readiness?: EmployeeReadiness): string | nu
   return reason ? `${readiness.label}: ${reason.label} — ${reason.detail}` : readiness.label;
 }
 
-export function readinessForOperator(readiness: EmployeeReadiness | undefined, operator?: string): EmployeeReadiness | undefined {
-  if (!readiness || operator !== "АОН" || readiness.manual) return readiness;
-  const reasons = readiness.reasons.filter((item) => item.operatorScope !== "КВП");
+export function readinessForOperator(readiness: EmployeeReadiness | undefined, operator?: string, aircraftType?: string): EmployeeReadiness | undefined {
+  if (!readiness || readiness.manual) return readiness;
+  const canonicalType = canonicalAircraftType(aircraftType ?? "");
+  const reasons = readiness.reasons.filter((item) => {
+    if (item.operatorScope && item.operatorScope !== operator) return false;
+    if (canonicalType && item.aircraftType && canonicalAircraftType(item.aircraftType) !== canonicalType) return false;
+    return true;
+  });
   const status: ReadinessStatus = reasons.some((item) => item.level === "danger")
     ? "not_allowed"
     : reasons.length
