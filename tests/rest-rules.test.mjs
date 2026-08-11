@@ -7,6 +7,7 @@ import {
 } from "../app/activity-rules.ts";
 import {
   calculateRestIssues,
+  calculateWeeklyRestWarnings,
   DAILY_REST_MINUTES,
   isSundayDate,
   restMinutesAroundDate,
@@ -71,6 +72,52 @@ test("weekly control requires 42 hours after six work days", () => {
   assert.equal(weekly.shiftId, "day-07");
   assert.equal(weekly.requiredMinutes, WEEKLY_REST_MINUTES);
   assert.equal(weekly.actualMinutes, 15 * 60);
+});
+
+test("weekly rest countdown starts three work days before the required rest", () => {
+  const days = Array.from({ length: 3 }, (_, index) => {
+    const day = String(index + 1).padStart(2, "0");
+    return {
+      shiftId: `day-${day}`,
+      personId: "pilot",
+      date: `2026-08-${day}`,
+      start: time(`2026-08-${day}T08:00:00`),
+      end: time(`2026-08-${day}T17:00:00`),
+    };
+  });
+  const warnings = calculateWeeklyRestWarnings(days, new Date("2026-08-03T20:00:00"));
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].workDays, 3);
+  assert.equal(warnings[0].daysRemaining, 3);
+});
+
+test("weekly rest countdown advances and resets after 42 continuous hours", () => {
+  const days = Array.from({ length: 5 }, (_, index) => {
+    const day = String(index + 1).padStart(2, "0");
+    return {
+      shiftId: `day-${day}`,
+      personId: "pilot",
+      date: `2026-08-${day}`,
+      start: time(`2026-08-${day}T08:00:00`),
+      end: time(`2026-08-${day}T17:00:00`),
+    };
+  });
+  const active = calculateWeeklyRestWarnings(days, new Date("2026-08-05T20:00:00"));
+  assert.equal(active[0].daysRemaining, 1);
+  const reset = calculateWeeklyRestWarnings(days, new Date("2026-08-07T12:00:00"));
+  assert.deepEqual(reset, []);
+});
+
+test("a calendar gap shorter than 42 hours does not reset the weekly countdown", () => {
+  const days = [
+    { shiftId: "one", personId: "pilot", date: "2026-08-01", start: time("2026-08-01T14:00:00"), end: time("2026-08-01T23:00:00") },
+    { shiftId: "two", personId: "pilot", date: "2026-08-03", start: time("2026-08-03T08:00:00"), end: time("2026-08-03T17:00:00") },
+    { shiftId: "three", personId: "pilot", date: "2026-08-04", start: time("2026-08-04T08:00:00"), end: time("2026-08-04T17:00:00") },
+  ];
+  const warnings = calculateWeeklyRestWarnings(days, new Date("2026-08-04T20:00:00"));
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].workDays, 3);
+  assert.equal(warnings[0].daysRemaining, 3);
 });
 
 test("48 hours are required after two consecutive split shifts", () => {

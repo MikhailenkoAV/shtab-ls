@@ -27,11 +27,13 @@ import { isMedicalCertificationSuperseded, latestCertificationRecords } from "./
 import { PersonalFilesView } from "./personal-overview";
 import {
   calculateRestIssues,
+  calculateWeeklyRestWarnings,
   isSundayDate,
   restMinutesAroundDate,
   RestDayInput,
   RestIntervalInput,
   RestIssue,
+  WeeklyRestWarning,
 } from "./rest-rules";
 import { groupedDateCells } from "./journal-rules";
 import { WorkTimeImportModal } from "./work-time-import";
@@ -616,6 +618,18 @@ function getRestIssues(shifts: Shift[]): RestIssue[] {
   return calculateRestIssues(dayInputs, intervalInputs);
 }
 
+function getWeeklyRestWarnings(shifts: Shift[], todayIso: string): WeeklyRestWarning[] {
+  const dayInputs: RestDayInput[] = [...getWorkDays(shifts).entries()].flatMap(([personId, days]) => days.map((day) => ({
+    shiftId: day.items[0].id,
+    personId,
+    date: day.date,
+    start: day.start,
+    end: day.end,
+  })));
+  const today = new Date(`${todayIso}T12:00:00`);
+  return calculateWeeklyRestWarnings(dayInputs, today);
+}
+
 function getAssumedCompliantRestIds(shifts: Shift[]): Set<string> {
   const result = new Set<string>();
   const neutralDates = new Map<string, string[]>();
@@ -761,10 +775,11 @@ export default function Home() {
   }, [toast]);
 
   const expandedShifts = useMemo(() => expandLinkedCrewShifts(data.shifts), [data.shifts]);
+  const todayIso = localIsoDate(new Date());
   const restMap = useMemo(() => getRestMap(expandedShifts), [expandedShifts]);
   const assumedCompliantRestIds = useMemo(() => getAssumedCompliantRestIds(expandedShifts), [expandedShifts]);
   const restIssues = useMemo(() => getRestIssues(expandedShifts), [expandedShifts]);
-  const todayIso = localIsoDate(new Date());
+  const weeklyRestWarnings = useMemo(() => getWeeklyRestWarnings(expandedShifts, todayIso), [expandedShifts, todayIso]);
   const monthKey = todayIso.slice(0, 7);
   const monthShifts = useMemo(() => data.shifts.filter((shift) => shift.date.startsWith(monthKey)), [data.shifts, monthKey]);
   const controlCertifications = useMemo(() => latestCertificationRecords(data.certifications).filter((record) =>
@@ -793,6 +808,21 @@ export default function Home() {
         sortDate: issue.date,
       });
     });
+    const weeklyViolationPeople = new Set(restIssues
+      .filter((issue) => issue.kind === "weekly" && isCurrentMonthDate(issue.date, todayIso) && isRestIssueVisible(issue))
+      .map((issue) => issue.personId));
+    weeklyRestWarnings.filter((warning) => !weeklyViolationPeople.has(warning.personId)).forEach((warning) => {
+      const person = data.people.find((item) => item.id === warning.personId);
+      result.push({
+        id: warning.id,
+        severity: "warning",
+        title: `${person?.name ?? "Сотрудник"}: приближается еженедельный отдых`,
+        detail: warning.daysRemaining > 0
+          ? `Отработано дней: ${warning.workDays} · до еженедельного отдыха ${warning.daysRemaining} дн.`
+          : `Отработано 6 дней · еженедельный отдых продолжительностью не менее 42 часов требуется сейчас`,
+        sortDate: warning.date,
+      });
+    });
     controlRows.filter(isControlAttention).forEach((row) => {
       const title = row.kind === "type"
         ? `${row.personName}: срок полёта на ${row.aircraftType}`
@@ -813,7 +843,7 @@ export default function Home() {
     return result.sort((left, right) =>
       compareAttentionDates(left.sortDate, right.sortDate, todayIso)
       || left.title.localeCompare(right.title, "ru-RU"));
-  }, [controlRows, data.people, restIssues, todayIso]);
+  }, [controlRows, data.people, restIssues, todayIso, weeklyRestWarnings]);
   const sortedShifts = useMemo(() => [...data.shifts].sort((a, b) => `${b.date}${b.start}`.localeCompare(`${a.date}${a.start}`)), [data.shifts]);
   const monthSortedShifts = useMemo(() => [...monthShifts].sort((a, b) => `${b.date}${b.start}`.localeCompare(`${a.date}${a.start}`)), [monthShifts]);
   const totalWork = monthShifts.reduce((sum, shift) => sum + shift.workMinutes, 0);

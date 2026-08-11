@@ -45,11 +45,13 @@ export type RestIssue = {
   actualMinutes: number;
 };
 
-function calendarDayDifference(later: string, earlier: string): number {
-  const laterDate = new Date(`${later}T12:00:00`);
-  const earlierDate = new Date(`${earlier}T12:00:00`);
-  return Math.round((laterDate.getTime() - earlierDate.getTime()) / 86_400_000);
-}
+export type WeeklyRestWarning = {
+  id: string;
+  personId: string;
+  date: string;
+  workDays: number;
+  daysRemaining: number;
+};
 
 export function calculateRestIssues(daysInput: RestDayInput[], intervalsInput: RestIntervalInput[]): RestIssue[] {
   const issues = new Map<string, RestIssue>();
@@ -105,8 +107,7 @@ export function calculateRestIssues(daysInput: RestDayInput[], intervalsInput: R
       }
 
       const hasFullWeeklyRest = rest >= WEEKLY_REST_MINUTES;
-      const interruptedBeforeSixDays = consecutiveWorkDays < 6 && calendarDayDifference(day.date, previous.date) > 1;
-      consecutiveWorkDays = hasFullWeeklyRest || interruptedBeforeSixDays ? 1 : consecutiveWorkDays + 1;
+      consecutiveWorkDays = hasFullWeeklyRest ? 1 : consecutiveWorkDays + 1;
       previous = day;
     });
   });
@@ -142,6 +143,52 @@ export function calculateRestIssues(daysInput: RestDayInput[], intervalsInput: R
   });
 
   return [...issues.values()].sort((left, right) => `${left.date}-${left.personId}`.localeCompare(`${right.date}-${right.personId}`));
+}
+
+export function calculateWeeklyRestWarnings(
+  daysInput: RestDayInput[],
+  today = new Date(),
+): WeeklyRestWarning[] {
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const todayEnd = todayStart + 86_400_000 - 1;
+  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const byPerson = new Map<string, RestDayInput[]>();
+  daysInput.filter((day) => day.start <= todayEnd)
+    .forEach((day) => byPerson.set(day.personId, [...(byPerson.get(day.personId) ?? []), day]));
+
+  const warnings: WeeklyRestWarning[] = [];
+  byPerson.forEach((unsortedDays, personId) => {
+    const days = [...unsortedDays].sort((left, right) => left.start - right.start);
+    let consecutiveWorkDays = 0;
+    let previous: RestDayInput | null = null;
+    for (const day of days) {
+      if (day.assumedCompliant) {
+        consecutiveWorkDays = 0;
+        previous = null;
+        continue;
+      }
+      if (!previous) consecutiveWorkDays = 1;
+      else {
+        const rest = (day.start - previous.end) / 60_000;
+        consecutiveWorkDays = rest >= WEEKLY_REST_MINUTES ? 1 : consecutiveWorkDays + 1;
+      }
+      previous = day;
+    }
+
+    if (!previous || consecutiveWorkDays < 3) return;
+    const currentRest = (today.getTime() - previous.end) / 60_000;
+    if (currentRest >= WEEKLY_REST_MINUTES) return;
+    const daysRemaining = Math.max(0, 6 - consecutiveWorkDays);
+    if (daysRemaining > 3) return;
+    warnings.push({
+      id: `weekly-warning-${personId}-${todayIso}`,
+      personId,
+      date: todayIso,
+      workDays: consecutiveWorkDays,
+      daysRemaining,
+    });
+  });
+  return warnings.sort((left, right) => left.personId.localeCompare(right.personId));
 }
 
 export function isSundayDate(value: string): boolean {
