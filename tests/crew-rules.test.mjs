@@ -54,3 +54,30 @@ test("the same commander receives one linked shift with all assigned segments", 
   assert.equal(expanded[1].segments.length, 2);
   assert.equal(expanded[1].workMinutes, 8 * 60);
 });
+
+test("AW139 PIC plus pilot creates two PIC records while the source shift stays single", () => {
+  const shifts = [{
+    id: "aw139-shared",
+    personId: "first-pic",
+    activity: "flight",
+    segments: [{
+      id: "aw139-flight",
+      aircraftType: "AW139",
+      aircraft: "RA-01697",
+      seat: "КВС",
+      crewPairing: "pic_pilot",
+      commanderPersonId: "second-pilot",
+      dutyStart: "09:00",
+      dutyEnd: "13:00",
+      flightMinutes: 150,
+    }],
+  }];
+  const expanded = expandLinkedCrewShifts(shifts);
+  assert.equal(shifts.length, 1);
+  assert.equal(expanded.length, 2);
+  assert.equal(expanded[0].segments[0].seat, "КВС");
+  assert.equal(expanded[1].personId, "second-pilot");
+  assert.equal(expanded[1].segments[0].seat, "КВС");
+  assert.equal(expanded[1].segments[0].flightMinutes, 150);
+  assert.equal(expanded[1].linkedSourceShiftId, "aw139-shared");
+});

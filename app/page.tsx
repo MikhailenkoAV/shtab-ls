@@ -3,6 +3,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { activityUsesTime as usesTime, isRestNeutralActivity, normalizeActivityTiming } from "./activity-rules";
 import { aircraftNumbersByType, aircraftNumbersForType, canonicalAircraftType, isAircraftNumberAllowed } from "./aircraft-rules";
+import { normalizeTrainingRecord } from "./training-record-rules";
 import {
   downloadEmploymentReport,
   downloadFlightReport,
@@ -101,6 +102,7 @@ type Segment = {
   excludedWorkMinutes?: number;
   splitGroupId?: string; splitPart?: 1 | 2;
   commanderPersonId?: string;
+  crewPairing?: "instructor_commander" | "pic_pilot";
 };
 type Shift = {
   id: string; personId: string; date: string; activity: Activity; start: string; workMinutes: number;
@@ -227,7 +229,7 @@ function normalizeShift(shift: Shift): Shift {
   const activity = sundayOff ? "dayoff" : storedActivity;
   const timing = normalizeActivityTiming(periodicTraining ? "periodic_training" : activity, sundayOff ? "" : shift.start, sundayOff ? 0 : shift.workMinutes);
   const legacyDutyEnd = shift.start && shift.workMinutes ? clockAfterMinutes(shift.start, shift.workMinutes) : "";
-  const segments = (shift.segments ?? []).map((segment) => ({
+  const segments: Segment[] = (shift.segments ?? []).map((segment) => ({
     ...segment,
     seat: segment.seat ?? "КВС",
     dutyStart: segment.dutyStart ?? shift.start ?? "",
@@ -237,9 +239,12 @@ function normalizeShift(shift: Shift): Shift {
     nightLandings: Math.max(0, Math.floor(segment.nightLandings ?? 0)),
     splitShift: Boolean(segment.splitShift),
     splitPart: segment.splitPart === 1 || segment.splitPart === 2 ? segment.splitPart : undefined,
-    commanderPersonId: segment.seat?.toLocaleLowerCase("ru-RU").includes("инструктор")
+    commanderPersonId: segment.seat?.toLocaleLowerCase("ru-RU").includes("инструктор") || segment.crewPairing === "pic_pilot"
       ? segment.commanderPersonId
       : undefined,
+    crewPairing: segment.seat?.toLocaleLowerCase("ru-RU").includes("инструктор")
+      ? "instructor_commander"
+      : segment.crewPairing === "pic_pilot" ? "pic_pilot" : undefined,
   }));
   const normalized: Shift = {
     ...shift,
@@ -313,7 +318,7 @@ function normalizeAppData(stored?: Partial<AppData>): AppData {
   return {
         people: (stored?.people ?? []).map(normalizePerson),
         shifts: (stored?.shifts ?? []).map(normalizeShift),
-        certifications: stored?.certifications ?? [],
+        certifications: (stored?.certifications ?? []).map(normalizeTrainingRecord),
         planAssignments: stored?.planAssignments ?? [],
         planBusyEntries: stored?.planBusyEntries ?? [],
         settings: { ...EMPTY_SETTINGS, ...(stored?.settings ?? {}) },
@@ -838,7 +843,7 @@ export default function Home() {
           ...next,
           people: next.people.some((item) => item.id === bundle.person.id) ? next.people : [...next.people, bundle.person],
           shifts: [...next.shifts.filter((item) => !bundle.shifts.some((saved) => saved.id === item.id)), ...bundle.shifts],
-          certifications: [...next.certifications.filter((item) => !bundle.certifications.some((saved) => saved.id === item.id)), ...bundle.certifications],
+          certifications: [...next.certifications.filter((item) => !bundle.certifications.some((saved) => saved.id === item.id)), ...bundle.certifications.map(normalizeTrainingRecord)],
           planAssignments: [...next.planAssignments.filter((item) => !bundle.planAssignments.some((saved) => saved.id === item.id)), ...bundle.planAssignments],
           planBusyEntries: [...next.planBusyEntries.filter((item) => !bundle.planBusyEntries.some((saved) => saved.id === item.id)), ...bundle.planBusyEntries],
           flightBookBaselines: [...next.flightBookBaselines.filter((item) => !bundle.baselines.some((saved) => saved.id === item.id)), ...bundle.baselines],
@@ -854,7 +859,7 @@ export default function Home() {
         const item = entry.payload as Shift;
         return { ...next, shifts: [...next.shifts.filter((currentShift) => currentShift.id !== item.id), item] };
       }
-      if (entry.kind === "certification") return { ...next, certifications: [...next.certifications.filter((item) => item.id !== (entry.payload as CertificationRecord).id), entry.payload as CertificationRecord] };
+      if (entry.kind === "certification") return { ...next, certifications: [...next.certifications.filter((item) => item.id !== (entry.payload as CertificationRecord).id), normalizeTrainingRecord(entry.payload as CertificationRecord)] };
       if (entry.kind === "baseline") return { ...next, flightBookBaselines: [...next.flightBookBaselines.filter((item) => item.id !== (entry.payload as FlightBookBaseline).id), entry.payload as FlightBookBaseline] };
       if (entry.kind === "registry") return { ...next, documentRegistry: [...next.documentRegistry.filter((item) => item.id !== (entry.payload as DocumentRegistryRecord).id), entry.payload as DocumentRegistryRecord] };
       if (entry.kind === "medicalReferral") return { ...next, medicalReferrals: [...next.medicalReferrals.filter((item) => item.id !== (entry.payload as MedicalReferralRecord).id), entry.payload as MedicalReferralRecord] };
@@ -1005,7 +1010,7 @@ export default function Home() {
         active: true,
       }];
       const kept = current.certifications.filter((record) => !(record.personId === personId && record.source === "aviabit"));
-      return { ...current, people, certifications: [...kept, ...payload.records.map((record) => ({ ...record, personId }))] };
+      return { ...current, people, certifications: [...kept, ...payload.records.map((record) => normalizeTrainingRecord({ ...record, personId }))] };
     });
     setAviabitModal(false); setView("personal"); setToast(`Импортировано записей: ${payload.records.length}`);
   }
@@ -1018,7 +1023,8 @@ export default function Home() {
     setToast(`Импорт завершён: добавлено ${preview.addedRows}, пропущено дублей ${preview.duplicateRows}`);
   }
   function upsertCertification(record: CertificationRecord) {
-    setData((current) => ({ ...current, certifications: current.certifications.some((item) => item.id === record.id) ? current.certifications.map((item) => item.id === record.id ? record : item) : [...current.certifications, record] })); setToast("Запись личного дела сохранена");
+    const normalizedRecord = normalizeTrainingRecord(record);
+    setData((current) => ({ ...current, certifications: current.certifications.some((item) => item.id === normalizedRecord.id) ? current.certifications.map((item) => item.id === normalizedRecord.id ? normalizedRecord : item) : [...current.certifications, normalizedRecord] })); setToast("Запись личного дела сохранена");
   }
   function deleteCertification(recordId: string) { setData((current) => { const record = current.certifications.find((item) => item.id === recordId); return { ...current, certifications: current.certifications.filter((item) => item.id !== recordId), trash: record ? [trashEntry("certification", record.certificationType || record.category || "Документ", record), ...current.trash] : current.trash }; }); setToast("Запись перемещена в корзину"); }
   function upsertFlightBookBaseline(baseline: FlightBookBaseline) {
@@ -1543,9 +1549,13 @@ function ShiftsView({
             ? people.find((item) => item.id === segment.commanderPersonId)
             : null;
         const crewLabel = shift.linkedPrimaryPersonId
-          ? `ПИ: ${linkedPerson?.name ?? "связанная смена"}`
+          ? segment?.crewPairing === "pic_pilot"
+            ? `КВС в экипаже: ${linkedPerson?.name ?? "связанная смена"}`
+            : `ПИ: ${linkedPerson?.name ?? "связанная смена"}`
           : segment?.commanderPersonId
-            ? `КВС: ${linkedPerson?.name ?? "связанная смена"}`
+            ? segment.crewPairing === "pic_pilot"
+              ? `Пилот в экипаже: ${linkedPerson?.name ?? "связанная смена"}`
+              : `КВС: ${linkedPerson?.name ?? "связанная смена"}`
             : "";
         return <tr key={segment ? `${shift.id}-${segment.id}` : shift.id}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{activityLabels[shift.activity]}{crewLabel && <span className="source-pill">Одна смена · {crewLabel}</span>}{segment?.splitShift && <span className="split-pill active">Разделённая · часть {segment.splitPart ?? 1}</span>}</span></td><td>{segment ? `${segment.dutyStart || "—"}–${segment.dutyEnd || "—"}` : shift.start ? `${shift.start}–${shiftEndClock(shift)}` : "—"}</td><td>{segment ? <span className="aircraft-cell"><strong>{[segment.aircraftType, segment.aircraft].filter(Boolean).join(" · ") || "—"}</strong><small>{segment.seat}</small></span> : "—"}</td><td>{segment?.purpose || "—"}</td><td>{segment ? <span className="flight-cell"><strong>{formatDuration(segmentCountedWorkMinutes(segment))}</strong>{Boolean(segment.excludedWorkMinutes) && <small>не учитывается {formatDuration(segment.excludedWorkMinutes ?? 0)}</small>}</span> : shift.workMinutes ? formatDuration(shift.workMinutes) : "—"}</td><td>{segment ? <span className="flight-cell"><strong>{flight ? formatDuration(flight) : "—"}</strong>{night > 0 && <small>ночь {formatDuration(night)}</small>}<small>посадки Д/Н: {segment.dayLandings ?? 0}/{segment.nightLandings ?? 0}</small></span> : "—"}</td><td><RestCell shift={shift} rest={rest} assumedCompliant={assumedCompliant} allShifts={expandedActualShifts} /></td><td className="note-cell">{shift.note || "—"}</td><td><div className="row-actions"><button onClick={() => onEdit(sourceShift)}>Изменить</button><button className="delete" onClick={() => segment ? onDeleteFlight(sourceShift, segment.id) : onDelete(sourceShift)}>Удалить</button></div></td></tr>;
       }
@@ -1745,6 +1755,7 @@ type SegmentDraft = {
   aircraftType: string;
   seat: Seat;
   commanderPersonId?: string;
+  crewPairing?: "instructor_commander" | "pic_pilot";
   purpose: string;
   dutyStart: string;
   dutyEnd: string;
@@ -1766,6 +1777,7 @@ function createSegmentDraft(aircraftType: string, dutyStart = "08:00"): SegmentD
     aircraftType,
     seat: "КВС",
     commanderPersonId: undefined,
+    crewPairing: undefined,
     purpose: "АОН",
     dutyStart,
     dutyEnd: clockAfterMinutes(dutyStart, 480),
@@ -1806,6 +1818,7 @@ function initializeSegmentDrafts(shift: Shift | null, defaultAircraftType: strin
     aircraftType: item.aircraftType ?? defaultAircraftType,
     seat: item.seat ?? "КВС",
     commanderPersonId: item.commanderPersonId,
+    crewPairing: item.crewPairing,
     purpose: item.purpose || "АОН",
     dutyStart: item.dutyStart || shift.start || "08:00",
     dutyEnd: item.dutyEnd || clockAfterMinutes(shift.start || "08:00", shift.workMinutes || 480),
@@ -1903,7 +1916,7 @@ function ShiftModal({
     const availableTypes = people.find((person) => person.id === nextPersonId)?.aircraftTypes ?? [];
     const nextAircraftType = availableTypes.length === 1 ? availableTypes[0] : "";
     setPersonId(nextPersonId);
-    setSegments((current) => current.map((item) => ({ ...item, aircraftType: nextAircraftType, aircraft: "", commanderPersonId: undefined })));
+    setSegments((current) => current.map((item) => ({ ...item, aircraftType: nextAircraftType, aircraft: "", commanderPersonId: undefined, crewPairing: undefined })));
     setError("");
   }
 
@@ -1965,10 +1978,15 @@ function ShiftModal({
       const dutyStart = normalizeTime(item.dutyStart, true); const dutyEnd = normalizeTime(item.dutyEnd, true);
       return !dutyStart || !dutyEnd || dutyStart === dutyEnd;
     })) { setError("Проверьте начало и окончание каждой смены: время должно быть заполнено и отличаться."); return; }
+    if (activity === "flight" && segments.some((item) => item.aircraftType === "AW139" && item.aircraft === "RA-01697" && !item.commanderPersonId)) {
+      setError("Для RA-01697 укажите второго члена экипажа: КВС при пилоте-инструкторе или пилота при КВС.");
+      return;
+    }
     if (activity === "flight" && segments.some((item) => {
       if (!item.commanderPersonId) return false;
       const commander = people.find((person) => person.id === item.commanderPersonId);
-      return item.seat !== "Пилот-инструктор"
+      const dualPic = item.crewPairing === "pic_pilot" && item.aircraftType === "AW139" && item.aircraft === "RA-01697" && item.seat === "КВС";
+      return (item.seat !== "Пилот-инструктор" && !dualPic)
         || item.commanderPersonId === personId
         || !commander
         || !commander.aircraftTypes.includes(item.aircraftType)
@@ -1984,7 +2002,8 @@ function ShiftModal({
       aircraft: item.aircraft.trim(),
       aircraftType: item.aircraftType.trim(),
       seat: item.seat,
-      commanderPersonId: item.seat === "Пилот-инструктор" ? item.commanderPersonId : undefined,
+      commanderPersonId: item.seat === "Пилот-инструктор" || item.crewPairing === "pic_pilot" ? item.commanderPersonId : undefined,
+      crewPairing: item.seat === "Пилот-инструктор" ? "instructor_commander" : item.crewPairing === "pic_pilot" ? "pic_pilot" : undefined,
       purpose: item.purpose,
       dutyStart: normalizeTime(item.dutyStart, true),
       dutyEnd: normalizeTime(item.dutyEnd, true),
@@ -2095,15 +2114,17 @@ function SegmentDraftFields({
       qualification.aircraftTypes.includes(segment.aircraftType)
       && qualification.seats.some((seat) => seat === "КВС" || seat === "Командир ВС")))
     .sort((left, right) => left.name.localeCompare(right.name, "ru-RU"));
+  const isAw139Crew = segment.aircraftType === "AW139" && segment.aircraft === "RA-01697";
   return <section className={partLabel ? "split-part-card" : ""}>
     {partLabel && <div className="split-part-heading"><strong>{partLabel}</strong><span>{segment.splitPart === 1 ? "до перерыва" : "после перерыва"}</span></div>}
     <div className="segment-field-grid">
       <Field label="Начало смены" hint="0830 → 08:30"><TimeEntry required clock value={segment.dutyStart} onChange={(value) => onChange({ dutyStart: value })} /></Field>
       <Field label="Конец смены" hint="1630 → 16:30"><TimeEntry required clock value={segment.dutyEnd} onChange={(value) => onChange({ dutyEnd: value })} /></Field>
-      <Field label="Кресло"><select value={segment.seat} onChange={(event) => { const seat = event.target.value as Seat; onChange({ seat, commanderPersonId: seat === "Пилот-инструктор" ? segment.commanderPersonId : undefined }); }}>{seatOptions.map((seat) => <option key={seat}>{seat}</option>)}</select></Field>
-      {segment.seat === "Пилот-инструктор" && <Field label="КВС в экипаже" hint="Запись появится у обоих сотрудников"><select value={segment.commanderPersonId ?? ""} onChange={(event) => onChange({ commanderPersonId: event.target.value || undefined })}><option value="">Не указывать КВС</option>{commanderOptions.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field>}
-      <Field label="Тип ВС"><select required disabled={!personSelected || !selectedAircraftTypes.length} value={segment.aircraftType} onChange={(event) => onChange({ aircraftType: event.target.value, aircraft: "", commanderPersonId: undefined })}><option value="">{!personSelected ? "Сначала выберите сотрудника" : selectedAircraftTypes.length ? "Выберите тип ВС" : "Нет указанных типов ВС"}</option>{selectedAircraftTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></Field>
-      <Field label="Бортовой №"><AircraftNumberSelect aircraftType={segment.aircraftType} value={segment.aircraft} onChange={(value) => onChange({ aircraft: value })} /></Field>
+      <Field label="Кресло"><select value={segment.seat} onChange={(event) => { const seat = event.target.value as Seat; onChange({ seat, commanderPersonId: undefined, crewPairing: seat === "Пилот-инструктор" ? "instructor_commander" : undefined }); }}>{seatOptions.map((seat) => <option key={seat}>{seat}</option>)}</select></Field>
+      {segment.seat === "Пилот-инструктор" && <Field label="КВС в экипаже" hint="Запись появится у обоих сотрудников"><select required={isAw139Crew} value={segment.commanderPersonId ?? ""} onChange={(event) => onChange({ commanderPersonId: event.target.value || undefined })}><option value="">{isAw139Crew ? "Выберите КВС" : "Не указывать КВС"}</option>{commanderOptions.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field>}
+      {segment.seat === "КВС" && isAw139Crew && <Field label="Пилот в экипаже" hint="Налёт обоим будет учтён как КВС"><select required value={segment.crewPairing === "pic_pilot" ? segment.commanderPersonId ?? "" : ""} onChange={(event) => onChange({ commanderPersonId: event.target.value || undefined, crewPairing: event.target.value ? "pic_pilot" : undefined })}><option value="">Выберите пилота</option>{commanderOptions.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field>}
+      <Field label="Тип ВС"><select required disabled={!personSelected || !selectedAircraftTypes.length} value={segment.aircraftType} onChange={(event) => onChange({ aircraftType: event.target.value, aircraft: "", commanderPersonId: undefined, crewPairing: undefined })}><option value="">{!personSelected ? "Сначала выберите сотрудника" : selectedAircraftTypes.length ? "Выберите тип ВС" : "Нет указанных типов ВС"}</option>{selectedAircraftTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></Field>
+      <Field label="Бортовой №"><AircraftNumberSelect aircraftType={segment.aircraftType} value={segment.aircraft} onChange={(value) => onChange({ aircraft: value, commanderPersonId: undefined, crewPairing: undefined })} /></Field>
       <Field label="Цель"><select value={segment.purpose} onChange={(event) => onChange({ purpose: event.target.value })}>{flightPurposes.map((purpose) => <option key={purpose}>{purpose}</option>)}</select></Field>
       <Field label="Полётное" hint="0130 → 01:30"><TimeEntry value={segment.flight} onChange={(value) => onChange({ flight: value })} /></Field>
       <Field label="Ночь" hint="0045 → 00:45"><TimeEntry value={segment.night} onChange={(value) => onChange({ night: value })} /></Field>

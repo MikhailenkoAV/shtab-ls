@@ -28,6 +28,7 @@ import {
 import { downloadPersonalFlightPdf } from "./personal-file-pdf";
 import { employeeReadiness, readinessLabels } from "./readiness-rules";
 import { operatorsForDocument } from "./personal-document-rules";
+import { isSimulatorOrCabinTraining, trainingNameForAircraft } from "./training-record-rules";
 
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const localIsoDate = () => {
@@ -589,6 +590,9 @@ function CertificationModal({
   const needsOperator = Boolean(selectedDefinition?.validityByOperatorMonths);
   const updateWithCalculatedEnd = (patch: Partial<CertificationRecord>) => setForm((current) => {
     const next = { ...current, ...patch };
+    if (isSimulatorOrCabinTraining(next.certificationType)) {
+      next.certificationType = trainingNameForAircraft(next.aircraftType, next.certificationType);
+    }
     const definition = definitions.find((item) => item.name === next.certificationType);
     const calculated = calculateDocumentEndDate(next.issuedDate, definition, next.operator ?? "");
     return { ...next, endDate: calculated || next.endDate };
@@ -603,7 +607,10 @@ function CertificationModal({
         {groupDefinitions.length > 0 && <label className="field"><span>Документ</span><select required value={selectedDefinitionId} onChange={(event) => {
           const definition = definitions.find((item) => item.id === event.target.value);
           if (definition) updateWithCalculatedEnd({ certificationType: definition.name, category: definition.category, operator: "" });
-        }}><option value="">Выбрать документ…</option>{selectedDefinitionId === "__legacy" && <option value="__legacy">{form.certificationType}</option>}{groupDefinitions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
+        }}><option value="">Выбрать документ…</option>{selectedDefinitionId === "__legacy" && <option value="__legacy">{form.certificationType}</option>}{groupDefinitions.filter((item) => {
+          if (!form.aircraftType || !isSimulatorOrCabinTraining(item.name)) return true;
+          return item.name === trainingNameForAircraft(form.aircraftType, item.name);
+        }).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
         <div className="form-grid two"><label className="field"><span>Тип ВС</span><input list="personal-aircraft-types" value={form.aircraftType} onChange={(event) => updateWithCalculatedEnd({ aircraftType: event.target.value, operator: "" })} /></label><label className="field"><span>Организация</span><input value={form.organization} onChange={(event) => update("organization", event.target.value)} /></label></div>
         <datalist id="personal-aircraft-types">{personAircraftTypes.map((aircraftType) => <option key={aircraftType}>{aircraftType}</option>)}</datalist>
         {needsOperator && <label className="field"><span>Эксплуатант для расчёта срока</span><select required value={form.operator ?? ""} onChange={(event) => updateWithCalculatedEnd({ operator: event.target.value })}><option value="">Выберите эксплуатанта…</option>{relevantOperators.map((operator) => <option key={operator}>{operator}</option>)}</select></label>}

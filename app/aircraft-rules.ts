@@ -10,11 +10,12 @@ export const aircraftNumbersByType: Readonly<Record<string, readonly string[]>> 
 };
 
 export function canonicalAircraftType(value: string): string {
-  const compact = value.trim().replace(/\s+/g, "").toUpperCase();
+  const compact = value.trim().toUpperCase().replace(/[^A-ZА-Я0-9]/g, "");
   if (compact === "BELL407") return "Bell407";
   if (compact === "BO105" || compact === "ВО105") return "BO105";
   if (compact === "R66" || compact === "ROBINSON66" || compact === "ROBINSONR66") return "R66";
   if (compact === "R44" || compact === "ROBINSON44" || compact === "ROBINSONR44") return "R44";
+  if (compact === "AS350" || compact === "AS350B3") return "AS350";
   return value.trim();
 }
 

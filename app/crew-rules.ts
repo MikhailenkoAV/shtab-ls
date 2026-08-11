@@ -2,6 +2,7 @@ export type CrewSegmentRef = {
   id?: string;
   seat?: string;
   commanderPersonId?: string;
+  crewPairing?: "instructor_commander" | "pic_pilot";
   dutyStart?: string;
   dutyEnd?: string;
   excludedWorkMinutes?: number;
@@ -68,7 +69,7 @@ export function expandLinkedCrewShifts<
 
     const segmentsByCommander = new Map<string, S[]>();
     shift.segments.forEach((segment) => {
-      const commanderPersonId = segment.seat?.toLocaleLowerCase("ru-RU").includes("инструктор")
+      const commanderPersonId = segment.seat?.toLocaleLowerCase("ru-RU").includes("инструктор") || segment.crewPairing === "pic_pilot"
         ? segment.commanderPersonId?.trim()
         : "";
       if (!commanderPersonId || commanderPersonId === shift.personId) return;
