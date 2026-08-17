@@ -55,6 +55,7 @@ import {
   TrashKind,
   validateBackupEnvelope,
 } from "./recovery-rules";
+import { mergeWorkspaceData, workspaceChanged } from "./cloud-sync";
 import { DocumentationView } from "./documentation";
 import registrySeedJson from "./document-registry-seed.json";
 import medicalReferralsSeedJson from "./medical-referrals-seed.json";
@@ -186,7 +187,13 @@ const DB_NAME = "shtab-ls";
 const STORE_NAME = "workspace";
 const STATE_KEY = "primary";
 const RECOVERY_KEY = "recovery-checkpoints-v1";
+const CLOUD_SYNC_KEY = "cloud-sync-state-v1";
 const MAX_CHECKPOINTS = 20;
+
+type CloudSyncState = {
+  version: number;
+  data: AppData;
+};
 const activityLabels: Record<Activity, string> = {
   flight: "Полётная смена",
   trip: "Командировка",
@@ -369,6 +376,27 @@ async function saveCheckpoints(checkpoints: RecoveryCheckpoint<AppData>[]): Prom
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
     tx.objectStore(STORE_NAME).put(checkpoints, RECOVERY_KEY);
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function loadCloudSyncState(): Promise<CloudSyncState | null> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const request = tx.objectStore(STORE_NAME).get(CLOUD_SYNC_KEY);
+    request.onsuccess = () => resolve(request.result?.data ? request.result as CloudSyncState : null);
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => db.close();
+  });
+}
+
+async function saveCloudSyncState(state: CloudSyncState): Promise<void> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    tx.objectStore(STORE_NAME).put(state, CLOUD_SYNC_KEY);
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onerror = () => reject(tx.error);
   });
@@ -696,6 +724,9 @@ export default function Home() {
   const importRef = useRef<HTMLInputElement>(null);
   const previousDataRef = useRef<AppData | null>(null);
   const cloudVersionRef = useRef(0);
+  const cloudBaseRef = useRef<AppData | null>(null);
+  const pendingCloudDataRef = useRef<AppData | null>(null);
+  const cloudSaveRunningRef = useRef(false);
   const cloudPhaseRef = useRef(cloudPhase);
   const dataRef = useRef(data);
   useEffect(() => { cloudPhaseRef.current = cloudPhase; }, [cloudPhase]);
@@ -710,8 +741,13 @@ export default function Home() {
   },[]);
 
   useEffect(() => {
-    Promise.all([loadData(), loadCheckpoints()]).then(([loadedData, loadedCheckpoints]) => {
+    Promise.all([loadData(), loadCheckpoints(), loadCloudSyncState()]).then(([loadedData, loadedCheckpoints, syncState]) => {
       previousDataRef.current = structuredClone(loadedData);
+      dataRef.current = loadedData;
+      if (syncState) {
+        cloudVersionRef.current = syncState.version;
+        cloudBaseRef.current = normalizeAppData(syncState.data);
+      }
       setData(loadedData);
       setCheckpoints(loadedCheckpoints);
     }).finally(() => setHydrated(true));
@@ -724,7 +760,17 @@ export default function Home() {
       if(!active)return;
       if(error){setCloudError("Не удалось прочитать облачную базу.");setCloudPhase(navigator.onLine?"error":"offline");return;}
       if(!remote){setCloudPhase("migration");return;}
-      const restored=normalizeAppData(remote.data as Partial<AppData>);cloudVersionRef.current=Number(remote.version)||1;previousDataRef.current=structuredClone(restored);setData(restored);setCloudPhase("ready");
+      const remoteData=normalizeAppData(remote.data as Partial<AppData>);
+      const localData=dataRef.current;
+      const base=cloudBaseRef.current ?? undefined;
+      const localHasRecords=localData.people.length>0||localData.shifts.length>0||localData.certifications.length>0||localData.planAssignments.length>0||localData.planBusyEntries.length>0;
+      const merged=base||localHasRecords ? normalizeAppData(mergeWorkspaceData(base,localData,remoteData)) : remoteData;
+      cloudVersionRef.current=Number(remote.version)||1;
+      cloudBaseRef.current=structuredClone(remoteData);
+      previousDataRef.current=structuredClone(localData);
+      if(workspaceChanged(merged,remoteData)) pendingCloudDataRef.current=structuredClone(merged);
+      else void saveCloudSyncState({version:cloudVersionRef.current,data:structuredClone(remoteData)});
+      dataRef.current=merged;setData(merged);setCloudPhase("ready");
     });
     return()=>{active=false};
   },[hydrated,session]);
@@ -736,20 +782,50 @@ export default function Home() {
     }, 250);
     return () => window.clearTimeout(timer);
   }, [data, hydrated]);
+  async function flushCloudQueue(userId: string) {
+    if(cloudSaveRunningRef.current)return;
+    cloudSaveRunningRef.current=true;
+    try{
+      while(pendingCloudDataRef.current){
+        let payload=pendingCloudDataRef.current;
+        pendingCloudDataRef.current=null;
+        let saved=false;
+        for(let attempt=0;attempt<3&&!saved;attempt+=1){
+          const expected=cloudVersionRef.current;
+          const {data:updated,error}=await supabase.from("shtab_workspace").update({data:payload}).eq("user_id",userId).eq("version",expected).select("version").maybeSingle();
+          if(error){pendingCloudDataRef.current=pendingCloudDataRef.current??payload;setCloudPhase(navigator.onLine?"error":"offline");setCloudError("Изменения сохранены на устройстве и ожидают синхронизации.");return;}
+          if(updated){
+            cloudVersionRef.current=Number(updated.version)||expected+1;
+            cloudBaseRef.current=structuredClone(payload);
+            await saveCloudSyncState({version:cloudVersionRef.current,data:structuredClone(payload)});
+            saved=true;setCloudPhase("ready");setCloudError("");
+            continue;
+          }
+          const {data:remote,error:readError}=await supabase.from("shtab_workspace").select("data,version").eq("user_id",userId).single();
+          if(readError||!remote){pendingCloudDataRef.current=pendingCloudDataRef.current??payload;setCloudPhase(navigator.onLine?"error":"offline");setCloudError("Не удалось согласовать версии. Локальные данные сохранены.");return;}
+          const remoteData=normalizeAppData(remote.data as Partial<AppData>);
+          payload=normalizeAppData(mergeWorkspaceData(cloudBaseRef.current??undefined,payload,remoteData));
+          cloudVersionRef.current=Number(remote.version)||expected;
+          cloudBaseRef.current=structuredClone(remoteData);
+          dataRef.current=payload;setData(payload);
+          setToast("Локальные и облачные изменения объединены без удаления новых записей");
+        }
+        if(!saved){pendingCloudDataRef.current=pendingCloudDataRef.current??payload;setCloudPhase("error");setCloudError("Синхронизация будет повторена. Локальные данные не потеряны.");return;}
+      }
+    }finally{cloudSaveRunningRef.current=false;}
+  }
   useEffect(() => {
     if(!hydrated||!session||cloudPhaseRef.current!=="ready")return;
-    const timer=window.setTimeout(async()=>{
-      const expected=cloudVersionRef.current;
-      const {data:updated,error}=await supabase.from("shtab_workspace").update({data}).eq("user_id",session.user.id).eq("version",expected).select("version").maybeSingle();
-      if(error){setCloudPhase(navigator.onLine?"error":"offline");setCloudError("Изменения сохранены на устройстве и ожидают синхронизации.");return;}
-      if(!updated){setCloudPhase("conflict");setCloudError("В облаке уже есть более новая версия. Автоматическая перезапись остановлена.");return;}
-      cloudVersionRef.current=Number(updated.version);setCloudPhase("ready");setCloudError("");
-    },900);return()=>window.clearTimeout(timer);
+    if(cloudBaseRef.current&&!workspaceChanged(data,cloudBaseRef.current))return;
+    pendingCloudDataRef.current=structuredClone(data);
+    const userId=session.user.id;
+    const timer=window.setTimeout(()=>{void flushCloudQueue(userId)},900);
+    return()=>window.clearTimeout(timer);
   },[data,hydrated,session]);
-  useEffect(()=>{const online=()=>{if(cloudPhaseRef.current==="offline"||cloudPhaseRef.current==="error"){setCloudPhase("ready");setData(structuredClone(dataRef.current));}};window.addEventListener("online",online);return()=>window.removeEventListener("online",online)},[]);
+  useEffect(()=>{const online=()=>{if((cloudPhaseRef.current==="offline"||cloudPhaseRef.current==="error")&&session){setCloudPhase("ready");pendingCloudDataRef.current=structuredClone(dataRef.current);void flushCloudQueue(session.user.id);}};window.addEventListener("online",online);return()=>window.removeEventListener("online",online)},[session]);
 
-  async function migrateToCloud(){if(!session)return;setCloudBusy(true);setCloudError("");const {data:row,error}=await supabase.from("shtab_workspace").insert({user_id:session.user.id,data}).select("version").single();if(error){setCloudError("Перенос не выполнен: "+error.message);}else{cloudVersionRef.current=Number(row.version)||1;setCloudPhase("ready");setToast("Локальная база перенесена в облако");}setCloudBusy(false);}
-  async function reloadCloud(){if(!session)return;const {data:remote,error}=await supabase.from("shtab_workspace").select("data,version").eq("user_id",session.user.id).single();if(error){setCloudError("Не удалось загрузить облачную версию.");return;}const restored=normalizeAppData(remote.data as Partial<AppData>);cloudVersionRef.current=Number(remote.version);previousDataRef.current=structuredClone(restored);setData(restored);setCloudPhase("ready");setCloudError("");}
+  async function migrateToCloud(){if(!session)return;setCloudBusy(true);setCloudError("");const {data:row,error}=await supabase.from("shtab_workspace").insert({user_id:session.user.id,data}).select("version").single();if(error){setCloudError("Перенос не выполнен: "+error.message);}else{cloudVersionRef.current=Number(row.version)||1;cloudBaseRef.current=structuredClone(data);await saveCloudSyncState({version:cloudVersionRef.current,data:structuredClone(data)});setCloudPhase("ready");setToast("Локальная база перенесена в облако");}setCloudBusy(false);}
+  async function reloadCloud(){if(!session)return;pendingCloudDataRef.current=structuredClone(dataRef.current);setCloudPhase("ready");setCloudError("");await flushCloudQueue(session.user.id);}
   useEffect(() => {
     if (!hydrated || !previousDataRef.current) return;
     const previous = previousDataRef.current;
