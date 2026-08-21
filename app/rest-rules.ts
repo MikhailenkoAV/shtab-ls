@@ -1,4 +1,5 @@
 export const DAILY_REST_MINUTES = 12 * 60;
+export const AWAY_FROM_BASE_DAILY_REST_MINUTES = 10 * 60;
 export const WEEKLY_REST_MINUTES = 42 * 60;
 export const SPLIT_REST_MINUTES = 48 * 60;
 
@@ -22,6 +23,7 @@ export type RestDayInput = {
   date: string;
   start: number;
   end: number;
+  dailyRestMinutesAfter?: number;
   assumedCompliant?: boolean;
 };
 
@@ -93,16 +95,19 @@ export function calculateRestIssues(daysInput: RestDayInput[], intervalsInput: R
             requiredMinutes: WEEKLY_REST_MINUTES,
             actualMinutes: rest,
           });
-        } else if (rest < DAILY_REST_MINUTES) {
-          addIssue({
-            id: `daily-${personId}-${day.date}`,
-            shiftId: day.shiftId,
-            personId,
-            date: day.date,
-            kind: "daily",
-            requiredMinutes: DAILY_REST_MINUTES,
-            actualMinutes: rest,
-          });
+        } else {
+          const requiredDailyRest = previous.dailyRestMinutesAfter ?? DAILY_REST_MINUTES;
+          if (rest < requiredDailyRest) {
+            addIssue({
+              id: `daily-${personId}-${day.date}`,
+              shiftId: day.shiftId,
+              personId,
+              date: day.date,
+              kind: "daily",
+              requiredMinutes: requiredDailyRest,
+              actualMinutes: rest,
+            });
+          }
         }
       }
 

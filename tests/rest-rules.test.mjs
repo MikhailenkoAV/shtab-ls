@@ -6,6 +6,7 @@ import {
   normalizeActivityTiming,
 } from "../app/activity-rules.ts";
 import {
+  AWAY_FROM_BASE_DAILY_REST_MINUTES,
   calculateRestIssues,
   calculateWeeklyRestWarnings,
   DAILY_REST_MINUTES,
@@ -53,6 +54,25 @@ test("daily control reports rest below 12 hours", () => {
   assert.equal(issues[0].kind, "daily");
   assert.equal(issues[0].requiredMinutes, DAILY_REST_MINUTES);
   assert.equal(issues[0].actualMinutes, 11 * 60);
+});
+
+test("a shift outside the base reduces the following daily rest minimum to 10 hours", () => {
+  const issues = calculateRestIssues([
+    { shiftId: "away", personId: "pilot", date: "2026-08-20", start: time("2026-08-20T08:00:00"), end: time("2026-08-20T20:00:00"), dailyRestMinutesAfter: AWAY_FROM_BASE_DAILY_REST_MINUTES },
+    { shiftId: "next", personId: "pilot", date: "2026-08-21", start: time("2026-08-21T07:00:00"), end: time("2026-08-21T15:00:00") },
+  ], []);
+  assert.deepEqual(issues, []);
+});
+
+test("rest below 10 hours after a shift outside the base remains a violation", () => {
+  const issues = calculateRestIssues([
+    { shiftId: "away", personId: "pilot", date: "2026-08-20", start: time("2026-08-20T08:00:00"), end: time("2026-08-20T20:00:00"), dailyRestMinutesAfter: AWAY_FROM_BASE_DAILY_REST_MINUTES },
+    { shiftId: "next", personId: "pilot", date: "2026-08-21", start: time("2026-08-21T05:00:00"), end: time("2026-08-21T13:00:00") },
+  ], []);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].kind, "daily");
+  assert.equal(issues[0].requiredMinutes, AWAY_FROM_BASE_DAILY_REST_MINUTES);
+  assert.equal(issues[0].actualMinutes, 9 * 60);
 });
 
 test("weekly control requires 42 hours after six work days", () => {

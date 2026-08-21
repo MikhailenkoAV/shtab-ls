@@ -594,6 +594,8 @@ td strong { color: #314956; }
 .split-part-heading span { color: #9a8763; font-size: 11px; }
 .split-shift-checkbox { display: inline-flex; align-items: center; gap: 8px; width: fit-content; padding: 7px 10px; border: 1px solid #dce5e7; border-radius: 8px; color: #526b77; background: #f8fbfb; font-size: 13px; font-weight: 700; cursor: pointer; }
 .split-shift-checkbox input { accent-color: var(--teal); }
+.away-from-base-checkbox { width: 100%; align-items: flex-start; }
+.away-from-base-checkbox small { margin-left: auto; color: #6f828b; font-size: 12px; font-weight: 500; }
 .excluded-work-toggle { display: flex; align-items: center; gap: 8px; min-height: 41px; padding: 9px 11px; border: 1px solid #d8e2e5; border-radius: 8px; color: #526b77; background: #f8fbfb; font-size: 12px; font-weight: 800; cursor: pointer; }
 .excluded-work-toggle:has(input:checked) { border-color: #d29b54; color: #7a541e; background: #fff7e8; }
 .excluded-work-toggle input { margin: 0; accent-color: #b87928; }

@@ -26,6 +26,7 @@ import { CertificationRecord, ImportAviabitModal, ImportPayload } from "./person
 import { isMedicalCertificationSuperseded, latestCertificationRecords } from "./personal-files-rules";
 import { PersonalFilesView } from "./personal-overview";
 import {
+  AWAY_FROM_BASE_DAILY_REST_MINUTES,
   calculateRestIssues,
   calculateWeeklyRestWarnings,
   isSundayDate,
@@ -113,6 +114,7 @@ type Shift = {
   periodId?: string; periodStart?: string; periodEnd?: string;
   periodActivity?: Activity; periodNote?: string;
   linkedSourceShiftId?: string; linkedPrimaryPersonId?: string;
+  awayFromBase?: boolean;
 };
 type ShiftDraft = Omit<Shift, "id" | "createdAt" | "periodId" | "periodStart" | "periodEnd" | "periodActivity" | "periodNote"> & { dateTo?: string };
 type CompanySettings = {
@@ -262,6 +264,7 @@ function normalizeShift(shift: Shift): Shift {
     workMinutes: timing.workMinutes,
     segments: sundayOff || periodicTraining ? [] : segments,
     note: sundayOff ? [periodNote, PERIODIC_SUNDAY_NOTE].filter(Boolean).join(" · ") : shift.note,
+    awayFromBase: storedActivity === "flight" && Boolean(shift.awayFromBase),
     periodActivity,
     periodNote,
   };
@@ -620,6 +623,9 @@ function getRestIssues(shifts: Shift[]): RestIssue[] {
     date: day.date,
     start: day.start,
     end: day.end,
+    dailyRestMinutesAfter: day.items.some((shift) => shift.awayFromBase && shiftEnd(shift)?.getTime() === day.end)
+      ? AWAY_FROM_BASE_DAILY_REST_MINUTES
+      : undefined,
   })));
   const intervalInputs: RestIntervalInput[] = [];
   shifts.filter((shift) => isWorkActivity(shift.activity)).forEach((shift) => {
@@ -681,7 +687,7 @@ function getAssumedCompliantRestIds(shifts: Shift[]): Set<string> {
 function restIssueTitle(issue: RestIssue, personName: string): string {
   if (issue.kind === "weekly") return `${personName}: еженедельный отдых менее 42 часов`;
   if (issue.kind === "split") return `${personName}: после двух разделённых смен отдых менее 48 часов`;
-  return `${personName}: ежедневный отдых менее 12 часов`;
+  return `${personName}: ежедневный отдых менее ${formatDuration(issue.requiredMinutes)}`;
 }
 
 function restIssueDetail(issue: RestIssue): string {
@@ -1490,7 +1496,7 @@ function Dashboard({
         <DashboardShortcut glyph="▤" title="Личные дела" detail="Документы и контроль сроков" onClick={() => onNavigate("personal")} />
       </DashboardBlock>
       </div>
-      <article className="panel alerts-panel dashboard-area dashboard-control"><div className="panel-heading"><div><p className="eyebrow">Контроль</p><h2>Требует внимания</h2></div><span className="count-badge">{alerts.length}</span></div><div className="control-rules"><strong>Нормы отдыха · приказ № 381</strong><span>12 ч ежедневно · 42 ч после 6 рабочих дней · 48 ч после двух разделённых смен</span></div>{!alerts.length ? <div className="good-state"><span>✓</span><div><strong>Критических замечаний нет</strong><p>Новые предупреждения появятся после расчёта смен.</p></div></div> : dashboardRows(alerts).map((alert) => <div className={`alert-row ${alert.severity}`} key={alert.id}><span className="alert-icon">!</span><div><strong>{alert.title}</strong><p>{alert.detail}</p></div></div>)}</article>
+      <article className="panel alerts-panel dashboard-area dashboard-control"><div className="panel-heading"><div><p className="eyebrow">Контроль</p><h2>Требует внимания</h2></div><span className="count-badge">{alerts.length}</span></div><div className="control-rules"><strong>Нормы отдыха · ФАП-128 / приказ № 381</strong><span>12 ч ежедневно · 10 ч после смены вне базы · 42 ч после 6 рабочих дней · 48 ч после двух разделённых смен</span></div>{!alerts.length ? <div className="good-state"><span>✓</span><div><strong>Критических замечаний нет</strong><p>Новые предупреждения появятся после расчёта смен.</p></div></div> : dashboardRows(alerts).map((alert) => <div className={`alert-row ${alert.severity}`} key={alert.id}><span className="alert-icon">!</span><div><strong>{alert.title}</strong><p>{alert.detail}</p></div></div>)}</article>
       <div className="dashboard-area dashboard-crews">
       <DashboardBlock eyebrow="Расстановка экипажей" title="Планирование">
         <DashboardShortcut glyph="✈" title="Расстановка экипажей" detail="Суточный состав, готовность и фактические полёты" onClick={() => onNavigate("crew")} />
@@ -1663,7 +1669,7 @@ function ShiftsView({
               ? `Пилот в экипаже: ${linkedPerson?.name ?? "связанная смена"}`
               : `КВС: ${linkedPerson?.name ?? "связанная смена"}`
             : "";
-        return <tr key={segment ? `${shift.id}-${segment.id}` : shift.id}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{activityLabels[shift.activity]}{crewLabel && <span className="source-pill">Одна смена · {crewLabel}</span>}{segment?.splitShift && <span className="split-pill active">Разделённая · часть {segment.splitPart ?? 1}</span>}</span></td><td>{segment ? `${segment.dutyStart || "—"}–${segment.dutyEnd || "—"}` : shift.start ? `${shift.start}–${shiftEndClock(shift)}` : "—"}</td><td>{segment ? <span className="aircraft-cell"><strong>{[segment.aircraftType, segment.aircraft].filter(Boolean).join(" · ") || "—"}</strong><small>{segment.seat}</small></span> : "—"}</td><td>{segment?.purpose || "—"}</td><td>{segment ? <span className="flight-cell"><strong>{formatDuration(segmentCountedWorkMinutes(segment))}</strong>{Boolean(segment.excludedWorkMinutes) && <small>не учитывается {formatDuration(segment.excludedWorkMinutes ?? 0)}</small>}</span> : shift.workMinutes ? formatDuration(shift.workMinutes) : "—"}</td><td>{segment ? <span className="flight-cell"><strong>{flight ? formatDuration(flight) : "—"}</strong>{night > 0 && <small>ночь {formatDuration(night)}</small>}<small>посадки Д/Н: {segment.dayLandings ?? 0}/{segment.nightLandings ?? 0}</small></span> : "—"}</td><td><RestCell shift={shift} rest={rest} assumedCompliant={assumedCompliant} allShifts={expandedActualShifts} /></td><td className="note-cell">{shift.note || "—"}</td><td><div className="row-actions"><button onClick={() => onEdit(sourceShift)}>Изменить</button><button className="delete" onClick={() => segment ? onDeleteFlight(sourceShift, segment.id) : onDelete(sourceShift)}>Удалить</button></div></td></tr>;
+        return <tr key={segment ? `${shift.id}-${segment.id}` : shift.id}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{activityLabels[shift.activity]}{shift.awayFromBase && <span className="source-pill">Вне базы</span>}{crewLabel && <span className="source-pill">Одна смена · {crewLabel}</span>}{segment?.splitShift && <span className="split-pill active">Разделённая · часть {segment.splitPart ?? 1}</span>}</span></td><td>{segment ? `${segment.dutyStart || "—"}–${segment.dutyEnd || "—"}` : shift.start ? `${shift.start}–${shiftEndClock(shift)}` : "—"}</td><td>{segment ? <span className="aircraft-cell"><strong>{[segment.aircraftType, segment.aircraft].filter(Boolean).join(" · ") || "—"}</strong><small>{segment.seat}</small></span> : "—"}</td><td>{segment?.purpose || "—"}</td><td>{segment ? <span className="flight-cell"><strong>{formatDuration(segmentCountedWorkMinutes(segment))}</strong>{Boolean(segment.excludedWorkMinutes) && <small>не учитывается {formatDuration(segment.excludedWorkMinutes ?? 0)}</small>}</span> : shift.workMinutes ? formatDuration(shift.workMinutes) : "—"}</td><td>{segment ? <span className="flight-cell"><strong>{flight ? formatDuration(flight) : "—"}</strong>{night > 0 && <small>ночь {formatDuration(night)}</small>}<small>посадки Д/Н: {segment.dayLandings ?? 0}/{segment.nightLandings ?? 0}</small></span> : "—"}</td><td><RestCell shift={shift} rest={rest} assumedCompliant={assumedCompliant} allShifts={expandedActualShifts} /></td><td className="note-cell">{shift.note || "—"}</td><td><div className="row-actions"><button onClick={() => onEdit(sourceShift)}>Изменить</button><button className="delete" onClick={() => segment ? onDeleteFlight(sourceShift, segment.id) : onDelete(sourceShift)}>Удалить</button></div></td></tr>;
       }
       if (row.kind === "assignment") {
         const aircraftType = aircraftTypeForNumber(row.assignment.aircraft, aircraftNumbersByType);
@@ -2004,6 +2010,7 @@ function ShiftModal({
   const [start, setStart] = useState(shift?.start ?? "08:00");
   const [work, setWork] = useState(shift ? durationValue(shift.workMinutes) : "08:00");
   const [note, setNote] = useState(shift?.periodNote ?? shift?.note ?? "");
+  const [awayFromBase, setAwayFromBase] = useState(Boolean(shift?.awayFromBase));
   const [error, setError] = useState("");
   const selectedAircraftTypes = people.find((person) => person.id === personId)?.aircraftTypes ?? [];
   const defaultAircraftType = selectedAircraftTypes.length === 1 ? selectedAircraftTypes[0] : "";
@@ -2145,6 +2152,7 @@ function ShiftModal({
       start: activity === "flight" ? safeSegments[0]?.dutyStart ?? "" : safeStart,
       workMinutes: activity === "flight" ? flightWorkMinutes(safeSegments) : safeWork ? parseDuration(safeWork) : 0,
       segments: safeSegments,
+      awayFromBase: activity === "flight" && awayFromBase,
       note,
     });
   }
@@ -2156,6 +2164,7 @@ function ShiftModal({
       {supportsPeriod ? <div className="form-grid two"><Field label="Период с"><input required type="date" value={date} onChange={(event) => { setDate(event.target.value); if (dateTo < event.target.value) setDateTo(event.target.value); }} /></Field><Field label="Период по" hint="Каждый календарный день"><input required type="date" min={date} value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field></div> : <Field label="Дата"><input required type="date" value={date} onChange={(event) => { setDate(event.target.value); setDateTo(event.target.value); }} /></Field>}
       {usesTime(activity) && activity !== "flight" && <div className="form-grid two"><Field label="Начало" hint="Например, 0830 → 08:30"><TimeEntry required clock value={start} onChange={setStart} /></Field><Field label="Рабочее время" hint="Например, 800 → 08:00"><TimeEntry required value={work} onChange={setWork} /></Field></div>}
       {activity === "flight" && <div className="segments">
+        <label className="split-shift-checkbox away-from-base-checkbox"><input type="checkbox" checked={awayFromBase} onChange={(event) => setAwayFromBase(event.target.checked)} /><span>Вне базы</span><small>Минимальный ежедневный отдых после этой смены — 10 часов</small></label>
         <div className="section-label"><strong>Полёты внутри смены</strong><button type="button" className="link-button" onClick={() => setSegments((current) => {
           const dutyStart = current.at(-1)?.dutyEnd || "08:00";
           return [...current, createSegmentDraft(defaultAircraftType, dutyStart)];
