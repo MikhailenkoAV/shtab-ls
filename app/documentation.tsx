@@ -25,6 +25,8 @@ import {
   FlightBookBaseline,
   FlightBookShiftRef,
 } from "./flight-book-rules";
+import { AircraftDocumentsView } from "./aircraft-documents";
+import { AircraftDocumentRecord } from "./aircraft-documents-rules";
 
 type DocumentationPerson = {
   id: string;
@@ -56,7 +58,7 @@ type DocumentationCompany = {
   chiefOfStaff: string;
 };
 
-type DocumentationTab = "registry" | "forms" | "references";
+type DocumentationTab = "registry" | "aircraft" | "forms" | "references";
 type FormKind = "training" | "qualification" | "flight-certificate" | "medical-referral";
 type RegistrySection = DocumentRegistryKind | "medicalReferral";
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -78,11 +80,14 @@ export function DocumentationView({
   profiles,
   settings,
   company,
+  aircraftDocuments,
   onUpsertRegistry,
   onDeleteRegistry,
   onUpsertMedicalReferral,
   onDeleteMedicalReferral,
   onSettingsChange,
+  onSaveAircraftDocument,
+  onDeleteAircraftDocument,
   onNotify,
 }: {
   people: DocumentationPerson[];
@@ -94,11 +99,14 @@ export function DocumentationView({
   profiles: Record<string, DocumentPersonProfile>;
   settings: DocumentSettings;
   company: DocumentationCompany;
+  aircraftDocuments: AircraftDocumentRecord[];
   onUpsertRegistry: (record: DocumentRegistryRecord) => void;
   onDeleteRegistry: (recordId: string) => void;
   onUpsertMedicalReferral: (record: MedicalReferralRecord) => void;
   onDeleteMedicalReferral: (recordId: string) => void;
   onSettingsChange: (patch: Partial<DocumentSettings>) => void;
+  onSaveAircraftDocument: (record: AircraftDocumentRecord, replaceId?: string) => void;
+  onDeleteAircraftDocument: (recordId: string) => void;
   onNotify: (message: string) => void;
 }) {
   const activePeople = useMemo(
@@ -245,9 +253,12 @@ export function DocumentationView({
     <article className="panel documentation-intro"><div><p className="eyebrow">Документы лётной службы</p><h2>Документационный контур</h2><p>Реестр перенесён из вашей рабочей книги. Формы заполняются из личных дел, а незаполненные поля можно исправить прямо перед выгрузкой.</p></div><span>Локальная база</span></article>
     <nav className="documentation-tabs panel" aria-label="Разделы документации">
       <button className={tab === "registry" ? "active" : ""} onClick={() => setTab("registry")}><strong>Реестр</strong><small>{registry.length} записей</small></button>
+      <button className={tab === "aircraft" ? "active" : ""} onClick={() => setTab("aircraft")}><strong>Судовая документация</strong><small>КВП и АОН</small></button>
       <button className={tab === "forms" ? "active" : ""} onClick={() => setTab("forms")}><strong>Формирование</strong><small>Word и PDF</small></button>
       <button className={tab === "references" ? "active" : ""} onClick={() => setTab("references")}><strong>Справочники</strong><small>АУЦ и программы</small></button>
     </nav>
+
+    {tab === "aircraft" && <AircraftDocumentsView records={aircraftDocuments} people={people} certifications={certifications} onSave={onSaveAircraftDocument} onDelete={onDeleteAircraftDocument} />}
 
     {tab === "registry" && <section className="panel documentation-workspace">
       <div className="panel-heading"><div><p className="eyebrow">Реестр ЛС</p><h2>{registryKind === "medicalReferral" ? "Медицинские направления" : registryKindLabels[registryKind]}</h2></div><button className="primary-button" onClick={() => registryKind === "medicalReferral" ? setMedicalEditing("new") : setRegistryEditing("new")}>+ Новая запись</button></div>

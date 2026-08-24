@@ -59,6 +59,7 @@ import {
 } from "./recovery-rules";
 import { mergeWorkspaceData, workspaceChanged } from "./cloud-sync";
 import { DocumentationView } from "./documentation";
+import { AircraftDocumentRecord, normalizeAircraftDocument } from "./aircraft-documents-rules";
 import registrySeedJson from "./document-registry-seed.json";
 import medicalReferralsSeedJson from "./medical-referrals-seed.json";
 import {
@@ -149,6 +150,7 @@ type AppData = {
   documentProfiles: Record<string, DocumentPersonProfile>;
   documentSettings: DocumentSettings;
   flightBookBaselines: FlightBookBaseline[];
+  aircraftDocuments: AircraftDocumentRecord[];
   personalProfiles: Record<string, PilotPersonalProfile>;
   personalDocumentDefinitions: PersonalDocumentDefinition[];
   personalDocumentDefinitionsVersion: number;
@@ -181,6 +183,7 @@ const EMPTY_DATA: AppData = {
   documentProfiles: {},
   documentSettings: EMPTY_DOCUMENT_SETTINGS,
   flightBookBaselines: [],
+  aircraftDocuments: [],
   personalProfiles: {},
   personalDocumentDefinitions: DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
   personalDocumentDefinitionsVersion: PERSONAL_DOCUMENT_DEFINITIONS_VERSION,
@@ -340,6 +343,7 @@ function normalizeAppData(stored?: Partial<AppData>): AppData {
         documentProfiles: stored?.documentProfiles ?? {},
         documentSettings: normalizeDocumentSettings(stored?.documentSettings),
         flightBookBaselines: stored?.flightBookBaselines ?? [],
+        aircraftDocuments: (stored?.aircraftDocuments ?? []).map(normalizeAircraftDocument),
         personalProfiles: Object.fromEntries(Object.entries(stored?.personalProfiles ?? {})
           .map(([personId, profile]) => [personId, normalizePilotPersonalProfile(profile)])),
         personalDocumentDefinitions: migratePersonalDocumentDefinitions(
@@ -1204,6 +1208,23 @@ export default function Home() {
     setData((current) => { const record = current.medicalReferrals.find((item) => item.id === recordId); return { ...current, medicalReferrals: current.medicalReferrals.filter((item) => item.id !== recordId), trash: record ? [trashEntry("medicalReferral", `Направление № ${record.number}`, record), ...current.trash] : current.trash }; });
     setToast("Медицинское направление перемещено в корзину");
   }
+  function saveAircraftDocument(record: AircraftDocumentRecord, replaceId?: string) {
+    setData((current) => ({
+      ...current,
+      aircraftDocuments: [
+        ...current.aircraftDocuments.map((item) => item.id === replaceId ? { ...item, archivedAt: new Date().toISOString() } : item),
+        record,
+      ],
+    }));
+    setToast(replaceId ? "Новая версия документа сохранена, прежняя перенесена в историю" : "Судовой документ добавлен");
+  }
+  function deleteAircraftDocument(recordId: string) {
+    setData((current) => ({
+      ...current,
+      aircraftDocuments: current.aircraftDocuments.map((item) => item.id === recordId ? { ...item, archivedAt: new Date().toISOString() } : item),
+    }));
+    setToast("Документ перенесён в историю");
+  }
   function savePlanAssignment(assignment: PlanAssignment) {
     setData((current) => ({
       ...current,
@@ -1325,11 +1346,14 @@ export default function Home() {
             profiles={data.documentProfiles}
             settings={data.documentSettings}
             company={data.settings}
+            aircraftDocuments={data.aircraftDocuments}
             onUpsertRegistry={upsertRegistryRecord}
             onDeleteRegistry={deleteRegistryRecord}
             onUpsertMedicalReferral={upsertMedicalReferral}
             onDeleteMedicalReferral={deleteMedicalReferral}
             onSettingsChange={(patch) => setData((current) => ({ ...current, documentSettings: { ...current.documentSettings, ...patch } }))}
+            onSaveAircraftDocument={saveAircraftDocument}
+            onDeleteAircraftDocument={deleteAircraftDocument}
             onNotify={setToast}
           />
           : view === "settings"

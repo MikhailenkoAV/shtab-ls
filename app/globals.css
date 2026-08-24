@@ -151,6 +151,27 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .documentation-tabs strong { font-size: 14px; }
 .documentation-tabs small { margin-top: 5px; color: #8b9aa1; font-size: 12px; }
 .documentation-workspace { min-width: 0; }
+.aircraft-documents-stack { display: grid; gap: 14px; }
+.aircraft-document-toolbar { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(170px, .55fr) minmax(180px, .45fr); align-items: end; gap: 14px; padding: 18px; }
+.aircraft-document-summary { display: grid; min-height: 58px; align-content: center; padding: 8px 16px; border: 1px solid #cfe3e1; border-radius: 11px; background: #f0f8f7; }
+.aircraft-document-summary strong { color: #176e67; font-size: 22px; }
+.aircraft-document-summary span { color: #70838d; font-size: 12px; }
+.aircraft-document-list { display: grid; }
+.aircraft-document-row { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 66px; padding: 10px 18px; border-top: 1px solid #e8edef; }
+.aircraft-document-row:first-child { border-top: 0; }
+.aircraft-document-row > div:nth-child(2) { min-width: 0; }
+.aircraft-document-row strong, .aircraft-document-row small { display: block; }
+.aircraft-document-row strong { color: #254557; font-size: 14px; }
+.aircraft-document-row small { margin-top: 4px; color: #778b95; font-size: 12px; }
+.aircraft-document-state { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px; background: #eef2f3; color: #82929a; font-weight: 900; }
+.aircraft-document-row.state-valid .aircraft-document-state { background: #e3f4eb; color: #17734d; }
+.aircraft-document-row.state-warning .aircraft-document-state { background: #fff2d9; color: #ad6900; }
+.aircraft-document-row.state-expired .aircraft-document-state { background: #fde8e7; color: #b83e37; }
+.aircraft-document-history { border-left: 4px solid #7d94a0; }
+.aircraft-crew-document-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: #e7ecef; }
+.aircraft-crew-document-list > div { display: grid; gap: 4px; padding: 13px 18px; background: white; }
+.aircraft-crew-document-list strong { color: #274657; }
+.aircraft-crew-document-list span { color: #748891; font-size: 12px; }
 .registry-kind-tabs { display: flex; gap: 7px; padding: 12px 18px; border-bottom: 1px solid #e7ecef; background: #f7f9fa; }
 .registry-kind-tabs button { display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; border: 1px solid #dce5e8; border-radius: 9px; color: #56707d; background: white; font-size: 13px; font-weight: 800; }
 .registry-kind-tabs button.active { border-color: #9dccca; color: #176d67; background: #eaf5f3; }
@@ -822,6 +843,9 @@ td strong { color: #314956; }
 .cloud-gate { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 15% 10%,#dcecef 0,transparent 36%),linear-gradient(160deg,#f3f6f7,#dfe9ec); }.cloud-login,.cloud-migration { width: min(520px,100%); padding: 28px; }.cloud-login .brand-mark { margin-bottom: 14px; }.cloud-login h1,.cloud-migration h1 { margin: 5px 0 10px; }.cloud-login form { margin: 20px 0 12px; }.cloud-login .primary-button { width: 100%; }.cloud-migration { width: min(650px,100%); }.cloud-migration .import-current-state { margin: 18px 0; }
 
 @media (max-width: 760px) {
+  .aircraft-document-toolbar, .aircraft-crew-document-list { grid-template-columns: 1fr; }
+  .aircraft-document-row { grid-template-columns: 34px minmax(0, 1fr); }
+  .aircraft-document-row .row-action { grid-column: 2; justify-self: start; }
   .app-shell { display: block; }
   .app-header { position: relative; grid-template-columns: 1fr; min-height: 68px; padding: 10px 14px; }
   .app-header .brand { justify-content: center; }
