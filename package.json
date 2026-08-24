@@ -23,9 +23,11 @@
     "drizzle-orm": "0.45.2",
     "jszip": "^3.10.1",
     "next": "16.2.6",
+    "pdfjs-dist": "^5.4.624",
     "pdfmake": "^0.2.20",
     "react": "19.2.6",
     "react-dom": "19.2.6",
+    "tesseract.js": "^7.0.0",
     "xlsx": "^0.18.5",
     "xlsx-js-style": "^1.2.0"
   },

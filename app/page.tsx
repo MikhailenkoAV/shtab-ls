@@ -39,6 +39,7 @@ import {
 import { groupedDateCells } from "./journal-rules";
 import { WorkTimeImportModal } from "./work-time-import";
 import { ImportedWorkTimeShift, mergeImportedWorkTime } from "./work-time-import-rules";
+import { FlightTaskImportModal } from "./flight-task-import";
 import { ControlJournalView } from "./control-journal";
 import {
   buildControlRows,
@@ -1614,6 +1615,7 @@ function ShiftsView({
   const [personId, setPersonId] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [flightTaskImportOpen, setFlightTaskImportOpen] = useState(false);
   const expandedActualShifts = useMemo(() => expandLinkedCrewShifts(shifts), [shifts]);
   const sourceShifts = useMemo(() => new Map(shifts.map((shift) => [shift.id, shift])), [shifts]);
   const filtered = expandedActualShifts.filter((shift) => (!dateFrom || shift.date >= dateFrom) && (!dateTo || shift.date <= dateTo) && (!personId || shift.personId === personId));
@@ -1645,7 +1647,7 @@ function ShiftsView({
     setDateFrom(localIsoDate(target));
     setDateTo(localIsoDate(new Date(target.getFullYear(), target.getMonth() + 1, 0)));
   }
-  return <><section className="panel table-panel"><div className="panel-heading"><div><p className="eyebrow">Единый журнал</p><h2>Смены за выбранный период</h2></div><div className="journal-heading-actions"><button className="secondary-button" disabled={!people.length} onClick={() => setImportOpen(true)}>Импорт рабочего времени</button><button className="secondary-button pdf-button" disabled={!people.length} onClick={() => setReportOpen(true)}>Отчёт PDF</button><button className="primary-button" disabled={!people.length} onClick={onAdd}>+ Новая смена</button></div></div>
+  return <><section className="panel table-panel"><div className="panel-heading"><div><p className="eyebrow">Единый журнал</p><h2>Смены за выбранный период</h2></div><div className="journal-heading-actions"><button className="secondary-button" disabled={!people.length} onClick={() => setFlightTaskImportOpen(true)}>Импорт полётного задания</button><button className="secondary-button" disabled={!people.length} onClick={() => setImportOpen(true)}>Импорт рабочего времени</button><button className="secondary-button pdf-button" disabled={!people.length} onClick={() => setReportOpen(true)}>Отчёт PDF</button><button className="primary-button" disabled={!people.length} onClick={onAdd}>+ Новая смена</button></div></div>
     <div className="journal-filters"><Field label="Период с"><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></Field><Field label="Период по"><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field><Field label="Сотрудник"><select value={personId} onChange={(event) => setPersonId(event.target.value)}><option value="">Все сотрудники</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field><div className="quick-filters"><button className="secondary-button" onClick={showToday}>Сегодня</button><button className="secondary-button month-arrow" title="Предыдущий месяц" aria-label="Предыдущий месяц" onClick={() => showAdjacentMonth(-1)}>←</button><button className="secondary-button" onClick={showCurrentMonth}>Текущий месяц</button><button className="secondary-button month-arrow" title="Следующий месяц" aria-label="Следующий месяц" onClick={() => showAdjacentMonth(1)}>→</button></div></div>
     <div className="journal-summary">Показано строк: <strong>{journalRows.length}</strong>{dateFrom === dateTo ? ` · ${formatDate(dateFrom)}` : ` · ${formatDate(dateFrom)} — ${formatDate(dateTo)}`}</div>
     {!journalRows.length ? <div className="panel-empty tall">За выбранный период смен нет.</div> : <div className="table-scroll"><table><thead><tr><th>Дата</th><th>Сотрудник</th><th>Занятость</th><th>Начало–конец</th><th>ВС / кресло</th><th>Цель</th><th>Рабочее</th><th>Полётное / ночь</th><th>Отдых</th><th>Примечание</th><th>Действия</th></tr></thead><tbody>{journalRows.map((row, rowIndex) => {
@@ -1678,7 +1680,7 @@ function ShiftsView({
       }
       return <tr className="planned-row" key={`busy-${row.entry.id}-${row.date}`}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{planBusyLabels[row.entry.activity]}<span className="source-pill">Из месячного плана</span></span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td className="note-cell">{row.entry.note || "Из месячного плана"}</td><td><div className="row-actions"><button onClick={() => onEditPlan({ kind: "busy", id: row.entry.id })}>Изменить</button><button className="delete" onClick={() => { if (window.confirm(`Удалить занятость «${planBusyLabels[row.entry.activity]}» за ${formatDate(row.date)}?`)) onDeletePlanBusy(row.entry.id); }}>Удалить</button></div></td></tr>;
     })}</tbody></table></div>}
-  </section>{reportOpen && <FlightReportModal people={people} shifts={shifts} assignments={assignments} busyEntries={busyEntries} onClose={() => setReportOpen(false)} onNotify={onNotify} />}{importOpen && <WorkTimeImportModal people={people} shifts={shifts} onClose={() => setImportOpen(false)} onSubmit={(records) => { onImport(records); setImportOpen(false); }} />}</>;
+  </section>{reportOpen && <FlightReportModal people={people} shifts={shifts} assignments={assignments} busyEntries={busyEntries} onClose={() => setReportOpen(false)} onNotify={onNotify} />}{importOpen && <WorkTimeImportModal people={people} shifts={shifts} onClose={() => setImportOpen(false)} onSubmit={(records) => { onImport(records); setImportOpen(false); }} />}{flightTaskImportOpen && <FlightTaskImportModal people={people} onClose={() => setFlightTaskImportOpen(false)} onSubmit={(records) => { onImport(records); setFlightTaskImportOpen(false); onNotify("Полётное задание проверено и добавлено в Единый журнал."); }} />}</>;
 }
 
 function RestCell({

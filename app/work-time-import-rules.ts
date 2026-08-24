@@ -22,6 +22,8 @@ export type ImportedWorkTimeSegment = {
   dutyEnd: string;
   flightMinutes: number;
   nightMinutes: number;
+  dayLandings?: number;
+  nightLandings?: number;
   splitShift: boolean;
   splitGroupId?: string;
   splitPart?: 1 | 2;

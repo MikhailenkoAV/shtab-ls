@@ -962,3 +962,45 @@ td strong { color: #314956; }
   .quick-filters .month-arrow { width: 40px; }
   .employment-day-grid { grid-template-columns: repeat(4, minmax(42px, 1fr)); }
 }
+/* Import of a scanned flight task and the second-page trip report. */
+.modal.extra-wide { width: min(1480px, calc(100vw - 32px)); max-height: calc(100vh - 24px); }
+.flight-task-import-modal { overflow: hidden; }
+.flight-task-start { display: grid; gap: 18px; padding: 24px; }
+.flight-task-reading { min-height: 360px; padding: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; }
+.flight-task-reading .sync-spinner { width: 34px; height: 34px; }
+.flight-task-reading progress { width: min(520px, 90%); height: 12px; accent-color: #138f89; }
+.flight-task-reading small { color: var(--muted); }
+.flight-task-review { min-height: 0; display: grid; grid-template-columns: minmax(360px, .9fr) minmax(560px, 1.1fr); overflow: hidden; }
+.flight-task-preview { min-height: 0; padding: 14px; background: #dce5e8; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.flight-task-preview img, .flight-task-preview object { width: 100%; height: min(72vh, 920px); min-height: 540px; object-fit: contain; background: white; border: 1px solid #c5d1d6; border-radius: 8px; }
+.flight-task-page-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.flight-task-page-tabs button { min-height: 38px; border: 1px solid #b6c8ce; border-radius: 7px; background: rgba(255,255,255,.75); color: #365364; font-weight: 700; }
+.flight-task-page-tabs button.active { color: white; background: #157f7b; border-color: #157f7b; }
+.flight-task-fields { min-height: 0; max-height: min(78vh, 1000px); overflow: auto; padding: 18px 22px 24px; display: flex; flex-direction: column; gap: 14px; }
+.flight-task-confidence { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid #cde2df; background: #f0f8f7; border-radius: 9px; }
+.flight-task-confidence div { display: flex; flex-direction: column; gap: 3px; }
+.flight-task-confidence span { color: var(--muted); font-size: .88rem; }
+.file-replace { cursor: pointer; color: #087f78; font-weight: 800; white-space: nowrap; }
+.flight-task-legs { display: grid; gap: 7px; }
+.flight-task-leg { display: grid; grid-template-columns: 32px repeat(4, minmax(92px, 1fr)) 34px; gap: 7px; align-items: end; padding: 9px; border: 1px solid var(--line); border-radius: 9px; background: #f8fafb; }
+.flight-task-leg > strong { align-self: center; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #dff1ef; color: #087970; }
+.flight-task-leg label { display: grid; gap: 4px; }
+.flight-task-leg label span { color: #667c88; font-size: .75rem; font-weight: 700; }
+.flight-task-leg input { width: 100%; min-width: 0; }
+.flight-task-leg > button { height: 38px; border: 0; background: transparent; color: #c74b4b; font-size: 1.35rem; }
+.flight-task-leg > button:disabled { opacity: .25; }
+.flight-task-totals { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+.flight-task-totals span { padding: 10px; border-radius: 8px; background: #edf4f5; color: #607783; font-size: .8rem; }
+.flight-task-totals strong { display: block; margin-top: 3px; color: #173647; font-size: 1rem; }
+@media (max-width: 980px) {
+  .flight-task-review { grid-template-columns: 1fr; overflow: auto; }
+  .flight-task-preview { border-right: 0; border-bottom: 1px solid var(--line); }
+  .flight-task-preview img, .flight-task-preview object { height: 52vh; min-height: 360px; }
+  .flight-task-fields { max-height: none; overflow: visible; }
+}
+@media (max-width: 680px) {
+  .modal.extra-wide { width: 100vw; max-height: 100dvh; border-radius: 0; }
+  .flight-task-leg { grid-template-columns: 28px 1fr 1fr; }
+  .flight-task-totals { grid-template-columns: 1fr 1fr; }
+  .flight-task-confidence { align-items: flex-start; flex-direction: column; }
+}
