@@ -1,3 +1,13 @@
+export type AircraftOperator = "КВП" | "АОН" | "АР";
+
+export type AircraftConfig = {
+  id: string;
+  type: string;
+  number: string;
+  operator: AircraftOperator;
+  monthlyPlanEnabled: boolean;
+};
+
 export const aircraftNumbersByType: Readonly<Record<string, readonly string[]>> = {
   AW109: ["RA-01902"],
   AW139: ["RA-01697"],
@@ -8,6 +18,24 @@ export const aircraftNumbersByType: Readonly<Record<string, readonly string[]>> 
   AS350: ["RA-07338", "RA-04063"],
   Bell407: ["RA-01619"],
 };
+
+export const DEFAULT_AIRCRAFT_FLEET: AircraftConfig[] = Object.entries(aircraftNumbersByType)
+  .flatMap(([type, numbers]) => numbers.map((number) => ({
+    id: `aircraft-${number.toLowerCase()}`,
+    type,
+    number,
+    operator: "АОН" as AircraftOperator,
+    monthlyPlanEnabled: !["RA-01619", "RA-05828", "RA-01697", "RA-04063"].includes(number),
+  })));
+
+export function aircraftNumbersMap(fleet: AircraftConfig[]): Readonly<Record<string, readonly string[]>> {
+  const result: Record<string, string[]> = {};
+  fleet.forEach((aircraft) => {
+    const type = canonicalAircraftType(aircraft.type);
+    result[type] = [...(result[type] ?? []), aircraft.number.trim().toUpperCase()];
+  });
+  return result;
+}
 
 export function canonicalAircraftType(value: string): string {
   const compact = value.trim().toUpperCase().replace(/[^A-ZА-Я0-9]/g, "");

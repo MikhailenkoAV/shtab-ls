@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { aircraftNumbersByType } from "./aircraft-rules";
+import { AircraftConfig, aircraftNumbersMap } from "./aircraft-rules";
 import {
   ActualBusyInput,
   assignmentDateWarning,
@@ -13,7 +13,6 @@ import {
   busyBlockReason,
   dateInPlanEntry,
   datesInRange,
-  isMonthlyPlanAircraft,
   isMonthlyPlanPerson,
   monthDates,
   planBusyActivities,
@@ -33,6 +32,7 @@ type PlanPerson = {
   name: string;
   aircraftTypes: string[];
   active: boolean;
+  monthlyPlanEnabled?: boolean;
   readinessStatus?: "allowed" | "restricted" | "not_allowed" | "undetermined";
   readinessReason?: string;
   readiness?: import("./readiness-rules").EmployeeReadiness;
@@ -44,7 +44,6 @@ export type PlanEditRequest =
   | { kind: "assignment"; id: string }
   | { kind: "busy"; id: string };
 
-const aircraftNumbers = Object.values(aircraftNumbersByType).flat().filter(isMonthlyPlanAircraft);
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 function localMonth(): string {
@@ -79,6 +78,7 @@ export function MonthlyPlanView({
   shifts,
   assignments,
   busyEntries,
+  fleet,
   onSaveAssignment,
   onSaveAssignments,
   onDeleteAssignment,
@@ -93,6 +93,7 @@ export function MonthlyPlanView({
   shifts: PlanShift[];
   assignments: PlanAssignment[];
   busyEntries: PlanBusyEntry[];
+  fleet: AircraftConfig[];
   onSaveAssignment: (assignment: PlanAssignment) => void;
   onSaveAssignments: (assignments: PlanAssignment[]) => void;
   onDeleteAssignment: (assignmentId: string) => void;
@@ -120,10 +121,13 @@ export function MonthlyPlanView({
   const [employmentModal, setEmploymentModal] = useState(false);
   const [exporting, setExporting] = useState(false);
   const dates = useMemo(() => monthDates(month), [month]);
+  const planningFleet = useMemo(() => fleet.filter((aircraft) => aircraft.monthlyPlanEnabled), [fleet]);
+  const numbersByType = useMemo(() => aircraftNumbersMap(planningFleet), [planningFleet]);
+  const aircraftNumbers = useMemo(() => planningFleet.map((aircraft) => aircraft.number), [planningFleet]);
   const planPeople = useMemo(() => people.filter(isMonthlyPlanPerson), [people]);
   const planPersonIds = useMemo(() => new Set(planPeople.map((person) => person.id)), [planPeople]);
   const planAssignments = useMemo(() => assignments.filter((item) =>
-    planPersonIds.has(item.personId) && isMonthlyPlanAircraft(item.aircraft)), [assignments, planPersonIds]);
+    planPersonIds.has(item.personId) && aircraftNumbers.includes(item.aircraft)), [assignments, planPersonIds, aircraftNumbers]);
   const planBusyEntries = useMemo(() => busyEntries.filter((item) =>
     planPersonIds.has(item.personId)
     && item.activity !== "standby"
@@ -152,7 +156,7 @@ export function MonthlyPlanView({
   async function exportPlan() {
     setExporting(true);
     try {
-      await downloadMonthlyPlanExcel(month, people, shifts, assignments, busyEntries);
+      await downloadMonthlyPlanExcel(month, people, shifts, assignments, busyEntries, fleet);
       onNotify("Месячный план сохранён в Excel");
     } catch {
       onNotify("Не удалось сформировать Excel");
@@ -188,7 +192,7 @@ export function MonthlyPlanView({
           })}</tr></thead>
           <tbody>
             {aircraftNumbers.flatMap((aircraft) => (["primary", "reserve"] as PlanRole[]).map((role, roleIndex) => {
-              const aircraftType = aircraftTypeForNumber(aircraft, aircraftNumbersByType);
+              const aircraftType = aircraftTypeForNumber(aircraft, numbersByType);
               return <tr className={`plan-aircraft-row ${role}`} key={`${aircraft}-${role}`}>
                 {roleIndex === 0 && <th className="plan-aircraft-name" rowSpan={2}><strong>{aircraft}</strong><span>{aircraftType}</span></th>}
                 <th className="plan-role-name">{planRoleLabels[role]}</th>
@@ -250,6 +254,8 @@ export function MonthlyPlanView({
       cell={assignmentCell}
       assignment={assignment}
       people={planPeople}
+      numbersByType={numbersByType}
+      defaultOperator={fleet.find((aircraft) => aircraft.number === assignmentCell.aircraft)?.operator ?? "АОН"}
       assignments={planAssignments}
       busyEntries={planBusyEntries}
       actualBusy={planShifts}
@@ -275,6 +281,8 @@ export function MonthlyPlanView({
     />}
     {employmentModal && <EmploymentPlannerModal
       people={planPeople}
+      numbersByType={numbersByType}
+      operatorByAircraft={Object.fromEntries(fleet.map((aircraft) => [aircraft.number, aircraft.operator]))}
       month={month}
       assignments={planAssignments}
       busyEntries={planBusyEntries}
@@ -296,6 +304,8 @@ function AssignmentModal({
   cell,
   assignment,
   people,
+  numbersByType,
+  defaultOperator,
   assignments,
   busyEntries,
   actualBusy,
@@ -306,6 +316,8 @@ function AssignmentModal({
   cell: { date: string; aircraft: string; role: PlanRole };
   assignment?: PlanAssignment;
   people: PlanPerson[];
+  numbersByType: Readonly<Record<string, readonly string[]>>;
+  defaultOperator: "КВП" | "АОН" | "АР";
   assignments: PlanAssignment[];
   busyEntries: PlanBusyEntry[];
   actualBusy: ActualBusyInput[];
@@ -313,8 +325,8 @@ function AssignmentModal({
   onSave: (personId: string, operator: "КВП" | "АОН" | "АР") => void;
   onDelete?: () => void;
 }) {
-  const aircraftType = aircraftTypeForNumber(cell.aircraft, aircraftNumbersByType);
-  const [operator, setOperator] = useState<"КВП" | "АОН" | "АР">(assignment?.operator ?? "АОН");
+  const aircraftType = aircraftTypeForNumber(cell.aircraft, numbersByType);
+  const [operator, setOperator] = useState<"КВП" | "АОН" | "АР">(assignment?.operator ?? defaultOperator);
   const qualifiedPeople = availablePeopleForAssignment(people, assignments, busyEntries, actualBusy, cell.date, aircraftType, cell.aircraft, assignment?.id);
   const availablePeople = qualifiedPeople.filter((person) => readinessForOperator(person.readiness, operator, aircraftType)?.status !== "not_allowed");
   const [personId, setPersonId] = useState(assignment?.personId ?? "");
@@ -397,6 +409,8 @@ type EmploymentActivity = "flight" | PlanBusyActivity;
 
 function EmploymentPlannerModal({
   people,
+  numbersByType,
+  operatorByAircraft,
   month,
   assignments,
   busyEntries,
@@ -406,6 +420,8 @@ function EmploymentPlannerModal({
   onSaveBusyEntries,
 }: {
   people: PlanPerson[];
+  numbersByType: Readonly<Record<string, readonly string[]>>;
+  operatorByAircraft: Record<string, "КВП" | "АОН" | "АР">;
   month: string;
   assignments: PlanAssignment[];
   busyEntries: PlanBusyEntry[];
@@ -427,8 +443,9 @@ function EmploymentPlannerModal({
   const person = people.find((item) => item.id === personId);
   const dates = datesInRange(dateFrom, dateTo);
   const usesAircraftPlacement = activity === "flight";
+  const aircraftNumbers = Object.values(numbersByType).flat();
   const allowedAircraft = aircraftNumbers.filter((aircraft) =>
-    person?.aircraftTypes.includes(aircraftTypeForNumber(aircraft, aircraftNumbersByType)));
+    person?.aircraftTypes.includes(aircraftTypeForNumber(aircraft, numbersByType)));
 
   function setRange(dateFromValue: string, dateToValue: string) {
     setDateFrom(dateFromValue);
@@ -454,7 +471,7 @@ function EmploymentPlannerModal({
         busyEntries,
         actualBusy,
         date,
-        aircraftType: aircraftTypeForNumber(aircraft, aircraftNumbersByType),
+        aircraftType: aircraftTypeForNumber(aircraft, numbersByType),
         aircraft,
       });
       if (reason) return reason;
@@ -495,6 +512,7 @@ function EmploymentPlannerModal({
         aircraft,
         role,
         activity: "flight",
+        operator: operatorByAircraft[aircraft] ?? "АОН",
       }))));
       return;
     }
@@ -531,7 +549,7 @@ function EmploymentPlannerModal({
       {usesAircraftPlacement && <section className="employment-aircraft">
         <div className="section-label"><strong>Борта из допусков сотрудника</strong><span>{selectedAircraft.length}</span></div>
         {!person ? <div className="planner-hint">Сначала выберите сотрудника.</div> : !allowedAircraft.length ? <div className="form-error">Для типов ВС сотрудника нет настроенных бортовых номеров.</div> : <div className="aircraft-choice-grid">{allowedAircraft.map((aircraft) => {
-          const aircraftType = aircraftTypeForNumber(aircraft, aircraftNumbersByType);
+          const aircraftType = aircraftTypeForNumber(aircraft, numbersByType);
           return <label key={aircraft}><input type="checkbox" checked={selectedAircraft.includes(aircraft)} onChange={(event) => setSelectedAircraft((current) =>
             event.target.checked ? [...current, aircraft] : current.filter((item) => item !== aircraft))} /><span><strong>{aircraft}</strong><small>{aircraftType}</small></span></label>;
         })}</div>}

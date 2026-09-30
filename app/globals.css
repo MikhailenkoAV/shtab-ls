@@ -637,6 +637,18 @@ td strong { color: #314956; }
 .rest-cell strong { font-size: 12px; font-weight: 800; }
 .rest-cell small { color: #7d8d96; font-size: 10px; line-height: 1.25; white-space: nowrap; }
 .rest-cell .weekly-rest { font-weight: 900; }
+
+.fleet-settings-card { grid-column: 1 / -1; }
+.fleet-settings-list { display: grid; gap: 8px; margin: 14px 0; }
+.fleet-settings-row, .fleet-add-row { display: grid; grid-template-columns: 1fr 1fr 110px minmax(170px, auto) auto; gap: 10px; align-items: center; }
+.fleet-settings-row input, .fleet-settings-row select, .fleet-add-row input, .fleet-add-row select { min-width: 0; }
+.fleet-plan-toggle { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 800; }
+.fleet-plan-toggle input { width: auto; }
+.fleet-add-row { padding-top: 12px; border-top: 1px solid var(--line); }
+@media (max-width: 900px) {
+  .fleet-settings-row, .fleet-add-row { grid-template-columns: 1fr 1fr; }
+  .fleet-settings-row .delete, .fleet-add-row button { grid-column: 1 / -1; }
+}
 .journal-date-cell { vertical-align: top; color: #284b5c; background: #f4f8f9; font-weight: 800; white-space: nowrap; }
 .aircraft-cell strong, .flight-cell strong { color: #314956; font-size: 13px; }
 .aircraft-cell small, .flight-cell small { color: #82919a; font-size: 12px; }

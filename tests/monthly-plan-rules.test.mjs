@@ -171,6 +171,7 @@ test("monthly plan hides selected aircraft and surnames without changing the com
   assert.equal(isMonthlyPlanAircraft("RA-01902"), true);
   assert.equal(isMonthlyPlanPerson({ name: "Волков Иван Иванович" }), false);
   assert.equal(isMonthlyPlanPerson({ name: "Иванов Иван Иванович" }), true);
+  assert.equal(isMonthlyPlanPerson({ name: "Иванов Иван Иванович", monthlyPlanEnabled: false }), false);
   const matrix = buildMonthlyPlanMatrix(
     "2026-07",
     [

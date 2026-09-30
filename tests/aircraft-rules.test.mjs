@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  DEFAULT_AIRCRAFT_FLEET,
   aircraftNumbersForType,
   canonicalAircraftType,
   isAircraftNumberAllowed,
 } from "../app/aircraft-rules.ts";
+
+test("monthly planning defaults exclude requested aircraft", () => {
+  const disabled = DEFAULT_AIRCRAFT_FLEET.filter((aircraft) => !aircraft.monthlyPlanEnabled).map((aircraft) => aircraft.number);
+  assert.ok(disabled.includes("RA-01697"));
+  assert.ok(disabled.includes("RA-04063"));
+});
 
 test("aircraft types expose only their assigned registration numbers", () => {
   assert.deepEqual([...aircraftNumbersForType("AW109")], ["RA-01902"]);

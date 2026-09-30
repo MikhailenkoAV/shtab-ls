@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { activityUsesTime as usesTime, isRestNeutralActivity, normalizeActivityTiming } from "./activity-rules";
-import { aircraftNumbersByType, aircraftNumbersForType, canonicalAircraftType, isAircraftNumberAllowed } from "./aircraft-rules";
+import { AircraftConfig, AircraftOperator, aircraftNumbersByType, canonicalAircraftType, DEFAULT_AIRCRAFT_FLEET } from "./aircraft-rules";
 import { normalizeTrainingRecord } from "./training-record-rules";
 import {
   downloadEmploymentReport,
@@ -100,7 +100,7 @@ type Qualification = {
   seats: string[];
   nightAircraftTypes: string[];
 };
-type Person = { id: string; name: string; position: string; permissions: string[]; aircraftTypes: string[]; qualifications: Qualification[]; active: boolean };
+type Person = { id: string; name: string; position: string; permissions: string[]; aircraftTypes: string[]; qualifications: Qualification[]; active: boolean; monthlyPlanEnabled?: boolean };
 type Segment = {
   id: string; aircraft: string; aircraftType?: string; seat: Seat; purpose: string;
   dutyStart: string; dutyEnd: string; flightMinutes: number; nightMinutes: number; splitShift: boolean;
@@ -151,6 +151,7 @@ type AppData = {
   documentSettings: DocumentSettings;
   flightBookBaselines: FlightBookBaseline[];
   aircraftDocuments: AircraftDocumentRecord[];
+  aircraftFleet: AircraftConfig[];
   personalProfiles: Record<string, PilotPersonalProfile>;
   personalDocumentDefinitions: PersonalDocumentDefinition[];
   personalDocumentDefinitionsVersion: number;
@@ -184,6 +185,7 @@ const EMPTY_DATA: AppData = {
   documentSettings: EMPTY_DOCUMENT_SETTINGS,
   flightBookBaselines: [],
   aircraftDocuments: [],
+  aircraftFleet: DEFAULT_AIRCRAFT_FLEET,
   personalProfiles: {},
   personalDocumentDefinitions: DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
   personalDocumentDefinitionsVersion: PERSONAL_DOCUMENT_DEFINITIONS_VERSION,
@@ -316,7 +318,9 @@ function normalizePerson(person: Person): Person {
   const operators = orderedUnique(qualifications.flatMap((qualification) => qualification.operators), operatorOptions);
   const aircraftTypes = orderedUnique(qualifications.flatMap((qualification) => qualification.aircraftTypes), aircraftTypeOptions);
   const seats = orderedUnique(qualifications.flatMap((qualification) => qualification.seats), positionOptions);
-  return { ...person, position: seats.join(", "), permissions: operators, aircraftTypes, qualifications };
+  const surname = person.name.trim().split(/\s+/)[0]?.toLocaleLowerCase("ru-RU") ?? "";
+  const defaultMonthlyPlanEnabled = !["волков", "левочкин", "герасимов", "болдырев", "мареев", "ганжа", "гаврин", "ильин", "серебренников", "ярощук"].includes(surname);
+  return { ...person, position: seats.join(", "), permissions: operators, aircraftTypes, qualifications, monthlyPlanEnabled: person.monthlyPlanEnabled ?? defaultMonthlyPlanEnabled };
 }
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -344,6 +348,13 @@ function normalizeAppData(stored?: Partial<AppData>): AppData {
         documentSettings: normalizeDocumentSettings(stored?.documentSettings),
         flightBookBaselines: stored?.flightBookBaselines ?? [],
         aircraftDocuments: (stored?.aircraftDocuments ?? []).map(normalizeAircraftDocument),
+        aircraftFleet: (stored?.aircraftFleet?.length ? stored.aircraftFleet : DEFAULT_AIRCRAFT_FLEET).map((aircraft) => ({
+          ...aircraft,
+          type: canonicalAircraftType(aircraft.type),
+          number: aircraft.number.trim().toUpperCase(),
+          operator: (["КВП", "АОН", "АР"].includes(aircraft.operator) ? aircraft.operator : "АОН") as AircraftOperator,
+          monthlyPlanEnabled: aircraft.monthlyPlanEnabled !== false,
+        })),
         personalProfiles: Object.fromEntries(Object.entries(stored?.personalProfiles ?? {})
           .map(([personId, profile]) => [personId, normalizePilotPersonalProfile(profile)])),
         personalDocumentDefinitions: migratePersonalDocumentDefinitions(
@@ -566,7 +577,12 @@ function getWorkDays(shifts: Shift[]): Map<string, WorkDay[]> {
   const groups = new Map<string, Map<string, Shift[]>>();
   shifts.filter((shift) => isWorkActivity(shift.activity) && !isRestNeutralActivity(shift.activity) && shiftStart(shift)).forEach((shift) => {
     const personDays = groups.get(shift.personId) ?? new Map<string, Shift[]>();
-    personDays.set(shift.date, [...(personDays.get(shift.date) ?? []), shift]);
+    // The calendar date is the boundary for daily-rest control. Older imports
+    // can contain an ISO date-time here, so group by YYYY-MM-DD instead of the
+    // complete stored value. Otherwise two records displayed on the same date
+    // may incorrectly be treated as consecutive work days.
+    const calendarDate = shift.date.slice(0, 10);
+    personDays.set(calendarDate, [...(personDays.get(calendarDate) ?? []), shift]);
     groups.set(shift.personId, personDays);
   });
   const result = new Map<string, WorkDay[]>();
@@ -581,6 +597,12 @@ function getWorkDays(shifts: Shift[]): Map<string, WorkDay[]> {
     if (personId) result.set(personId, days);
   });
   return result;
+}
+
+function isFirstWorkShiftOfDay(shift: Shift, shifts: Shift[]): boolean {
+  const day = (getWorkDays(shifts).get(shift.personId) ?? [])
+    .find((item) => item.date === shift.date.slice(0, 10));
+  return day?.items[0]?.id === shift.id;
 }
 
 function getRestMap(shifts: Shift[]): Map<string, number> {
@@ -1359,9 +1381,11 @@ export default function Home() {
           : view === "settings"
             ? <SettingsView
               settings={data.settings}
+              fleet={data.aircraftFleet}
               checkpoints={checkpoints}
               trash={data.trash}
               onChange={(patch) => setData((current) => ({ ...current, settings: { ...current.settings, ...patch } }))}
+              onFleetChange={(aircraftFleet) => setData((current) => ({ ...current, aircraftFleet }))}
               onExport={exportBackup}
               onRestore={() => importRef.current?.click()}
               onUndo={undoLastChange}
@@ -1429,6 +1453,7 @@ export default function Home() {
                 shifts={expandedShifts}
                 assignments={data.planAssignments}
                 busyEntries={data.planBusyEntries}
+                fleet={data.aircraftFleet}
                 onSaveAssignment={savePlanAssignment}
                 onSaveAssignments={savePlanAssignments}
                 onDeleteAssignment={deletePlanAssignment}
@@ -1440,9 +1465,10 @@ export default function Home() {
                 onEditRequestHandled={() => setPlanEditRequest(null)}
               />}
     </main>
-    {personModal && <PersonModal person={personModal === "new" ? null : personModal} onClose={() => setPersonModal(null)} onSubmit={savePerson} onDelete={personModal === "new" ? undefined : () => deletePerson(personModal)} />}
+    {personModal && <PersonModal person={personModal === "new" ? null : personModal} availableAircraftTypes={orderedUnique(data.aircraftFleet.map((aircraft) => canonicalAircraftType(aircraft.type)), aircraftTypeOptions)} onClose={() => setPersonModal(null)} onSubmit={savePerson} onDelete={personModal === "new" ? undefined : () => deletePerson(personModal)} />}
     {shiftModal && <ShiftModal
       people={data.people}
+      fleet={data.aircraftFleet}
       readinessByPerson={readinessByPerson}
       shift={shiftModal === "new" ? null : shiftModal}
       initialPersonId={shiftModal === "new" ? newShiftDefaults?.personId : undefined}
@@ -1550,9 +1576,11 @@ function DashboardShortcut({ glyph, title, detail, onClick }: { glyph: string; t
 
 function SettingsView({
   settings,
+  fleet,
   checkpoints,
   trash,
   onChange,
+  onFleetChange,
   onExport,
   onRestore,
   onUndo,
@@ -1561,9 +1589,11 @@ function SettingsView({
   onDeleteTrash,
 }: {
   settings: CompanySettings;
+  fleet: AircraftConfig[];
   checkpoints: RecoveryCheckpoint<AppData>[];
   trash: TrashEntry[];
   onChange: (patch: Partial<CompanySettings>) => void;
+  onFleetChange: (fleet: AircraftConfig[]) => void;
   onExport: () => void;
   onRestore: () => void;
   onUndo: () => void;
@@ -1571,6 +1601,18 @@ function SettingsView({
   onRestoreTrash: (entry: TrashEntry) => void;
   onDeleteTrash: (entryId: string) => void;
 }) {
+  const [newAircraftType, setNewAircraftType] = useState("");
+  const [newAircraftNumber, setNewAircraftNumber] = useState("");
+  const [newAircraftOperator, setNewAircraftOperator] = useState<AircraftOperator>("АОН");
+  const [fleetError, setFleetError] = useState("");
+  function addAircraft() {
+    const type = canonicalAircraftType(newAircraftType);
+    const number = newAircraftNumber.trim().toUpperCase();
+    if (!type || !number) { setFleetError("Укажите тип ВС и бортовой номер."); return; }
+    if (fleet.some((aircraft) => aircraft.number === number)) { setFleetError("Такой бортовой номер уже добавлен."); return; }
+    onFleetChange([...fleet, { id: uid(), type, number, operator: newAircraftOperator, monthlyPlanEnabled: true }]);
+    setNewAircraftType(""); setNewAircraftNumber(""); setNewAircraftOperator("АОН"); setFleetError("");
+  }
   return <section className="settings-layout">
     <article className="panel settings-card"><div className="panel-heading"><div><p className="eyebrow">Реквизиты</p><h2>Карточка предприятия</h2></div><span className="settings-auto-save">Сохраняется автоматически</span></div><div className="settings-form form-stack">
       <Field label="Полное наименование"><input value={settings.fullName} onChange={(event) => onChange({ fullName: event.target.value })} placeholder="Общество с ограниченной ответственностью…" /></Field>
@@ -1593,6 +1635,18 @@ function SettingsView({
     <article className="panel settings-card recovery-card"><div className="panel-heading"><div><p className="eyebrow">Автоматическое сохранение</p><h2>История изменений</h2></div><button className="secondary-button compact" disabled={!checkpoints.length} onClick={onUndo}>↶ Отменить последнее</button></div>
       {!checkpoints.length ? <div className="panel-empty">Контрольные точки появятся после первого изменения данных.</div> : <div className="recovery-list">{checkpoints.slice(0, 10).map((checkpoint) => <div key={checkpoint.id}><span><strong>{checkpoint.sections.join(", ")}</strong><small>{new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium", timeStyle: "short" }).format(new Date(checkpoint.createdAt))}</small></span><button className="row-action" onClick={() => onRestoreCheckpoint(checkpoint)}>Восстановить</button></div>)}</div>}
       <div className="report-scope-note">Хранится до {MAX_CHECKPOINTS} последних состояний базы. Восстановление применяется только после вашего подтверждения.</div>
+    </article>
+    <article className="panel settings-card fleet-settings-card"><div className="panel-heading"><div><p className="eyebrow">Парк ВС</p><h2>Воздушные суда и планирование</h2></div><span className="settings-auto-save">{fleet.length} бортов</span></div>
+      <div className="fleet-settings-list">{fleet.map((aircraft) => <div className="fleet-settings-row" key={aircraft.id}>
+        <input aria-label="Тип ВС" value={aircraft.type} onChange={(event) => onFleetChange(fleet.map((item) => item.id === aircraft.id ? { ...item, type: canonicalAircraftType(event.target.value) } : item))} />
+        <input aria-label="Бортовой номер" value={aircraft.number} onChange={(event) => onFleetChange(fleet.map((item) => item.id === aircraft.id ? { ...item, number: event.target.value.toUpperCase() } : item))} />
+        <select aria-label="Эксплуатант" value={aircraft.operator} onChange={(event) => onFleetChange(fleet.map((item) => item.id === aircraft.id ? { ...item, operator: event.target.value as AircraftOperator } : item))}><option>КВП</option><option>АОН</option><option>АР</option></select>
+        <label className="fleet-plan-toggle"><input type="checkbox" checked={aircraft.monthlyPlanEnabled} onChange={(event) => onFleetChange(fleet.map((item) => item.id === aircraft.id ? { ...item, monthlyPlanEnabled: event.target.checked } : item))} /><span>В месячном плане</span></label>
+        <button type="button" className="delete" onClick={() => { if (window.confirm(`Удалить ${aircraft.number} из справочника ВС? Фактические записи сохранятся.`)) onFleetChange(fleet.filter((item) => item.id !== aircraft.id)); }}>Удалить</button>
+      </div>)}</div>
+      <div className="fleet-add-row"><input placeholder="Тип ВС, например H125" value={newAircraftType} onChange={(event) => setNewAircraftType(event.target.value)} /><input placeholder="RA-00000" value={newAircraftNumber} onChange={(event) => setNewAircraftNumber(event.target.value.toUpperCase())} /><select value={newAircraftOperator} onChange={(event) => setNewAircraftOperator(event.target.value as AircraftOperator)}><option>КВП</option><option>АОН</option><option>АР</option></select><button type="button" className="secondary-button" onClick={addAircraft}>+ Добавить ВС</button></div>
+      {fleetError && <div className="form-error">{fleetError}</div>}
+      <div className="report-scope-note">Отключённый борт сохраняется в журнале и отчётах, но не выводится в месячном планировании и его Excel-выгрузке.</div>
     </article>
     <article className="panel settings-card recovery-card"><div className="panel-heading"><div><p className="eyebrow">Защита от удаления</p><h2>Корзина</h2></div><span className="settings-auto-save">{trash.length} записей</span></div>
       {!trash.length ? <div className="panel-empty">Удалённые сотрудники, смены, документы и записи планов будут временно храниться здесь.</div> : <div className="recovery-list">{trash.map((entry) => <div key={entry.id}><span><strong>{entry.label}</strong><small>{new Intl.DateTimeFormat("ru-RU", { dateStyle: "medium", timeStyle: "short" }).format(new Date(entry.deletedAt))}</small></span><div className="row-actions"><button onClick={() => onRestoreTrash(entry)}>Восстановить</button><button className="delete" onClick={() => onDeleteTrash(entry.id)}>Удалить навсегда</button></div></div>)}</div>}
@@ -1719,6 +1773,9 @@ function RestCell({
   allShifts: Shift[];
 }) {
   if (assumedCompliant) return <span className="success-text">по норме</span>;
+  if (isWorkActivity(shift.activity) && !isRestNeutralActivity(shift.activity) && !isFirstWorkShiftOfDay(shift, allShifts)) {
+    return <span className="rest-cell"><strong>учтено за день</strong><small>отдых указан у первой смены</small></span>;
+  }
   const boundaries = restBoundaries(shift, allShifts);
   const explanation = boundaries
     ? `${formatRestBoundary(boundaries.from)} → ${formatRestBoundary(boundaries.to)}`
@@ -1809,8 +1866,9 @@ function PeopleView({ people, shifts, readinessByPerson, onAdd, onEdit, onOpenPe
   </section>;
 }
 
-function PersonModal({ person, onClose, onSubmit, onDelete }: { person: Person | null; onClose: () => void; onSubmit: (person: Omit<Person, "id" | "active">) => void; onDelete?: () => void }) {
+function PersonModal({ person, availableAircraftTypes, onClose, onSubmit, onDelete }: { person: Person | null; availableAircraftTypes: string[]; onClose: () => void; onSubmit: (person: Omit<Person, "id" | "active">) => void; onDelete?: () => void }) {
   const [name, setName] = useState(person?.name ?? "");
+  const [monthlyPlanEnabled, setMonthlyPlanEnabled] = useState(person?.monthlyPlanEnabled ?? true);
   const [qualifications, setQualifications] = useState<Qualification[]>(person?.qualifications ?? []);
   const [operators, setOperators] = useState<string[]>([]);
   const [types, setTypes] = useState<string[]>([]);
@@ -1831,9 +1889,9 @@ function PersonModal({ person, onClose, onSubmit, onDelete }: { person: Person |
     const qualification: Qualification = {
       id: editingQualificationId ?? uid(),
       operators: orderedUnique(operators, operatorOptions),
-      aircraftTypes: orderedUnique(types, aircraftTypeOptions),
+      aircraftTypes: orderedUnique(types, availableAircraftTypes),
       seats: orderedUnique(seats, positionOptions),
-      nightAircraftTypes: orderedUnique(nightTypes.filter((aircraftType) => types.includes(aircraftType)), aircraftTypeOptions),
+      nightAircraftTypes: orderedUnique(nightTypes.filter((aircraftType) => types.includes(aircraftType)), availableAircraftTypes),
     };
     setQualifications((current) => editingQualificationId
       ? current.map((item) => item.id === editingQualificationId ? qualification : item)
@@ -1856,17 +1914,18 @@ function PersonModal({ person, onClose, onSubmit, onDelete }: { person: Person |
       setError("Отредактируйте неполный набор: эксплуатант, тип ВС и кресла обязательны."); return;
     }
     const permissions = orderedUnique(qualifications.flatMap((qualification) => qualification.operators), operatorOptions);
-    const aircraftTypes = orderedUnique(qualifications.flatMap((qualification) => qualification.aircraftTypes), aircraftTypeOptions);
+    const aircraftTypes = orderedUnique(qualifications.flatMap((qualification) => qualification.aircraftTypes), availableAircraftTypes);
     const position = orderedUnique(qualifications.flatMap((qualification) => qualification.seats), positionOptions).join(", ");
-    onSubmit({ name: name.trim(), position, permissions, aircraftTypes, qualifications });
+    onSubmit({ name: name.trim(), position, permissions, aircraftTypes, qualifications, monthlyPlanEnabled });
   }
   return <Modal title={person ? "Редактирование сотрудника" : "Новый сотрудник"} subtitle="Эксплуатант → тип ВС → занимаемые кресла → ночной допуск" onClose={onClose} wide>
     <form onSubmit={submit} className="form-stack person-form">
       <Field label="Ф. И. О."><input autoFocus required value={name} onChange={(event) => setName(event.target.value)} placeholder="Иванов Иван Иванович" /></Field>
+      <label className="split-shift-checkbox"><input type="checkbox" checked={monthlyPlanEnabled} onChange={(event) => setMonthlyPlanEnabled(event.target.checked)} /><span>Включать сотрудника в месячное планирование</span><small>Отключение не удаляет смены, документы и прежние назначения.</small></label>
       <section className="qualification-builder">
         <div className="qualification-builder-heading"><div><strong>{editingQualificationId ? "Изменение набора допуска" : "Новый набор допуска"}</strong><span>Последовательно выберите данные и добавьте набор в карточку сотрудника.</span></div>{editingQualificationId && <button type="button" className="link-button" onClick={resetQualificationDraft}>Отменить изменение набора</button>}</div>
         <div className="qualification-step"><span>1</span><CheckboxGroup label="Эксплуатант" options={operatorOptions} values={operators} onChange={setOperators} /></div>
-        <div className="qualification-step"><span>2</span><CheckboxGroup label="Тип ВС" options={aircraftTypeOptions} values={types} onChange={(values) => { setTypes(values); setNightTypes((current) => current.filter((aircraftType) => values.includes(aircraftType))); }} columns={4} /></div>
+        <div className="qualification-step"><span>2</span><CheckboxGroup label="Тип ВС" options={availableAircraftTypes} values={types} onChange={(values) => { setTypes(values); setNightTypes((current) => current.filter((aircraftType) => values.includes(aircraftType))); }} columns={4} /></div>
         <div className="qualification-step"><span>3</span><CheckboxGroup label="Занимаемые кресла" options={positionOptions} values={seats} onChange={setSeats} /></div>
         <div className="qualification-step"><span>4</span>{types.length
           ? <CheckboxGroup label="Допуск к полётам ночью — выберите типы ВС" options={types} values={nightTypes} onChange={setNightTypes} columns={4} />
@@ -2011,6 +2070,7 @@ function groupSegmentDrafts(segments: SegmentDraft[]): SegmentDraft[][] {
 
 function ShiftModal({
   people,
+  fleet,
   readinessByPerson,
   shift,
   initialPersonId,
@@ -2020,6 +2080,7 @@ function ShiftModal({
   onDelete,
 }: {
   people: Person[];
+  fleet: AircraftConfig[];
   readinessByPerson: Record<string, EmployeeReadiness>;
   shift: Shift | null;
   initialPersonId?: string;
@@ -2112,7 +2173,10 @@ function ShiftModal({
       const person = people.find((candidate) => candidate.id === personId);
       return !person?.qualifications.some((qualification) => qualification.aircraftTypes.includes(item.aircraftType) && qualification.nightAircraftTypes.includes(item.aircraftType));
     })) { setError("Для внесения ночного налёта нужен ночной допуск на выбранный тип ВС."); return; }
-    if (activity === "flight" && segments.some((item) => aircraftNumbersForType(item.aircraftType).length > 0 && !isAircraftNumberAllowed(item.aircraftType, item.aircraft))) { setError("Выберите бортовой номер из списка для указанного типа ВС."); return; }
+    if (activity === "flight" && segments.some((item) => {
+      const availableNumbers = fleet.filter((aircraft) => canonicalAircraftType(aircraft.type) === canonicalAircraftType(item.aircraftType)).map((aircraft) => aircraft.number);
+      return availableNumbers.length > 0 && !availableNumbers.includes(item.aircraft);
+    })) { setError("Выберите бортовой номер из списка для указанного типа ВС."); return; }
     if (activity === "flight" && segments.some((item) => {
       const dutyStart = normalizeTime(item.dutyStart, true); const dutyEnd = normalizeTime(item.dutyEnd, true);
       return !dutyStart || !dutyEnd || dutyStart === dutyEnd;
@@ -2211,6 +2275,7 @@ function ShiftModal({
                   partLabel={first.splitShift ? `${segment.splitPart === 2 ? "2-я" : "1-я"} часть смены` : undefined}
                   personSelected={Boolean(personId)}
                   people={people}
+                  fleet={fleet}
                   primaryPersonId={personId}
                   selectedAircraftTypes={selectedAircraftTypes}
                   onChange={(patch) => updateSegment(segment.id, patch)}
@@ -2235,6 +2300,7 @@ function SegmentDraftFields({
   partLabel,
   personSelected,
   people,
+  fleet,
   primaryPersonId,
   selectedAircraftTypes,
   onChange,
@@ -2243,6 +2309,7 @@ function SegmentDraftFields({
   partLabel?: string;
   personSelected: boolean;
   people: Person[];
+  fleet: AircraftConfig[];
   primaryPersonId: string;
   selectedAircraftTypes: string[];
   onChange: (patch: Partial<SegmentDraft>) => void;
@@ -2265,7 +2332,7 @@ function SegmentDraftFields({
       {segment.seat === "Пилот-инструктор" && <Field label="КВС в экипаже" hint="Запись появится у обоих сотрудников"><select required={isAw139Crew} value={segment.commanderPersonId ?? ""} onChange={(event) => onChange({ commanderPersonId: event.target.value || undefined })}><option value="">{isAw139Crew ? "Выберите КВС" : "Не указывать КВС"}</option>{commanderOptions.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field>}
       {segment.seat === "КВС" && isAw139Crew && <Field label="Пилот в экипаже" hint="Налёт обоим будет учтён как КВС"><select required value={segment.crewPairing === "pic_pilot" ? segment.commanderPersonId ?? "" : ""} onChange={(event) => onChange({ commanderPersonId: event.target.value || undefined, crewPairing: event.target.value ? "pic_pilot" : undefined })}><option value="">Выберите пилота</option>{commanderOptions.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field>}
       <Field label="Тип ВС"><select required disabled={!personSelected || !selectedAircraftTypes.length} value={segment.aircraftType} onChange={(event) => onChange({ aircraftType: event.target.value, aircraft: "", commanderPersonId: undefined, crewPairing: undefined })}><option value="">{!personSelected ? "Сначала выберите сотрудника" : selectedAircraftTypes.length ? "Выберите тип ВС" : "Нет указанных типов ВС"}</option>{selectedAircraftTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></Field>
-      <Field label="Бортовой №"><AircraftNumberSelect aircraftType={segment.aircraftType} value={segment.aircraft} onChange={(value) => onChange({ aircraft: value, commanderPersonId: undefined, crewPairing: undefined })} /></Field>
+      <Field label="Бортовой №"><AircraftNumberSelect fleet={fleet} aircraftType={segment.aircraftType} value={segment.aircraft} onChange={(value) => onChange({ aircraft: value, commanderPersonId: undefined, crewPairing: undefined })} /></Field>
       <Field label="Цель"><select value={segment.purpose} onChange={(event) => onChange({ purpose: event.target.value })}>{flightPurposes.map((purpose) => <option key={purpose}>{purpose}</option>)}</select></Field>
       <Field label="Полётное" hint="0130 → 01:30"><TimeEntry value={segment.flight} onChange={(value) => onChange({ flight: value })} /></Field>
       <Field label="Ночь" hint="0045 → 00:45"><TimeEntry value={segment.night} onChange={(value) => onChange({ night: value })} /></Field>
@@ -2289,8 +2356,8 @@ function TimeEntry({ value, onChange, clock, required }: { value: string; onChan
   return <input type="text" inputMode="numeric" required={required} value={value} placeholder="0000" onChange={(event) => onChange(compactTime(event.target.value))} onBlur={() => { const normalized = normalizeTime(value, clock); if (normalized) onChange(normalized); }} />;
 }
 
-function AircraftNumberSelect({ aircraftType, value, onChange }: { aircraftType: string; value: string; onChange: (value: string) => void }) {
-  const availableNumbers = aircraftNumbersForType(aircraftType);
+function AircraftNumberSelect({ fleet, aircraftType, value, onChange }: { fleet: AircraftConfig[]; aircraftType: string; value: string; onChange: (value: string) => void }) {
+  const availableNumbers = fleet.filter((aircraft) => canonicalAircraftType(aircraft.type) === canonicalAircraftType(aircraftType)).map((aircraft) => aircraft.number);
   const legacyNumber = value && !availableNumbers.length ? value : "";
   const options = legacyNumber ? [legacyNumber] : [...availableNumbers];
   const displayedValue = options.includes(value) ? value : "";

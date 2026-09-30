@@ -1,4 +1,5 @@
-import { aircraftNumbersByType } from "./aircraft-rules.ts";
+import { aircraftNumbersByType, aircraftNumbersMap } from "./aircraft-rules.ts";
+import type { AircraftConfig } from "./aircraft-rules.ts";
 import {
   aircraftTypeForNumber,
   automaticPlanActivityKey,
@@ -25,6 +26,7 @@ export type MonthlyPlanExportPerson = {
   name: string;
   aircraftTypes: string[];
   active: boolean;
+  monthlyPlanEnabled?: boolean;
 };
 
 export type MonthlyPlanMatrixRow = {
@@ -41,8 +43,6 @@ export type MonthlyPlanMatrix = {
   dates: string[];
   rows: MonthlyPlanMatrixRow[];
 };
-
-const aircraftNumbers = Object.values(aircraftNumbersByType).flat().filter(isMonthlyPlanAircraft);
 
 function monthDisplay(month: string): string {
   return new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric" })
@@ -62,12 +62,17 @@ export function buildMonthlyPlanMatrix(
   shifts: ActualBusyInput[],
   assignments: PlanAssignment[],
   busyEntries: PlanBusyEntry[],
+  fleet?: AircraftConfig[],
 ): MonthlyPlanMatrix {
+  const numbersByType = fleet ? aircraftNumbersMap(fleet) : aircraftNumbersByType;
+  const aircraftNumbers = fleet
+    ? fleet.filter((aircraft) => aircraft.monthlyPlanEnabled).map((aircraft) => aircraft.number)
+    : Object.values(aircraftNumbersByType).flat().filter(isMonthlyPlanAircraft);
   const dates = monthDates(month);
   const planPeople = people.filter(isMonthlyPlanPerson);
   const planPersonIds = new Set(planPeople.map((person) => person.id));
   const planAssignments = assignments.filter((item) =>
-    planPersonIds.has(item.personId) && isMonthlyPlanAircraft(item.aircraft));
+    planPersonIds.has(item.personId) && aircraftNumbers.includes(item.aircraft));
   const planBusyEntries = busyEntries.filter((item) =>
     planPersonIds.has(item.personId)
     && item.activity !== "standby"
@@ -87,7 +92,7 @@ export function buildMonthlyPlanMatrix(
       kind: "assignment" as const,
       label: planRoleLabels[role],
       aircraft,
-      aircraftType: aircraftTypeForNumber(aircraft, aircraftNumbersByType),
+      aircraftType: aircraftTypeForNumber(aircraft, numbersByType),
       role,
       cells: dates.map((date) => {
         const assignment = planAssignments.find((item) =>
@@ -132,10 +137,12 @@ export async function downloadMonthlyPlanExcel(
   shifts: ActualBusyInput[],
   assignments: PlanAssignment[],
   busyEntries: PlanBusyEntry[],
+  fleet?: AircraftConfig[],
 ) {
   const XLSXModule = await import("xlsx-js-style");
   const XLSX = XLSXModule.default ?? XLSXModule;
-  const matrix = buildMonthlyPlanMatrix(month, people, shifts, assignments, busyEntries);
+  const matrix = buildMonthlyPlanMatrix(month, people, shifts, assignments, busyEntries, fleet);
+  const aircraftNumbers = [...new Set(matrix.rows.filter((row) => row.kind === "assignment").map((row) => row.aircraft).filter(Boolean))];
   const tableRows = matrix.rows.map((row) => [
     row.kind === "assignment" ? `${row.aircraft}\n${row.aircraftType}` : row.label,
     row.kind === "assignment" ? row.label : "",

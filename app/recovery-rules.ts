@@ -22,6 +22,7 @@ const sectionLabels: Record<string, string> = {
   planAssignments: "Месячный план",
   planBusyEntries: "Занятость",
   settings: "Настройки предприятия",
+  aircraftFleet: "Парк ВС",
   documentRegistry: "Реестр документов",
   medicalReferrals: "Медицинские направления",
   documentProfiles: "Анкетные данные",

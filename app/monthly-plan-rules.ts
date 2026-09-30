@@ -65,6 +65,7 @@ export function isMonthlyPlanAircraft(aircraft: string): boolean {
 }
 
 export function isMonthlyPlanPerson(person: { name: string }): boolean {
+  if ("monthlyPlanEnabled" in person && typeof person.monthlyPlanEnabled === "boolean") return person.monthlyPlanEnabled;
   const surname = person.name.trim().split(/\s+/)[0]?.toLocaleLowerCase("ru-RU") ?? "";
   return !monthlyPlanExcludedSurnames.has(surname);
 }
