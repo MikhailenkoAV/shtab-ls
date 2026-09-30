@@ -120,6 +120,18 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .shift-meta span { margin-top: 4px; color: #80919a; font-size: 12px; }
 
 .dashboard-main-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "work control" "crews recent" "expiry recent"; gap: 18px; align-items: stretch; }
+.dashboard-insights { display: grid; grid-template-columns: minmax(300px,.8fr) minmax(420px,1.2fr); gap: 18px; margin-bottom: 18px; }
+.insight-heading { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 17px 20px; border-bottom: 1px solid #e7ecef; }
+.insight-heading h2 { margin: 0; color: #183245; font-size: 17px; }
+.readiness-content { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 22px; min-height: 220px; padding: 22px; }
+.readiness-donut { width: 142px; height: 142px; display: grid; place-items: center; border-radius: 50%; }
+.readiness-donut > div { width: 94px; height: 94px; display: grid; place-content: center; border-radius: 50%; background: white; text-align: center; box-shadow: 0 3px 14px rgba(16,44,64,.08); }
+.readiness-donut strong,.readiness-donut span { display: block; }.readiness-donut strong { color: #173f46; font-size: 27px; }.readiness-donut span { color: #7b8c94; font-size: 12px; }
+.readiness-legend { display: grid; gap: 11px; }.readiness-legend span { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 9px; color: #657985; font-size: 13px; }.readiness-legend i { width: 9px; height: 9px; border-radius: 50%; background: #dce4e8; }.readiness-legend i.good { background:#317a5f; }.readiness-legend i.warning { background:#d5a34e; }.readiness-legend i.danger { background:#c84c4c; }
+.deadline-list { min-height: 220px; }.deadline-row { width: 100%; min-height: 49px; display: grid; grid-template-columns: 28px minmax(0,1fr) 16px; align-items: center; gap: 10px; padding: 8px 17px; border: 0; border-bottom: 1px solid #edf0f2; color: #3a5360; background: white; text-align: left; }.deadline-row:hover { background:#f7fafb; }.deadline-row > i { display:grid; width:25px; height:25px; place-items:center; border-radius:7px; font-style:normal; font-weight:900; }.deadline-row.danger > i { color:#a03c3c; background:#fff0ee; }.deadline-row.warning > i { color:#94651e; background:#fff7e8; }.deadline-row strong,.deadline-row small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.deadline-row small { margin-top:2px; color:#82919a; }.deadline-row > b { color:#9aabb3; }
+.chart-card { min-height: 330px; }.workload-card { grid-column: 1 / -1; }.bar-chart { display:grid; gap:11px; padding:18px 20px 8px; }.bar-row { display:grid; grid-template-columns: minmax(150px,220px) minmax(180px,1fr) 190px; align-items:center; gap:14px; }.bar-row > span { overflow:hidden; color:#3b5562; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }.bar-row > div { position:relative; height:16px; overflow:hidden; border-radius:6px; background:#edf2f4; }.bar-row i,.bar-row em { position:absolute; top:0; bottom:0; left:0; display:block; border-radius:6px; }.bar-row i { background:#b7d9d5; }.bar-row em { top:4px; bottom:4px; background:#0d8d82; }.bar-row > strong { color:#284957; font-size:13px; text-align:right; }.bar-row > strong small { color:#72858f; font-weight:500; }.chart-legend { display:flex; justify-content:flex-end; gap:16px; padding:8px 20px 17px; color:#748791; font-size:12px; }.chart-legend span { display:flex; align-items:center; gap:6px; }.chart-legend i { width:17px; height:7px; border-radius:3px; background:#b7d9d5; }.chart-legend i.flight { background:#0d8d82; }
+.aircraft-bars { display:grid; gap:13px; padding:20px; }.aircraft-bar { display:grid; grid-template-columns:110px 1fr 58px; align-items:center; gap:12px; }.aircraft-bar > div strong,.aircraft-bar > div small { display:block; }.aircraft-bar > div strong { color:#294d5d; }.aircraft-bar > div small { margin-top:2px; color:#87969e; }.aircraft-bar > span { height:12px; overflow:hidden; border-radius:6px; background:#edf2f4; }.aircraft-bar > span i { display:block; height:100%; border-radius:6px; background:linear-gradient(90deg,#60b5ab,#0d8d82); }.aircraft-bar > b { color:#285b63; text-align:right; }
+.dashboard-tools { overflow:hidden; }.dashboard-tools summary { min-height:78px; display:flex; align-items:center; justify-content:space-between; padding:17px 20px; cursor:pointer; list-style:none; }.dashboard-tools summary::-webkit-details-marker { display:none; }.dashboard-tools summary span b,.dashboard-tools summary span small { display:block; }.dashboard-tools summary span b { color:#294957; }.dashboard-tools summary span small { margin-top:5px; color:#7f9098; }.dashboard-tools summary > i { color:#6d858f; font-style:normal; font-size:18px; transition:.16s; }.dashboard-tools[open] summary > i { transform:rotate(180deg); }.dashboard-tools > div { border-top:1px solid #e7ecef; }
 .dashboard-area { min-width: 0; }
 .dashboard-area > .dashboard-block, .dashboard-area.dashboard-control, .dashboard-area.dashboard-recent { height: 100%; }
 .dashboard-work { grid-area: work; }
@@ -782,6 +794,9 @@ td strong { color: #314956; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
 
 @media (max-width: 1100px) {
+  .dashboard-insights { grid-template-columns: 1fr; }
+  .workload-card { grid-column: auto; }
+  .bar-row { grid-template-columns: minmax(140px, 190px) minmax(160px, 1fr) 165px; }
   .app-header { grid-template-columns: auto 1fr; gap: 14px 22px; }
   .quick-nav { justify-content: flex-end; }
   .header-status { display: none; }
@@ -855,6 +870,16 @@ td strong { color: #314956; }
 .cloud-gate { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 15% 10%,#dcecef 0,transparent 36%),linear-gradient(160deg,#f3f6f7,#dfe9ec); }.cloud-login,.cloud-migration { width: min(520px,100%); padding: 28px; }.cloud-login .brand-mark { margin-bottom: 14px; }.cloud-login h1,.cloud-migration h1 { margin: 5px 0 10px; }.cloud-login form { margin: 20px 0 12px; }.cloud-login .primary-button { width: 100%; }.cloud-migration { width: min(650px,100%); }.cloud-migration .import-current-state { margin: 18px 0; }
 
 @media (max-width: 760px) {
+  .dashboard-insights { gap: 12px; }
+  .readiness-content { grid-template-columns: 120px 1fr; gap: 15px; padding: 17px; }
+  .readiness-donut { width: 112px; height: 112px; }
+  .readiness-donut > div { width: 75px; height: 75px; }
+  .readiness-donut strong { font-size: 22px; }
+  .bar-row { grid-template-columns: minmax(0, 1fr) 94px; gap: 7px 11px; }
+  .bar-row > span { grid-column: 1; }
+  .bar-row > div { grid-column: 1 / -1; grid-row: 2; }
+  .bar-row > strong { grid-column: 2; grid-row: 1; }
+  .aircraft-bar { grid-template-columns: 88px 1fr 52px; gap: 8px; }
   .aircraft-document-toolbar, .aircraft-crew-document-list { grid-template-columns: 1fr; }
   .aircraft-document-row { grid-template-columns: 34px minmax(0, 1fr); }
   .aircraft-document-row .row-action { grid-column: 2; justify-self: start; }

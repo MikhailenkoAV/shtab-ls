@@ -48,6 +48,7 @@ import {
 } from "./control-journal-rules";
 import { expandLinkedCrewShifts } from "./crew-rules";
 import { dashboardRows, isCurrentMonthDate } from "./dashboard-rules";
+import { aircraftUsageSummary, readinessSummary, workloadSummary } from "./dashboard-infographics";
 import { backupFileName } from "./backup-rules";
 import {
   backupChecksum,
@@ -491,10 +492,6 @@ function flightDutyIntervals(segments: Segment[]): { start: number; end: number;
       : { start, end, split: segment.splitShift });
   });
   return [...grouped.values()].sort((left, right) => left.start - right.start);
-}
-function flightEntryCount(segments: Segment[]): number {
-  return new Set(segments.map((segment) =>
-    segment.splitShift && segment.splitGroupId ? `split:${segment.splitGroupId}` : `segment:${segment.id}`)).size;
 }
 function segmentDutyMinutes(segment: Segment): number {
   const start = clockMinutes(segment.dutyStart); const end = clockMinutes(segment.dutyEnd);
@@ -955,7 +952,6 @@ export default function Home() {
   }, [controlRows, data.people, restIssues, todayIso, weeklyRestWarnings]);
   const sortedShifts = useMemo(() => [...data.shifts].sort((a, b) => `${b.date}${b.start}`.localeCompare(`${a.date}${a.start}`)), [data.shifts]);
   const monthSortedShifts = useMemo(() => [...monthShifts].sort((a, b) => `${b.date}${b.start}`.localeCompare(`${a.date}${a.start}`)), [monthShifts]);
-  const totalWork = monthShifts.reduce((sum, shift) => sum + shift.workMinutes, 0);
   const totalFlight = monthShifts.reduce((sum, shift) => sum + shift.segments.reduce((inner, segment) => inner + segment.flightMinutes, 0), 0);
 
   function openNewShift(defaults?: { personId: string; date: string }) {
@@ -1340,10 +1336,10 @@ export default function Home() {
           people={data.people}
           shifts={monthSortedShifts}
           alerts={alerts}
-          totalWork={totalWork}
           totalFlight={totalFlight}
           restMap={restMap}
           assumedCompliantRestIds={assumedCompliantRestIds}
+          readinessByPerson={readinessByPerson}
           onAddShift={() => openNewShift()}
           onRestore={() => importRef.current?.click()}
           onNavigate={setView}
@@ -1518,10 +1514,10 @@ function Dashboard({
   people,
   shifts,
   alerts,
-  totalWork,
   totalFlight,
   restMap,
   assumedCompliantRestIds,
+  readinessByPerson,
   onAddShift,
   onRestore,
   onNavigate,
@@ -1529,16 +1525,28 @@ function Dashboard({
   people: Person[];
   shifts: Shift[];
   alerts: DashboardAlert[];
-  totalWork: number;
   totalFlight: number;
   restMap: Map<string, number>;
   assumedCompliantRestIds: Set<string>;
+  readinessByPerson: Record<string, EmployeeReadiness>;
   onAddShift: () => void;
   onRestore: () => void;
   onNavigate: (view: View) => void;
 }) {
   if (!people.length) return <section className="empty-start"><div className="empty-visual"><span>01</span><i /></div><p className="eyebrow">Новая или пустая база</p><h2>Восстановите рабочую базу из резервной копии</h2><p>Выберите ранее сохранённый файл BaseShtab. Сотрудники, смены, планы, личные дела и настройки предприятия будут восстановлены на этом устройстве.</p><button className="primary-button" onClick={onRestore}>Восстановить базу из файла</button></section>;
-  return <><section className="metric-grid"><Metric label="Активный состав" value={String(people.filter((person) => person.active).length)} detail="сотрудников в базе" tone="blue" /><Metric label="Рабочее время" value={formatDuration(totalWork)} detail="в текущем месяце" tone="navy" /><Metric label="Полётное время" value={formatDuration(totalFlight)} detail="в текущем месяце" tone="teal" /><Metric label="Полётные смены" value={String(shifts.filter((shift) => shift.activity === "flight").reduce((sum, shift) => sum + flightEntryCount(shift.segments), 0))} detail="в текущем месяце" tone="violet" /><Metric label="Требует внимания" value={String(alerts.length)} detail={alerts.length ? "открытых предупреждений" : "нарушений не выявлено"} tone={alerts.length ? "red" : "green"} /></section>
+  const readiness = readinessSummary(people, readinessByPerson);
+  const workload = workloadSummary(people, shifts);
+  const aircraftUsage = aircraftUsageSummary(shifts);
+  const readinessTotal = Math.max(1, readiness.total);
+  const maxWorkload = Math.max(1, ...workload.map((row) => row.workMinutes));
+  const maxAircraftFlight = Math.max(1, ...aircraftUsage.map((row) => row.flightMinutes));
+  return <><section className="metric-grid dashboard-metrics"><Metric label="Готовы к работе" value={`${readiness.allowed} из ${readiness.total}`} detail="полностью допущены" tone="green" /><Metric label="С ограничениями" value={String(readiness.restricted)} detail="требуют контроля" tone="violet" /><Metric label="Не допущены" value={String(readiness.notAllowed)} detail="есть критические замечания" tone={readiness.notAllowed ? "red" : "green"} /><Metric label="Полётное время" value={formatDuration(totalFlight)} detail="в текущем месяце" tone="teal" /><Metric label="Предупреждения" value={String(alerts.length)} detail={alerts.length ? "открытых замечаний" : "замечаний нет"} tone={alerts.length ? "red" : "green"} /></section>
+    <section className="dashboard-insights">
+      <article className="panel readiness-card"><div className="insight-heading"><div><p className="eyebrow">Готовность состава</p><h2>Допуски и документы</h2></div><button className="link-button" onClick={() => onNavigate("control")}>Открыть контроль →</button></div><div className="readiness-content"><div className="readiness-donut" style={{ background: `conic-gradient(#317a5f 0 ${(readiness.allowed/readinessTotal)*100}%, #d5a34e 0 ${((readiness.allowed+readiness.restricted)/readinessTotal)*100}%, #c84c4c 0 ${((readiness.allowed+readiness.restricted+readiness.notAllowed)/readinessTotal)*100}%, #dce4e8 0 100%)` }}><div><strong>{Math.round(readiness.allowed/readinessTotal*100)}%</strong><span>готовы</span></div></div><div className="readiness-legend"><span><i className="good" />Допущены <strong>{readiness.allowed}</strong></span><span><i className="warning" />С ограничениями <strong>{readiness.restricted}</strong></span><span><i className="danger" />Не допущены <strong>{readiness.notAllowed}</strong></span><span><i className="neutral" />Не определено <strong>{readiness.undetermined}</strong></span></div></div></article>
+      <article className="panel deadlines-card"><div className="insight-heading"><div><p className="eyebrow">Ближайшие события</p><h2>Что требует внимания</h2></div><span className="count-badge">{alerts.length}</span></div><div className="deadline-list">{!alerts.length ? <div className="good-state"><span>✓</span><div><strong>Критических замечаний нет</strong><p>Сроки и режим труда находятся под контролем.</p></div></div> : dashboardRows(alerts).map((alert) => <button type="button" className={`deadline-row ${alert.severity}`} key={alert.id} onClick={() => onNavigate("control")}><i>!</i><span><strong>{alert.title}</strong><small>{alert.detail}</small></span><b>→</b></button>)}</div></article>
+      <article className="panel chart-card workload-card"><div className="insight-heading"><div><p className="eyebrow">Текущий месяц</p><h2>Загрузка сотрудников</h2></div><button className="link-button" onClick={() => onNavigate("analytics")}>Вся аналитика →</button></div><div className="bar-chart">{workload.length ? workload.map((row) => <div className="bar-row" key={row.id}><span title={row.name}>{row.name}</span><div><i style={{ width: `${Math.max(3,row.workMinutes/maxWorkload*100)}%` }} /><em style={{ width: `${Math.max(0,row.flightMinutes/maxWorkload*100)}%` }} /></div><strong>{formatDuration(row.workMinutes)}<small> · налёт {formatDuration(row.flightMinutes)}</small></strong></div>) : <div className="panel-empty">В текущем месяце смен пока нет</div>}</div><div className="chart-legend"><span><i />Рабочее время</span><span><i className="flight" />Полётное время</span></div></article>
+      <article className="panel chart-card aircraft-usage-card"><div className="insight-heading"><div><p className="eyebrow">Текущий месяц</p><h2>Использование воздушных судов</h2></div><button className="link-button" onClick={() => onNavigate("shifts")}>Открыть журнал →</button></div><div className="aircraft-bars">{aircraftUsage.length ? aircraftUsage.map((row) => <div className="aircraft-bar" key={row.aircraft}><div><strong>{row.aircraft}</strong><small>{row.shiftCount} смен</small></div><span><i style={{ width: `${Math.max(4,row.flightMinutes/maxAircraftFlight*100)}%` }} /></span><b>{formatDuration(row.flightMinutes)}</b></div>) : <div className="panel-empty">Нет полётных смен с указанными бортами</div>}</div></article>
+    </section>
     <section className="dashboard-main-grid">
       <div className="dashboard-area dashboard-work">
       <DashboardBlock eyebrow="Рабочий контур" title="Личный состав">
@@ -1547,20 +1555,16 @@ function Dashboard({
         <DashboardShortcut glyph="▤" title="Личные дела" detail="Документы и контроль сроков" onClick={() => onNavigate("personal")} />
       </DashboardBlock>
       </div>
-      <article className="panel alerts-panel dashboard-area dashboard-control"><div className="panel-heading"><div><p className="eyebrow">Контроль</p><h2>Требует внимания</h2></div><span className="count-badge">{alerts.length}</span></div><div className="control-rules"><strong>Нормы отдыха · ФАП-128 / приказ № 381</strong><span>12 ч ежедневно · 10 ч после смены вне базы · 42 ч после 6 рабочих дней · 48 ч после двух разделённых смен</span></div>{!alerts.length ? <div className="good-state"><span>✓</span><div><strong>Критических замечаний нет</strong><p>Новые предупреждения появятся после расчёта смен.</p></div></div> : dashboardRows(alerts).map((alert) => <div className={`alert-row ${alert.severity}`} key={alert.id}><span className="alert-icon">!</span><div><strong>{alert.title}</strong><p>{alert.detail}</p></div></div>)}</article>
+      <article className="panel alerts-panel dashboard-area dashboard-control"><div className="panel-heading"><div><p className="eyebrow">Нормативный контроль</p><h2>Режим труда и отдыха</h2></div></div><div className="control-rules"><strong>ФАП-128 / приказ № 381</strong><span>12 ч ежедневно · 10 ч после смены вне базы · 42 ч после 6 рабочих дней · 48 ч после двух разделённых смен</span></div><DashboardShortcut glyph="✓" title="Контрольный журнал" detail="Отдых, сроки, ночные допуски и документы" onClick={() => onNavigate("control")} /></article>
       <div className="dashboard-area dashboard-crews">
-      <DashboardBlock eyebrow="Расстановка экипажей" title="Планирование">
-        <DashboardShortcut glyph="✈" title="Расстановка экипажей" detail="Суточный состав, готовность и фактические полёты" onClick={() => onNavigate("crew")} />
-        <DashboardShortcut glyph="✓" title="Матрица подготовки" detail="Сроки, пробелы и предложения в план" onClick={() => onNavigate("training")} />
+      <DashboardBlock eyebrow="Планирование" title="Планы и занятость">
         <DashboardShortcut glyph="▦" title="Месячный план" detail="Борта, экипажи и занятость" onClick={() => onNavigate("planning")} />
         <DashboardShortcut glyph="▦" title="Фактический план" detail="Фактическая занятость по дням" onClick={() => onNavigate("actual")} />
       </DashboardBlock>
       </div>
       <article className="panel recent-panel dashboard-area dashboard-recent"><div className="panel-heading"><div><p className="eyebrow">Последние записи</p><h2>Недавние смены</h2></div><button className="link-button" onClick={onAddShift}>Добавить</button></div>{!shifts.length ? <div className="panel-empty">Смен пока нет</div> : dashboardRows(shifts).map((shift) => { const person = people.find((item) => item.id === shift.personId); const rest = restMap.get(shift.id); const assumedCompliant = assumedCompliantRestIds.has(shift.id); return <div className="shift-row" key={shift.id}><div className="date-tile"><strong>{shift.date.slice(8, 10)}</strong><span>{new Intl.DateTimeFormat("ru-RU", { month: "short" }).format(new Date(`${shift.date}T12:00:00`)).replace(".", "")}</span></div><div className="shift-main"><strong>{person?.name ?? "Сотрудник"}</strong><span>{activityLabels[shift.activity]} · {shift.start || "без времени"}</span></div><div className="shift-meta"><strong>{shift.workMinutes ? formatDuration(shift.workMinutes) : "—"}</strong><span>{shift.activity === "dayoff" ? "отдых 24 ч" : assumedCompliant ? "отдых по норме" : rest === undefined ? "первая смена" : `отдых ${formatDuration(rest)}`}</span></div></div>; })}</article>
       <div className="dashboard-area dashboard-expiry">
-      <DashboardBlock eyebrow="Сроки и допуски" title="Контроль">
-        <DashboardShortcut glyph="✓" title="Контрольный журнал" detail="Все предупреждения с главной страницы" onClick={() => onNavigate("control")} />
-      </DashboardBlock>
+      <details className="panel dashboard-tools"><summary><span><b>Дополнительные инструменты</b><small>Расстановка экипажей и матрица подготовки</small></span><i>⌄</i></summary><div><DashboardShortcut glyph="✈" title="Расстановка экипажей" detail="Суточный состав и готовность" onClick={() => onNavigate("crew")} /><DashboardShortcut glyph="✓" title="Матрица подготовки" detail="Подробный контроль по каждому сотруднику" onClick={() => onNavigate("training")} /></div></details>
       </div>
     </section></>;
 }
