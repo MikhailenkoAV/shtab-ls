@@ -22,7 +22,7 @@ test("GitHub Pages export contains the main application sections", async () => {
   assert.match(source, /title="Контрольный журнал"/);
   assert.match(source, /title="Месячный план"/);
   assert.match(source, /title="Фактический план"/);
-  assert.match(source, /solaris-berassom-bg\.jpeg/);
+  assert.doesNotMatch(source, /solaris-berassom-bg\.jpeg/);
   assert.match(source, /sidebar-icon\.png/);
   assert.match(source, /UTC/);
   assert.match(source, /Сочи/);

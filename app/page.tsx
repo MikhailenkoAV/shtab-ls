@@ -1326,7 +1326,7 @@ export default function Home() {
       <div className="header-status"><span className="status-dot" /><div><strong>{cloudPhase==="ready"?"Облачная база":cloudPhase==="offline"?"Нет подключения":cloudPhase==="conflict"?"Конфликт версий":"Синхронизация"}</strong><span className={`save-state ${saveState}`}>{cloudPhase==="ready"?(saveState === "saving" ? "Сохраняю…" : "Синхронизировано"):cloudError||"Локальная копия сохранена"}</span></div>{cloudPhase==="conflict"&&<button className="row-action" onClick={()=>void reloadCloud()}>Загрузить облачную</button>}<button className="row-action" onClick={()=>void supabase.auth.signOut()}>Выйти</button></div>
       <input ref={importRef} hidden type="file" accept="application/json,.json" onChange={importBackup} />
     </header>
-    <main className="workspace" style={{ backgroundImage: 'linear-gradient(180deg, rgba(242, 245, 246, .62), rgba(242, 245, 246, .82)), url("solaris-berassom-bg.jpeg")' }}>
+    <main className="workspace">
       <header className="topbar"><div className="topbar-title"><p className="eyebrow current-date">{new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date())}</p><h1>{viewTitle(view)}</h1></div>
         <WorldClocks />
         <div className="top-actions">{!["dashboard", "documentation", "settings"].includes(view) && <button className="secondary-button" onClick={() => setView("dashboard")}>← На главную</button>}</div>
