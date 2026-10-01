@@ -10,6 +10,7 @@ import { getExpiryState, isExpiryAttention, isMedicalCertificationSuperseded, la
 import { FlightBookView } from "./flight-book";
 import {
   buildFlightBook,
+  ExternalFlightRecord,
   FlightBookBaseline,
 } from "./flight-book-rules";
 import {
@@ -68,6 +69,7 @@ export function PersonalFilesView({
   shifts,
   records,
   baselines,
+  externalFlights,
   profiles,
   documentDefinitions,
   onImportClick,
@@ -75,6 +77,8 @@ export function PersonalFilesView({
   onDelete,
   onUpsertBaseline,
   onDeleteBaseline,
+  onUpsertExternalFlight,
+  onDeleteExternalFlight,
   onProfileChange,
   onDefinitionsChange,
   onNotify,
@@ -84,6 +88,7 @@ export function PersonalFilesView({
   shifts: FlightTimeShiftRef[];
   records: CertificationRecord[];
   baselines: FlightBookBaseline[];
+  externalFlights: ExternalFlightRecord[];
   profiles: Record<string, PilotPersonalProfile>;
   documentDefinitions: PersonalDocumentDefinition[];
   onImportClick: () => void;
@@ -91,6 +96,8 @@ export function PersonalFilesView({
   onDelete: (recordId: string) => void;
   onUpsertBaseline: (baseline: FlightBookBaseline) => void;
   onDeleteBaseline: (baselineId: string) => void;
+  onUpsertExternalFlight: (record: ExternalFlightRecord) => void;
+  onDeleteExternalFlight: (recordId: string) => void;
   onProfileChange: (personId: string, profile: PilotPersonalProfile) => void;
   onDefinitionsChange: (definitions: PersonalDocumentDefinition[]) => void;
   onNotify: (message: string) => void;
@@ -140,13 +147,15 @@ export function PersonalFilesView({
     [personId, records],
   );
   const flightBook = useMemo(
-    () => buildFlightBook(personId, shifts, baselines, person?.aircraftTypes ?? []),
-    [baselines, person?.aircraftTypes, personId, shifts],
+    () => buildFlightBook(personId, shifts, baselines, person?.aircraftTypes ?? [], externalFlights),
+    [baselines, externalFlights, person?.aircraftTypes, personId, shifts],
   );
   const thisMonth = localIsoDate().slice(0, 7);
   const currentMonthFlight = shifts
     .filter((shift) => shift.personId === personId && shift.activity === "flight" && shift.date.startsWith(thisMonth))
-    .reduce((total, shift) => total + shift.segments.reduce((sum, segment) => sum + Math.max(0, segment.flightMinutes || 0), 0), 0);
+    .reduce((total, shift) => total + shift.segments.reduce((sum, segment) => sum + Math.max(0, segment.flightMinutes || 0), 0), 0)
+    + externalFlights.filter((record) => record.personId === personId && record.month === thisMonth)
+      .reduce((total, record) => total + Math.max(0, record.flightMinutes || 0), 0);
   const recordsByGroup = (group: PersonalDocumentGroup) =>
     personRecords.filter((record) => recordGroup(record, definitions) === group);
 
@@ -173,7 +182,7 @@ export function PersonalFilesView({
         <select value={seatFilter} onChange={(event) => setSeatFilter(event.target.value)}><option value="">Все кресла</option>{seatOptions.map((item) => <option key={item}>{item}</option>)}</select>
       </div>
       <div className="pilot-items">{filteredPeople.map((item) => {
-        const total = buildFlightBook(item.id, shifts, baselines, item.aircraftTypes).total.totalMinutes;
+    const total = buildFlightBook(item.id, shifts, baselines, item.aircraftTypes, externalFlights).total.totalMinutes;
         const medicalExpiry = normalizePilotPersonalProfile(profiles[item.id]).medical.expiryDate;
         const currentRecords = latestCertificationRecords(records.filter((record) => record.personId === item.id));
         const warnings = currentRecords
@@ -247,8 +256,11 @@ export function PersonalFilesView({
         person={person}
         shifts={shifts}
         baselines={baselines}
+        externalFlights={externalFlights}
         onUpsert={onUpsertBaseline}
         onDelete={onDeleteBaseline}
+        onUpsertExternal={onUpsertExternalFlight}
+        onDeleteExternal={onDeleteExternalFlight}
       />}
     </section>}
 

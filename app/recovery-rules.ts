@@ -5,7 +5,7 @@ export type RecoveryCheckpoint<T> = {
   snapshot: T;
 };
 
-export type TrashKind = "person" | "shift" | "shiftSnapshot" | "certification" | "baseline" | "registry" | "medicalReferral" | "planAssignment" | "planBusy";
+export type TrashKind = "person" | "shift" | "shiftSnapshot" | "certification" | "baseline" | "externalFlight" | "registry" | "medicalReferral" | "planAssignment" | "planBusy";
 
 export type TrashEntry = {
   id: string;
@@ -28,6 +28,7 @@ const sectionLabels: Record<string, string> = {
   documentProfiles: "Анкетные данные",
   documentSettings: "Справочники документов",
   flightBookBaselines: "Исходный налёт",
+  externalFlightRecords: "Налёт по справкам",
   personalProfiles: "Карточки сотрудников",
   personalDocumentDefinitions: "Библиотека документов",
   trash: "Корзина",

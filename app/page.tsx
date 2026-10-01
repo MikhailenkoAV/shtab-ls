@@ -72,7 +72,7 @@ import {
   normalizeDocumentSettings,
   MedicalReferralRecord,
 } from "./documentation-rules";
-import { FlightBookBaseline } from "./flight-book-rules";
+import { ExternalFlightRecord, FlightBookBaseline } from "./flight-book-rules";
 import { employeeReadiness, EmployeeReadiness, readinessBlockReason, readinessForOperator } from "./readiness-rules";
 import { CrewDeploymentView } from "./crew-deployment";
 import { TrainingMatrixView } from "./training-matrix";
@@ -151,6 +151,7 @@ type AppData = {
   documentProfiles: Record<string, DocumentPersonProfile>;
   documentSettings: DocumentSettings;
   flightBookBaselines: FlightBookBaseline[];
+  externalFlightRecords: ExternalFlightRecord[];
   aircraftDocuments: AircraftDocumentRecord[];
   aircraftFleet: AircraftConfig[];
   personalProfiles: Record<string, PilotPersonalProfile>;
@@ -185,6 +186,7 @@ const EMPTY_DATA: AppData = {
   documentProfiles: {},
   documentSettings: EMPTY_DOCUMENT_SETTINGS,
   flightBookBaselines: [],
+  externalFlightRecords: [],
   aircraftDocuments: [],
   aircraftFleet: DEFAULT_AIRCRAFT_FLEET,
   personalProfiles: {},
@@ -348,6 +350,7 @@ function normalizeAppData(stored?: Partial<AppData>): AppData {
         documentProfiles: stored?.documentProfiles ?? {},
         documentSettings: normalizeDocumentSettings(stored?.documentSettings),
         flightBookBaselines: stored?.flightBookBaselines ?? [],
+        externalFlightRecords: stored?.externalFlightRecords ?? [],
         aircraftDocuments: (stored?.aircraftDocuments ?? []).map(normalizeAircraftDocument),
         aircraftFleet: (stored?.aircraftFleet?.length ? stored.aircraftFleet : DEFAULT_AIRCRAFT_FLEET).map((aircraft) => ({
           ...aircraft,
@@ -996,6 +999,7 @@ export default function Home() {
       }
       if (entry.kind === "certification") return { ...next, certifications: [...next.certifications.filter((item) => item.id !== (entry.payload as CertificationRecord).id), normalizeTrainingRecord(entry.payload as CertificationRecord)] };
       if (entry.kind === "baseline") return { ...next, flightBookBaselines: [...next.flightBookBaselines.filter((item) => item.id !== (entry.payload as FlightBookBaseline).id), entry.payload as FlightBookBaseline] };
+      if (entry.kind === "externalFlight") return { ...next, externalFlightRecords: [...next.externalFlightRecords.filter((item) => item.id !== (entry.payload as ExternalFlightRecord).id), entry.payload as ExternalFlightRecord] };
       if (entry.kind === "registry") return { ...next, documentRegistry: [...next.documentRegistry.filter((item) => item.id !== (entry.payload as DocumentRegistryRecord).id), entry.payload as DocumentRegistryRecord] };
       if (entry.kind === "medicalReferral") return { ...next, medicalReferrals: [...next.medicalReferrals.filter((item) => item.id !== (entry.payload as MedicalReferralRecord).id), entry.payload as MedicalReferralRecord] };
       if (entry.kind === "planAssignment") return { ...next, planAssignments: [...next.planAssignments.filter((item) => item.id !== (entry.payload as PlanAssignment).id), entry.payload as PlanAssignment] };
@@ -1178,6 +1182,20 @@ export default function Home() {
       trash: baseline ? [trashEntry("baseline", `Исходный налёт ${baseline.date}`, baseline), ...current.trash] : current.trash,
     }; });
     setToast("Контрольная точка перемещена в корзину");
+  }
+  function upsertExternalFlight(record: ExternalFlightRecord) {
+    setData((current) => ({ ...current, externalFlightRecords: current.externalFlightRecords.some((item) => item.id === record.id)
+      ? current.externalFlightRecords.map((item) => item.id === record.id ? record : item)
+      : [...current.externalFlightRecords, record] }));
+    setToast("Налёт по справке сохранён");
+  }
+  function deleteExternalFlight(recordId: string) {
+    setData((current) => { const record = current.externalFlightRecords.find((item) => item.id === recordId); return {
+      ...current,
+      externalFlightRecords: current.externalFlightRecords.filter((item) => item.id !== recordId),
+      trash: record ? [trashEntry("externalFlight", `Налёт по справке за ${record.month}`, record), ...current.trash] : current.trash,
+    }; });
+    setToast("Налёт по справке перемещён в корзину");
   }
   function savePilotPersonalProfile(personId: string, profile: PilotPersonalProfile) {
     const passportParts = profile.personalInfo.passportSeriesNumber.trim().split(/\s+/);
@@ -1395,6 +1413,7 @@ export default function Home() {
             shifts={sortedShifts}
             assignments={data.planAssignments}
             busyEntries={data.planBusyEntries}
+            externalFlights={data.externalFlightRecords}
             restMap={restMap}
             assumedCompliantRestIds={assumedCompliantRestIds}
             onAdd={() => openNewShift()}
@@ -1419,6 +1438,7 @@ export default function Home() {
                 shifts={expandedShifts}
                 records={data.certifications}
                 baselines={data.flightBookBaselines}
+                externalFlights={data.externalFlightRecords}
                 profiles={data.personalProfiles}
                 documentDefinitions={data.personalDocumentDefinitions}
                 onImportClick={() => setAviabitModal(true)}
@@ -1426,6 +1446,8 @@ export default function Home() {
                 onDelete={deleteCertification}
                 onUpsertBaseline={upsertFlightBookBaseline}
                 onDeleteBaseline={deleteFlightBookBaseline}
+                onUpsertExternalFlight={upsertExternalFlight}
+                onDeleteExternalFlight={deleteExternalFlight}
                 onProfileChange={savePilotPersonalProfile}
                 onDefinitionsChange={(definitions) => setData((current) => ({ ...current, personalDocumentDefinitions: definitions }))}
                 onNotify={setToast}
@@ -1663,6 +1685,7 @@ function ShiftsView({
   shifts,
   assignments,
   busyEntries,
+  externalFlights,
   restMap,
   assumedCompliantRestIds,
   onAdd,
@@ -1679,6 +1702,7 @@ function ShiftsView({
   shifts: Shift[];
   assignments: PlanAssignment[];
   busyEntries: PlanBusyEntry[];
+  externalFlights: ExternalFlightRecord[];
   restMap: Map<string, number>;
   assumedCompliantRestIds: Set<string>;
   onAdd: () => void;
@@ -1732,7 +1756,7 @@ function ShiftsView({
   return <><section className="panel table-panel"><div className="panel-heading"><div><p className="eyebrow">Единый журнал</p><h2>Смены за выбранный период</h2></div><div className="journal-heading-actions"><button className="secondary-button" disabled={!people.length} onClick={() => setFlightTaskImportOpen(true)}>Импорт полётного задания</button><button className="secondary-button" disabled={!people.length} onClick={() => setImportOpen(true)}>Импорт рабочего времени</button><button className="secondary-button pdf-button" disabled={!people.length} onClick={() => setReportOpen(true)}>Отчёт PDF</button><button className="primary-button" disabled={!people.length} onClick={onAdd}>+ Новая смена</button></div></div>
     <div className="journal-filters"><Field label="Период с"><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></Field><Field label="Период по"><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field><Field label="Сотрудник"><select value={personId} onChange={(event) => setPersonId(event.target.value)}><option value="">Все сотрудники</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field><div className="quick-filters"><button className="secondary-button" onClick={showToday}>Сегодня</button><button className="secondary-button month-arrow" title="Предыдущий месяц" aria-label="Предыдущий месяц" onClick={() => showAdjacentMonth(-1)}>←</button><button className="secondary-button" onClick={showCurrentMonth}>Текущий месяц</button><button className="secondary-button month-arrow" title="Следующий месяц" aria-label="Следующий месяц" onClick={() => showAdjacentMonth(1)}>→</button></div></div>
     <div className="journal-summary">Показано строк: <strong>{journalRows.length}</strong>{dateFrom === dateTo ? ` · ${formatDate(dateFrom)}` : ` · ${formatDate(dateFrom)} — ${formatDate(dateTo)}`}</div>
-    {!journalRows.length ? <div className="panel-empty tall">За выбранный период смен нет.</div> : <div className="table-scroll"><table><thead><tr><th>Дата</th><th>Сотрудник</th><th>Занятость</th><th>Начало–конец</th><th>ВС / кресло</th><th>Цель</th><th>Рабочее</th><th>Полётное / ночь</th><th>Отдых</th><th>Примечание</th><th>Действия</th></tr></thead><tbody>{journalRows.map((row, rowIndex) => {
+    {!journalRows.length ? <div className="panel-empty tall">За выбранный период смен нет.</div> : <div className="table-scroll journal-table-scroll"><table className="journal-table"><thead><tr><th>Дата</th><th>Сотрудник</th><th>Занятость</th><th>Начало–конец</th><th>ВС / кресло</th><th>Цель</th><th>Рабочее</th><th>Полётное / ночь</th><th>Отдых</th><th>Примечание</th><th>Действия</th></tr></thead><tbody>{journalRows.map((row, rowIndex) => {
       const person = people.find((item) => item.id === row.personId);
       if (row.kind === "actual") {
         const { shift, sourceShift, segment, segmentIndex } = row;
@@ -1762,7 +1786,7 @@ function ShiftsView({
       }
       return <tr className="planned-row" key={`busy-${row.entry.id}-${row.date}`}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{planBusyLabels[row.entry.activity]}<span className="source-pill">Из месячного плана</span></span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td className="note-cell">{row.entry.note || "Из месячного плана"}</td><td><div className="row-actions"><button onClick={() => onEditPlan({ kind: "busy", id: row.entry.id })}>Изменить</button><button className="delete" onClick={() => { if (window.confirm(`Удалить занятость «${planBusyLabels[row.entry.activity]}» за ${formatDate(row.date)}?`)) onDeletePlanBusy(row.entry.id); }}>Удалить</button></div></td></tr>;
     })}</tbody></table></div>}
-  </section>{reportOpen && <FlightReportModal people={people} shifts={shifts} assignments={assignments} busyEntries={busyEntries} onClose={() => setReportOpen(false)} onNotify={onNotify} />}{importOpen && <WorkTimeImportModal people={people} shifts={shifts} onClose={() => setImportOpen(false)} onSubmit={(records) => { onImport(records); setImportOpen(false); }} />}{flightTaskImportOpen && <FlightTaskImportModal people={people} onClose={() => setFlightTaskImportOpen(false)} onSubmit={(records) => { onImport(records); setFlightTaskImportOpen(false); onNotify("Полётное задание проверено и добавлено в Единый журнал."); }} />}</>;
+  </section>{reportOpen && <FlightReportModal people={people} shifts={shifts} externalFlights={externalFlights} assignments={assignments} busyEntries={busyEntries} onClose={() => setReportOpen(false)} onNotify={onNotify} />}{importOpen && <WorkTimeImportModal people={people} shifts={shifts} onClose={() => setImportOpen(false)} onSubmit={(records) => { onImport(records); setImportOpen(false); }} />}{flightTaskImportOpen && <FlightTaskImportModal people={people} onClose={() => setFlightTaskImportOpen(false)} onSubmit={(records) => { onImport(records); setFlightTaskImportOpen(false); onNotify("Полётное задание проверено и добавлено в Единый журнал."); }} />}</>;
 }
 
 function RestCell({
@@ -1800,9 +1824,10 @@ function RestCell({
   </span>;
 }
 
-function FlightReportModal({ people, shifts, assignments, busyEntries, onClose, onNotify }: { people: Person[]; shifts: Shift[]; assignments: PlanAssignment[]; busyEntries: PlanBusyEntry[]; onClose: () => void; onNotify: (message: string) => void }) {
+function FlightReportModal({ people, shifts, externalFlights, assignments, busyEntries, onClose, onNotify }: { people: Person[]; shifts: Shift[]; externalFlights: ExternalFlightRecord[]; assignments: PlanAssignment[]; busyEntries: PlanBusyEntry[]; onClose: () => void; onNotify: (message: string) => void }) {
   const today = new Date();
   const reportShifts = useMemo(() => expandLinkedCrewShifts(shifts), [shifts]);
+  const flightReportShifts = useMemo(() => [...reportShifts, ...externalFlights.map((record) => ({ id: `external-${record.id}`, personId: record.personId, date: `${record.month}-01`, activity: "flight", note: record.note, segments: [{ id: record.id, aircraft: record.aircraft, aircraftType: record.aircraftType, seat: record.seat, purpose: record.purpose || "По справке", flightMinutes: record.flightMinutes, nightMinutes: record.nightMinutes }] }))], [externalFlights, reportShifts]);
   type ReportType = "flight" | "employment" | "cumulative" | "summary";
   const [reportType, setReportType] = useState<ReportType>("flight");
   const [dateFrom, setDateFrom] = useState(localIsoDate(new Date(today.getFullYear(), today.getMonth(), 1)));
@@ -1815,10 +1840,10 @@ function FlightReportModal({ people, shifts, assignments, busyEntries, onClose, 
     if (!dateTo || (reportType !== "cumulative" && (!dateFrom || dateFrom > dateTo))) { setError("Проверьте даты периода отчёта."); return; }
     setExporting(true); setError("");
     try {
-      if (reportType === "flight") await downloadFlightReport(dateFrom, dateTo, people, reportShifts, personId || null);
+      if (reportType === "flight") await downloadFlightReport(dateFrom, dateTo, people, flightReportShifts, personId || null);
       else if (reportType === "employment") await downloadEmploymentReport(dateFrom, dateTo, people, reportShifts, personId || null, assignments, busyEntries);
-      else if (reportType === "cumulative") await downloadCumulativeFlightExcel(dateTo, people, reportShifts);
-      else await downloadSummaryFlightReport(dateFrom, dateTo, people, reportShifts, personId || null);
+      else if (reportType === "cumulative") await downloadCumulativeFlightExcel(dateTo, people, flightReportShifts);
+      else await downloadSummaryFlightReport(dateFrom, dateTo, people, flightReportShifts, personId || null);
       onNotify(reportType === "cumulative" ? "Excel-отчёт сформирован" : "PDF-отчёт сформирован"); onClose();
     } catch {
       setError(`Не удалось сформировать ${reportType === "cumulative" ? "Excel" : "PDF"}. Попробуйте ещё раз.`);

@@ -24,6 +24,21 @@ export type FlightBookBaseline = {
   createdAt: string;
 };
 
+export type ExternalFlightRecord = {
+  id: string;
+  personId: string;
+  month: string;
+  aircraftType: string;
+  aircraft: string;
+  seat: string;
+  purpose: string;
+  flightMinutes: number;
+  nightMinutes: number;
+  source: string;
+  note: string;
+  createdAt: string;
+};
+
 export type FlightBookShiftRef = {
   id?: string;
   personId: string;
@@ -125,6 +140,7 @@ export function buildFlightBook(
   shifts: FlightBookShiftRef[],
   baselines: FlightBookBaseline[],
   allowedAircraftTypes: string[] = [],
+  externalFlights: ExternalFlightRecord[] = [],
 ): FlightBookResult {
   const baseline = latestFlightBookBaseline(baselines, personId);
   const siteFlightStartDate = journalStartDate(baseline);
@@ -181,6 +197,32 @@ export function buildFlightBook(
         nightMinutes,
       });
     }));
+
+  externalFlights
+    .filter((record) => record.personId === personId && (!baseline?.date || `${record.month}-01` > baseline.date))
+    .forEach((record) => {
+      const aircraftType = canonicalAircraftType(record.aircraftType) || "Без типа";
+      const flightMinutes = Math.max(0, record.flightMinutes || 0);
+      const nightMinutes = Math.max(0, record.nightMinutes || 0);
+      const seat = record.seat?.trim() || "КВС";
+      addTotals(ensure(aircraftType), {
+        totalMinutes: flightMinutes,
+        picMinutes: /квс|командир/i.test(seat) && !/инструктор/i.test(seat) ? flightMinutes : 0,
+        secondPilotMinutes: /2п|втор/i.test(seat) ? flightMinutes : 0,
+        instructorMinutes: /инструктор/i.test(seat) ? flightMinutes : 0,
+        nightMinutes,
+      });
+      entries.push({
+        id: record.id,
+        date: `${record.month}-01`,
+        aircraftType,
+        aircraft: record.aircraft,
+        seat,
+        purpose: record.purpose || "По справке",
+        flightMinutes,
+        nightMinutes,
+      });
+    });
 
   const rows = [...byType.values()]
     .filter((row) => Object.values(row).some((value) => typeof value === "number" && value > 0)

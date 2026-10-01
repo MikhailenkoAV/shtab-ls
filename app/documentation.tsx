@@ -253,12 +253,13 @@ export function DocumentationView({
     <article className="panel documentation-intro"><div><p className="eyebrow">Документы лётной службы</p><h2>Документационный контур</h2><p>Реестр перенесён из вашей рабочей книги. Формы заполняются из личных дел, а незаполненные поля можно исправить прямо перед выгрузкой.</p></div><span>Локальная база</span></article>
     <nav className="documentation-tabs panel" aria-label="Разделы документации">
       <button className={tab === "registry" ? "active" : ""} onClick={() => setTab("registry")}><strong>Реестр</strong><small>{registry.length} записей</small></button>
-      <button className={tab === "aircraft" ? "active" : ""} onClick={() => setTab("aircraft")}><strong>Судовая документация</strong><small>КВП и АОН</small></button>
+      {SHOW_AIRCRAFT_DOCUMENTS && <button className={tab === "aircraft" ? "active" : ""} onClick={() => setTab("aircraft")}><strong>Судовая документация</strong><small>КВП и АОН</small></button>}
       <button className={tab === "forms" ? "active" : ""} onClick={() => setTab("forms")}><strong>Формирование</strong><small>Word и PDF</small></button>
       <button className={tab === "references" ? "active" : ""} onClick={() => setTab("references")}><strong>Справочники</strong><small>АУЦ и программы</small></button>
     </nav>
 
-    {tab === "aircraft" && <AircraftDocumentsView records={aircraftDocuments} people={people} certifications={certifications} onSave={onSaveAircraftDocument} onDelete={onDeleteAircraftDocument} />}
+    {SHOW_AIRCRAFT_DOCUMENTS && tab === "aircraft" && <AircraftDocumentsView records={aircraftDocuments} people={people} certifications={certifications} onSave={onSaveAircraftDocument} onDelete={onDeleteAircraftDocument} />}
+
 
     {tab === "registry" && <section className="panel documentation-workspace">
       <div className="panel-heading"><div><p className="eyebrow">Реестр ЛС</p><h2>{registryKind === "medicalReferral" ? "Медицинские направления" : registryKindLabels[registryKind]}</h2></div><button className="primary-button" onClick={() => registryKind === "medicalReferral" ? setMedicalEditing("new") : setRegistryEditing("new")}>+ Новая запись</button></div>
@@ -581,3 +582,4 @@ function RegistryModal({
     <div className="form-actions split">{onDelete && <button type="button" className="danger-button" onClick={onDelete}>Удалить</button>}<span /><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button">Сохранить</button></div>
   </form></section></div>;
 }
+const SHOW_AIRCRAFT_DOCUMENTS = false;

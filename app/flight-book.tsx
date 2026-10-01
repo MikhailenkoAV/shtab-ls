@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   buildFlightBook,
+  ExternalFlightRecord,
   FlightBookBaseline,
   FlightBookBaselineRow,
   FlightBookShiftRef,
@@ -31,30 +32,39 @@ export function FlightBookView({
   person,
   shifts,
   baselines,
+  externalFlights = [],
   onUpsert,
   onDelete,
+  onUpsertExternal = () => undefined,
+  onDeleteExternal = () => undefined,
 }: {
   person: FlightBookPerson;
   shifts: FlightBookShiftRef[];
   baselines: FlightBookBaseline[];
+  externalFlights?: ExternalFlightRecord[];
   onUpsert: (baseline: FlightBookBaseline) => void;
   onDelete: (baselineId: string) => void;
+  onUpsertExternal?: (record: ExternalFlightRecord) => void;
+  onDeleteExternal?: (recordId: string) => void;
 }) {
   const [editing, setEditing] = useState<FlightBookBaseline | "new" | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [externalEditing, setExternalEditing] = useState<ExternalFlightRecord | "new" | null>(null);
+  const personExternalFlights = useMemo(() => externalFlights.filter((item) => item.personId === person.id)
+    .sort((left, right) => `${right.month}|${right.createdAt}`.localeCompare(`${left.month}|${left.createdAt}`)), [externalFlights, person.id]);
   const personBaselines = useMemo(() => baselines
     .filter((item) => item.personId === person.id)
     .sort((left, right) => `${right.date}|${right.createdAt}`.localeCompare(`${left.date}|${left.createdAt}`)),
   [baselines, person.id]);
   const result = useMemo(
-    () => buildFlightBook(person.id, shifts, baselines, person.aircraftTypes),
-    [baselines, person.aircraftTypes, person.id, shifts],
+    () => buildFlightBook(person.id, shifts, baselines, person.aircraftTypes, externalFlights),
+    [baselines, externalFlights, person.aircraftTypes, person.id, shifts],
   );
 
   return <div className="flight-book-layout">
     <section className="panel flight-book-summary">
-      <div className="panel-heading"><div><p className="eyebrow">Лётная книжка</p><h2>Суммарный налёт</h2></div><div className="hero-actions"><button className="secondary-button" onClick={() => setImportOpen(true)}>Импорт из Excel</button><button className="primary-button" onClick={() => setEditing("new")}>+ Исходный налёт</button></div></div>
-      <div className="flight-book-rule"><strong>Формула расчёта</strong><span>Последняя контрольная точка + полёты из единого журнала после её даты. Если исходный налёт не внесён, учитываются все записи сайта.</span></div>
+      <div className="panel-heading"><div><p className="eyebrow">Лётная книжка</p><h2>Суммарный налёт</h2></div><div className="hero-actions"><button className="secondary-button" onClick={() => setExternalEditing("new")}>+ Налёт по справке</button><button className="secondary-button" onClick={() => setImportOpen(true)}>Импорт из Excel</button><button className="primary-button" onClick={() => setEditing("new")}>+ Исходный налёт</button></div></div>
+      <div className="flight-book-rule"><strong>Формула расчёта</strong><span>Последняя контрольная точка + полёты из единого журнала + внесённый налёт по справкам. Справки не создают полётные смены и не влияют на труд и отдых.</span></div>
       <div className="flight-book-metrics">
         <FlightMetric label="Общий налёт" value={result.total.totalMinutes} tone="teal" />
         <FlightMetric label="КВС" value={result.total.picMinutes} tone="navy" />
@@ -69,6 +79,10 @@ export function FlightBookView({
     </section>
 
     <section className="flight-book-bottom-grid">
+      <article className="panel baseline-history external-flight-history">
+        <div className="panel-heading"><div><p className="eyebrow">Отдельный учёт</p><h2>Налёт по справкам</h2></div><span className="count-badge">{personExternalFlights.length}</span></div>
+        {!personExternalFlights.length ? <div className="panel-empty">Дополнительный налёт по справкам ещё не внесён.</div> : <div className="baseline-items">{personExternalFlights.map((record) => <div key={record.id}><div><strong>{new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric" }).format(new Date(`${record.month}-01T12:00:00`))}</strong><span>{record.aircraftType}{record.aircraft ? ` · ${record.aircraft}` : ""} · {displayMinutes(record.flightMinutes)} · {record.source || "Справка о налёте"}</span></div><div><button onClick={() => setExternalEditing(record)}>Изменить</button><button className="delete" onClick={() => { if (window.confirm("Удалить налёт по этой справке?")) onDeleteExternal(record.id); }}>Удалить</button></div></div>)}</div>}
+      </article>
       <article className="panel baseline-history">
         <div className="panel-heading"><div><p className="eyebrow">Исходные данные</p><h2>История исходного налёта</h2></div></div>
         {!personBaselines.length ? <div className="panel-empty">Исходный налёт ещё не внесён. Сумма строится только по журналу сайта.</div> : <div className="baseline-items">{personBaselines.map((baseline, index) => <div key={baseline.id} className={index === 0 ? "active" : ""}><div><strong>{displayDate(baseline.date)}</strong><span>{baseline.source || "Источник не указан"} · {baseline.rows.length} типов ВС</span></div><div>{index === 0 && <i>Используется</i>}<button onClick={() => setEditing(baseline)}>Изменить</button><button className="delete" onClick={() => {
@@ -92,7 +106,30 @@ export function FlightBookView({
       onClose={() => setImportOpen(false)}
       onSave={(baseline) => { onUpsert(baseline); setImportOpen(false); }}
     />}
+    {externalEditing && <ExternalFlightModal person={person} record={externalEditing === "new" ? null : externalEditing} onClose={() => setExternalEditing(null)} onSave={(record) => { onUpsertExternal(record); setExternalEditing(null); }} />}
   </div>;
+}
+
+function ExternalFlightModal({ person, record, onClose, onSave }: { person: FlightBookPerson; record: ExternalFlightRecord | null; onClose: () => void; onSave: (record: ExternalFlightRecord) => void }) {
+  const currentMonth = localIsoDate().slice(0, 7);
+  const [month, setMonth] = useState(record?.month ?? currentMonth);
+  const [aircraftType, setAircraftType] = useState(record?.aircraftType ?? person.aircraftTypes[0] ?? "");
+  const [aircraft, setAircraft] = useState(record?.aircraft ?? "");
+  const [seat, setSeat] = useState(record?.seat ?? "КВС");
+  const [purpose, setPurpose] = useState(record?.purpose ?? "");
+  const [flight, setFlight] = useState(durationDraft(record?.flightMinutes ?? 0));
+  const [night, setNight] = useState(durationDraft(record?.nightMinutes ?? 0));
+  const [source, setSource] = useState(record?.source ?? "Справка о налёте");
+  const [note, setNote] = useState(record?.note ?? "");
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal wide" role="dialog" aria-modal="true"><header><div><p className="eyebrow">Лётная книжка · {person.name}</p><h2>{record ? "Изменить налёт по справке" : "Внести налёт по справке"}</h2><span>Запись попадёт в выбранный месяц, но не создаст полётную смену.</span></div><button className="modal-close" aria-label="Закрыть" onClick={onClose}>×</button></header><form className="form-stack" onSubmit={(event) => { event.preventDefault(); const flightMinutes = parseDuration(flight); const nightMinutes = Math.min(flightMinutes, parseDuration(night)); if (!month || !aircraftType.trim() || flightMinutes <= 0) return; onSave({ id: record?.id ?? uid(), personId: person.id, month, aircraftType: canonicalAircraftType(aircraftType), aircraft: aircraft.trim().toUpperCase(), seat, purpose: purpose.trim(), flightMinutes, nightMinutes, source: source.trim(), note: note.trim(), createdAt: record?.createdAt ?? new Date().toISOString() }); }}>
+    <div className="flight-book-form-note"><strong>Важно</strong><span>Этот налёт участвует в лётной книжке и справке за выбранный месяц. Рабочее время, отдых и число полётных смен не меняются.</span></div>
+    <div className="form-grid two"><label className="field"><span>Месяц учёта</span><input required type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label><label className="field"><span>Источник</span><input value={source} onChange={(event) => setSource(event.target.value)} placeholder="Организация, номер справки" /></label></div>
+    <div className="form-grid three"><label className="field"><span>Тип ВС</span><input required list="flight-book-aircraft-types" value={aircraftType} onChange={(event) => setAircraftType(event.target.value)} /></label><label className="field"><span>Бортовой №</span><input value={aircraft} onChange={(event) => setAircraft(event.target.value)} placeholder="RA-00000" /></label><label className="field"><span>Кресло</span><select value={seat} onChange={(event) => setSeat(event.target.value)}><option>КВС</option><option>2-й пилот</option><option>Пилот-инструктор</option></select></label></div>
+    <div className="form-grid three"><label className="field"><span>Общий налёт, ч:мин</span><input required value={flight} onChange={(event) => setFlight(compactDuration(event.target.value))} /></label><label className="field"><span>Из них ночью</span><input value={night} onChange={(event) => setNight(compactDuration(event.target.value))} /></label><label className="field"><span>Цель полёта</span><input value={purpose} onChange={(event) => setPurpose(event.target.value)} /></label></div>
+    <label className="field"><span>Примечание</span><textarea value={note} onChange={(event) => setNote(event.target.value)} /></label>
+    <datalist id="flight-book-aircraft-types">{person.aircraftTypes.map((type) => <option key={type} value={type} />)}</datalist>
+    <div className="form-actions"><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button className="primary-button" type="submit">Сохранить налёт</button></div>
+  </form></section></div>;
 }
 
 function FlightMetric({ label, value, tone }: { label: string; value: number; tone: string }) {
