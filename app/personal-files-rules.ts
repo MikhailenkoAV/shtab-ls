@@ -9,6 +9,7 @@ export type ExpiryRecordRef = {
 
 export type CertificationHistoryRef = ExpiryRecordRef & {
   id: string;
+  personId?: string;
   category?: string;
   certificationType?: string;
   aircraftType?: string;
@@ -68,8 +69,9 @@ function normalizedCertificationName(record: CertificationHistoryRef): string {
 }
 
 export function certificationHistoryKey(record: CertificationHistoryRef): string {
+  const person = (record.personId ?? "").toLocaleLowerCase("ru-RU").trim();
   const aircraft = (record.aircraftType ?? "").toLocaleLowerCase("ru-RU").replace(/\s+/g, "");
-  return `${normalizedCertificationName(record)}|${aircraft}`;
+  return `${person}|${normalizedCertificationName(record)}|${aircraft}`;
 }
 
 export function latestCertificationRecords<T extends CertificationHistoryRef>(records: T[]): T[] {
