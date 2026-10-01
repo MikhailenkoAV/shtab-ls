@@ -33,6 +33,22 @@ test("only the newest document of the same kind and aircraft type participates i
   assert.deepEqual(latestCertificationRecords(records).map((item) => item.id).sort(), ["new", "other-type"]);
 });
 
+test("documents of different people never hide each other's warnings", () => {
+  const common = { category: "Подготовка", certificationType: "Опасные грузы", aircraftType: "", issuedDate: "", startDate: "", organization: "", documentType: "Свидетельство", number: "" };
+  const records = [
+    { ...common, id: "fedorov-dangerous-goods", personId: "fedorov", endDate: "2026-09-20" },
+    { ...common, id: "other-dangerous-goods", personId: "other", endDate: "2027-09-20" },
+    { ...common, id: "fedorov-vlek", personId: "fedorov", certificationType: "ВЛЭК", documentType: "Медицинское заключение", endDate: "2026-10-10" },
+    { ...common, id: "other-vlek", personId: "other", certificationType: "ВЛЭК", documentType: "Медицинское заключение", endDate: "2027-10-10" },
+  ];
+  assert.deepEqual(latestCertificationRecords(records).map((item) => item.id).sort(), [
+    "fedorov-dangerous-goods",
+    "fedorov-vlek",
+    "other-dangerous-goods",
+    "other-vlek",
+  ]);
+});
+
 test("empty Aviabit headings do not increase the personal-file warning badge", () => {
   const emptyId = { ...record(""), issuedDate: "", certificationType: "ID-карта" };
   const emptyInstructorTraining = { ...record(""), issuedDate: "", certificationType: "Подготовка летно-инструкторского состава ГА" };
