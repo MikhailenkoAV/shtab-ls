@@ -106,6 +106,18 @@ test("without a control point all journal flights are included", () => {
   assert.equal(result.entries.length, 1);
 });
 
+test("flight-time certificates add to the book without becoming site flight time", () => {
+  const result = buildFlightBook("pilot", [], [], ["R44"], [{
+    id: "certificate", personId: "pilot", month: "2026-09", aircraftType: "R44", aircraft: "RA-04186",
+    seat: "КВС", purpose: "КВП", flightMinutes: 125, nightMinutes: 15, source: "Справка № 12", note: "", createdAt: "2026-10-01T00:00:00Z",
+  }]);
+  assert.equal(result.total.totalMinutes, 125);
+  assert.equal(result.total.picMinutes, 125);
+  assert.equal(result.total.nightMinutes, 15);
+  assert.equal(result.total.siteMinutes, 0);
+  assert.equal(result.entries.length, 1);
+});
+
 test("an imported baseline can add journal flights from July 2026", () => {
   const result = buildFlightBook("pilot", [
     shift({ id: "june", date: "2026-06-30" }),
