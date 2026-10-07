@@ -1,12 +1,35 @@
 export type AircraftOperator = "КВП" | "АОН" | "АР";
 
+export const AIRCRAFT_OPERATORS: readonly AircraftOperator[] = ["КВП", "АОН", "АР"];
+
 export type AircraftConfig = {
   id: string;
   type: string;
   number: string;
   operator: AircraftOperator;
+  operators?: AircraftOperator[];
   monthlyPlanEnabled: boolean;
 };
+
+export function normalizeAircraftOperators(
+  operators: readonly unknown[] | undefined,
+  legacyOperator?: unknown,
+): AircraftOperator[] {
+  const valid = (value: unknown): value is AircraftOperator => AIRCRAFT_OPERATORS.includes(value as AircraftOperator);
+  const normalized = [...new Set((operators ?? []).filter(valid))];
+  if (normalized.length) return normalized;
+  return valid(legacyOperator) ? [legacyOperator] : ["АОН"];
+}
+
+export function toggleAircraftOperator(
+  operators: readonly AircraftOperator[],
+  operator: AircraftOperator,
+): AircraftOperator[] {
+  const current = normalizeAircraftOperators(operators);
+  if (!current.includes(operator)) return AIRCRAFT_OPERATORS.filter((item) => [...current, operator].includes(item));
+  if (current.length === 1) return current;
+  return current.filter((item) => item !== operator);
+}
 
 export const aircraftNumbersByType: Readonly<Record<string, readonly string[]>> = {
   AW109: ["RA-01902"],
@@ -25,6 +48,7 @@ export const DEFAULT_AIRCRAFT_FLEET: AircraftConfig[] = Object.entries(aircraftN
     type,
     number,
     operator: "АОН" as AircraftOperator,
+    operators: ["АОН" as AircraftOperator],
     monthlyPlanEnabled: !["RA-01619", "RA-05828", "RA-01697", "RA-04063"].includes(number),
   })));
 

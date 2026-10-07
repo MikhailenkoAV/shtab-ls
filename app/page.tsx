@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { activityUsesTime as usesTime, isRestNeutralActivity, normalizeActivityTiming } from "./activity-rules";
-import { AircraftConfig, AircraftOperator, aircraftNumbersByType, canonicalAircraftType, DEFAULT_AIRCRAFT_FLEET } from "./aircraft-rules";
+import { AIRCRAFT_OPERATORS, AircraftConfig, AircraftOperator, aircraftNumbersByType, canonicalAircraftType, DEFAULT_AIRCRAFT_FLEET, normalizeAircraftOperators, toggleAircraftOperator } from "./aircraft-rules";
 import { normalizeTrainingRecord } from "./training-record-rules";
 import {
   downloadEmploymentReport,
@@ -352,13 +352,17 @@ function normalizeAppData(stored?: Partial<AppData>): AppData {
         flightBookBaselines: stored?.flightBookBaselines ?? [],
         externalFlightRecords: stored?.externalFlightRecords ?? [],
         aircraftDocuments: (stored?.aircraftDocuments ?? []).map(normalizeAircraftDocument),
-        aircraftFleet: (stored?.aircraftFleet?.length ? stored.aircraftFleet : DEFAULT_AIRCRAFT_FLEET).map((aircraft) => ({
-          ...aircraft,
-          type: canonicalAircraftType(aircraft.type),
-          number: aircraft.number.trim().toUpperCase(),
-          operator: (["КВП", "АОН", "АР"].includes(aircraft.operator) ? aircraft.operator : "АОН") as AircraftOperator,
-          monthlyPlanEnabled: aircraft.monthlyPlanEnabled !== false,
-        })),
+        aircraftFleet: (stored?.aircraftFleet?.length ? stored.aircraftFleet : DEFAULT_AIRCRAFT_FLEET).map((aircraft) => {
+          const operators = normalizeAircraftOperators(aircraft.operators, aircraft.operator);
+          return {
+            ...aircraft,
+            type: canonicalAircraftType(aircraft.type),
+            number: aircraft.number.trim().toUpperCase(),
+            operator: operators[0],
+            operators,
+            monthlyPlanEnabled: aircraft.monthlyPlanEnabled !== false,
+          };
+        }),
         personalProfiles: Object.fromEntries(Object.entries(stored?.personalProfiles ?? {})
           .map(([personId, profile]) => [personId, normalizePilotPersonalProfile(profile)])),
         personalDocumentDefinitions: migratePersonalDocumentDefinitions(
@@ -1625,15 +1629,15 @@ function SettingsView({
 }) {
   const [newAircraftType, setNewAircraftType] = useState("");
   const [newAircraftNumber, setNewAircraftNumber] = useState("");
-  const [newAircraftOperator, setNewAircraftOperator] = useState<AircraftOperator>("АОН");
+  const [newAircraftOperators, setNewAircraftOperators] = useState<AircraftOperator[]>(["АОН"]);
   const [fleetError, setFleetError] = useState("");
   function addAircraft() {
     const type = canonicalAircraftType(newAircraftType);
     const number = newAircraftNumber.trim().toUpperCase();
     if (!type || !number) { setFleetError("Укажите тип ВС и бортовой номер."); return; }
     if (fleet.some((aircraft) => aircraft.number === number)) { setFleetError("Такой бортовой номер уже добавлен."); return; }
-    onFleetChange([...fleet, { id: uid(), type, number, operator: newAircraftOperator, monthlyPlanEnabled: true }]);
-    setNewAircraftType(""); setNewAircraftNumber(""); setNewAircraftOperator("АОН"); setFleetError("");
+    onFleetChange([...fleet, { id: uid(), type, number, operator: newAircraftOperators[0], operators: newAircraftOperators, monthlyPlanEnabled: true }]);
+    setNewAircraftType(""); setNewAircraftNumber(""); setNewAircraftOperators(["АОН"]); setFleetError("");
   }
   return <section className="settings-layout">
     <article className="panel settings-card settings-company-card"><div className="panel-heading"><div><p className="eyebrow">Реквизиты</p><h2>Карточка предприятия</h2></div><span className="settings-auto-save">Сохраняется автоматически</span></div><div className="settings-form form-stack">
@@ -1657,11 +1661,11 @@ function SettingsView({
       <div className="fleet-settings-list">{fleet.map((aircraft) => <div className="fleet-settings-row" key={aircraft.id}>
         <input aria-label="Тип ВС" value={aircraft.type} onChange={(event) => onFleetChange(fleet.map((item) => item.id === aircraft.id ? { ...item, type: canonicalAircraftType(event.target.value) } : item))} />
         <input aria-label="Бортовой номер" value={aircraft.number} onChange={(event) => onFleetChange(fleet.map((item) => item.id === aircraft.id ? { ...item, number: event.target.value.toUpperCase() } : item))} />
-        <div className="fleet-operator-options" aria-label={`Эксплуатант ${aircraft.number}`}>{(["КВП", "АОН", "АР"] as AircraftOperator[]).map((operator) => <label key={operator}><input type="checkbox" checked={aircraft.operator === operator} onChange={() => onFleetChange(fleet.map((item) => item.id === aircraft.id ? { ...item, operator } : item))} /><span>{operator}</span></label>)}</div>
+        <div className="fleet-operator-options" aria-label={`Эксплуатант ${aircraft.number}`}>{AIRCRAFT_OPERATORS.map((operator) => <label key={operator}><input type="checkbox" checked={normalizeAircraftOperators(aircraft.operators, aircraft.operator).includes(operator)} onChange={() => onFleetChange(fleet.map((item) => { if (item.id !== aircraft.id) return item; const operators = toggleAircraftOperator(normalizeAircraftOperators(item.operators, item.operator), operator); return { ...item, operator: operators[0], operators }; }))} /><span>{operator}</span></label>)}</div>
         <label className="fleet-plan-toggle" title="Показывать в месячном плане"><input type="checkbox" checked={aircraft.monthlyPlanEnabled} onChange={(event) => onFleetChange(fleet.map((item) => item.id === aircraft.id ? { ...item, monthlyPlanEnabled: event.target.checked } : item))} /><span>В плане</span></label>
         <button type="button" className="delete" onClick={() => { if (window.confirm(`Удалить ${aircraft.number} из справочника ВС? Фактические записи сохранятся.`)) onFleetChange(fleet.filter((item) => item.id !== aircraft.id)); }}>Удалить</button>
       </div>)}</div>
-      <div className="fleet-add-row"><input aria-label="Тип нового ВС" placeholder="Тип ВС" value={newAircraftType} onChange={(event) => setNewAircraftType(event.target.value)} /><input aria-label="Бортовой номер нового ВС" placeholder="RA-00000" value={newAircraftNumber} onChange={(event) => setNewAircraftNumber(event.target.value.toUpperCase())} /><div className="fleet-operator-options" aria-label="Эксплуатант нового ВС">{(["КВП", "АОН", "АР"] as AircraftOperator[]).map((operator) => <label key={operator}><input type="checkbox" checked={newAircraftOperator === operator} onChange={() => setNewAircraftOperator(operator)} /><span>{operator}</span></label>)}</div><button type="button" className="secondary-button" onClick={addAircraft}>+ Добавить ВС</button></div>
+      <div className="fleet-add-row"><input aria-label="Тип нового ВС" placeholder="Тип ВС" value={newAircraftType} onChange={(event) => setNewAircraftType(event.target.value)} /><input aria-label="Бортовой номер нового ВС" placeholder="RA-00000" value={newAircraftNumber} onChange={(event) => setNewAircraftNumber(event.target.value.toUpperCase())} /><div className="fleet-operator-options" aria-label="Эксплуатант нового ВС">{AIRCRAFT_OPERATORS.map((operator) => <label key={operator}><input type="checkbox" checked={newAircraftOperators.includes(operator)} onChange={() => setNewAircraftOperators(toggleAircraftOperator(newAircraftOperators, operator))} /><span>{operator}</span></label>)}</div><button type="button" className="secondary-button" onClick={addAircraft}>+ Добавить ВС</button></div>
       {fleetError && <div className="form-error">{fleetError}</div>}
       <div className="report-scope-note">Отключённый борт сохраняется в журнале и отчётах, но не выводится в месячном планировании и его Excel-выгрузке.</div>
     </article>
