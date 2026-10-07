@@ -5,7 +5,17 @@ import {
   aircraftNumbersForType,
   canonicalAircraftType,
   isAircraftNumberAllowed,
+  normalizeAircraftOperators,
+  toggleAircraftOperator,
 } from "../app/aircraft-rules.ts";
+
+test("aircraft operators support multiple selections and legacy records", () => {
+  assert.deepEqual(normalizeAircraftOperators(undefined, "КВП"), ["КВП"]);
+  assert.deepEqual(normalizeAircraftOperators(["АР", "КВП", "АР"], "АОН"), ["АР", "КВП"]);
+  assert.deepEqual(toggleAircraftOperator(["АОН"], "КВП"), ["КВП", "АОН"]);
+  assert.deepEqual(toggleAircraftOperator(["КВП", "АОН"], "КВП"), ["АОН"]);
+  assert.deepEqual(toggleAircraftOperator(["АР"], "АР"), ["АР"]);
+});
 
 test("monthly planning defaults exclude requested aircraft", () => {
   const disabled = DEFAULT_AIRCRAFT_FLEET.filter((aircraft) => !aircraft.monthlyPlanEnabled).map((aircraft) => aircraft.number);
