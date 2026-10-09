@@ -58,7 +58,9 @@ import {
   TrashKind,
   validateBackupEnvelope,
 } from "./recovery-rules";
-import { mergeWorkspaceData, workspaceChanged } from "./cloud-sync";
+import { mergeWorkspaceWithConflicts, resolveWorkspaceConflicts, WorkspaceConflict, workspaceChanged } from "./cloud-sync";
+import { workspaceSaveStatus } from "./save-status-rules";
+import { BackupPreviewDialog, SyncConflictDialog } from "./workspace-safety-dialogs";
 import { DocumentationView } from "./documentation";
 import { AircraftDocumentRecord, normalizeAircraftDocument } from "./aircraft-documents-rules";
 import registrySeedJson from "./document-registry-seed.json";
@@ -204,6 +206,7 @@ const MAX_CHECKPOINTS = 20;
 type CloudSyncState = {
   version: number;
   data: AppData;
+  savedAt?: string;
 };
 const activityLabels: Record<Activity, string> = {
   flight: "Полётная смена",
@@ -741,6 +744,15 @@ export default function Home() {
   const [data, setData] = useState<AppData>(EMPTY_DATA);
   const [hydrated, setHydrated] = useState(false);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
+  const [localSavedData, setLocalSavedData] = useState<AppData | null>(null);
+  const [lastCloudData, setLastCloudData] = useState<AppData | null>(null);
+  const [lastCloudSavedAt, setLastCloudSavedAt] = useState<string | null>(null);
+  const [cloudSaving, setCloudSaving] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [backupPreview, setBackupPreview] = useState<{ filename: string; data: AppData } | null>(null);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreError, setRestoreError] = useState("");
+  const [syncConflict, setSyncConflict] = useState<{ conflicts: WorkspaceConflict[]; base: AppData | undefined; remote: AppData; version: number } | null>(null);
   const [personModal, setPersonModal] = useState<Person | "new" | null>(null);
   const [shiftModal, setShiftModal] = useState<Shift | "new" | null>(null);
   const [newShiftDefaults, setNewShiftDefaults] = useState<{ personId: string; date: string } | null>(null);
@@ -760,6 +772,7 @@ export default function Home() {
   const cloudBaseRef = useRef<AppData | null>(null);
   const pendingCloudDataRef = useRef<AppData | null>(null);
   const cloudSaveRunningRef = useRef(false);
+  const restoreRunningRef = useRef(false);
   const cloudPhaseRef = useRef(cloudPhase);
   const dataRef = useRef(data);
   useEffect(() => { cloudPhaseRef.current = cloudPhase; }, [cloudPhase]);
@@ -782,14 +795,15 @@ export default function Home() {
         cloudBaseRef.current = normalizeAppData(syncState.data);
       }
       setData(loadedData);
+      setLocalSavedData(loadedData);
       setCheckpoints(loadedCheckpoints);
-    }).finally(() => setHydrated(true));
+    }).catch(() => setLoadError("Не удалось прочитать локальную базу. Автосохранение остановлено, чтобы не заменить данные пустой базой.")).finally(() => setHydrated(true));
     if ("serviceWorker" in navigator) navigator.serviceWorker.register(new URL("sw.js", window.location.href).pathname).catch(() => undefined);
   }, []);
   useEffect(() => {
-    if (!hydrated || !session) return;
+    if (!hydrated || !session || loadError) return;
     let active=true;
-    void supabase.from("shtab_workspace").select("data,version").eq("user_id",session.user.id).maybeSingle().then(({data:remote,error})=>{
+    void Promise.resolve(supabase.from("shtab_workspace").select("data,version").eq("user_id",session.user.id).maybeSingle()).then(({data:remote,error})=>{
       if(!active)return;
       if(error){setCloudError("Не удалось прочитать облачную базу.");setCloudPhase(navigator.onLine?"error":"offline");return;}
       if(!remote){setCloudPhase("migration");return;}
@@ -797,30 +811,41 @@ export default function Home() {
       const localData=dataRef.current;
       const base=cloudBaseRef.current ?? undefined;
       const localHasRecords=localData.people.length>0||localData.shifts.length>0||localData.certifications.length>0||localData.planAssignments.length>0||localData.planBusyEntries.length>0;
-      const merged=base||localHasRecords ? normalizeAppData(mergeWorkspaceData(base,localData,remoteData)) : remoteData;
+      const merge=base||localHasRecords ? mergeWorkspaceWithConflicts(base,localData,remoteData) : {data:remoteData,conflicts:[]};
+      setLastCloudData(remoteData); setLastCloudSavedAt(new Date().toISOString());
+      if (merge.conflicts.length) {
+        pendingCloudDataRef.current=null;
+        setSyncConflict({conflicts:merge.conflicts,base,remote:remoteData,version:Number(remote.version)||1});
+        cloudPhaseRef.current="conflict"; setCloudPhase("conflict");
+        return;
+      }
+      const merged=normalizeAppData(merge.data);
       cloudVersionRef.current=Number(remote.version)||1;
       cloudBaseRef.current=structuredClone(remoteData);
       previousDataRef.current=structuredClone(localData);
       if(workspaceChanged(merged,remoteData)) pendingCloudDataRef.current=structuredClone(merged);
-      else void saveCloudSyncState({version:cloudVersionRef.current,data:structuredClone(remoteData)});
+      else void saveCloudSyncState({version:cloudVersionRef.current,data:structuredClone(remoteData),savedAt:new Date().toISOString()}).catch(()=>{setCloudError("Не удалось сохранить состояние синхронизации на устройстве.");setCloudPhase("error");});
       dataRef.current=merged;setData(merged);setCloudPhase("ready");
-    });
+    }).catch(()=>{if(active){setCloudError("Не удалось прочитать облачную базу. Локальная копия не изменена.");setCloudPhase(navigator.onLine?"error":"offline");}});
     return()=>{active=false};
-  },[hydrated,session]);
+  },[hydrated,session,loadError]);
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || loadError) return;
     const timer = window.setTimeout(() => {
       setSaveState("saving");
-      saveData(data).then(() => setSaveState("saved")).catch(() => setSaveState("error"));
+      saveData(data).then(() => { setLocalSavedData(data); setSaveState("saved"); }).catch(() => setSaveState("error"));
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [data, hydrated]);
+  }, [data, hydrated, loadError]);
   async function flushCloudQueue(userId: string) {
-    if(cloudSaveRunningRef.current)return;
+    if(cloudSaveRunningRef.current || restoreRunningRef.current || cloudPhaseRef.current === "conflict")return;
     cloudSaveRunningRef.current=true;
+    setCloudSaving(true);
+    let inFlight: AppData | null = null;
     try{
       while(pendingCloudDataRef.current){
         let payload=pendingCloudDataRef.current;
+        inFlight=payload;
         pendingCloudDataRef.current=null;
         let saved=false;
         for(let attempt=0;attempt<3&&!saved;attempt+=1){
@@ -830,35 +855,92 @@ export default function Home() {
           if(updated){
             cloudVersionRef.current=Number(updated.version)||expected+1;
             cloudBaseRef.current=structuredClone(payload);
-            await saveCloudSyncState({version:cloudVersionRef.current,data:structuredClone(payload)});
+            const savedAt=new Date().toISOString();
+            setLastCloudData(payload);setLastCloudSavedAt(savedAt);
+            await saveCloudSyncState({version:cloudVersionRef.current,data:structuredClone(payload),savedAt});
             saved=true;setCloudPhase("ready");setCloudError("");
             continue;
           }
           const {data:remote,error:readError}=await supabase.from("shtab_workspace").select("data,version").eq("user_id",userId).single();
           if(readError||!remote){pendingCloudDataRef.current=pendingCloudDataRef.current??payload;setCloudPhase(navigator.onLine?"error":"offline");setCloudError("Не удалось согласовать версии. Локальные данные сохранены.");return;}
           const remoteData=normalizeAppData(remote.data as Partial<AppData>);
-          payload=normalizeAppData(mergeWorkspaceData(cloudBaseRef.current??undefined,payload,remoteData));
+          const base=cloudBaseRef.current??undefined;
+          const merge=mergeWorkspaceWithConflicts(base,dataRef.current,remoteData);
+          if(merge.conflicts.length){
+            pendingCloudDataRef.current=null;
+            setSyncConflict({conflicts:merge.conflicts,base,remote:remoteData,version:Number(remote.version)||expected});
+            cloudPhaseRef.current="conflict";setCloudPhase("conflict");setCloudError("");return;
+          }
+          payload=normalizeAppData(merge.data);
+          inFlight=payload;
+          pendingCloudDataRef.current=null;
           cloudVersionRef.current=Number(remote.version)||expected;
           cloudBaseRef.current=structuredClone(remoteData);
           dataRef.current=payload;setData(payload);
           setToast("Локальные и облачные изменения объединены без удаления новых записей");
         }
         if(!saved){pendingCloudDataRef.current=pendingCloudDataRef.current??payload;setCloudPhase("error");setCloudError("Синхронизация будет повторена. Локальные данные не потеряны.");return;}
+        inFlight=null;
       }
-    }finally{cloudSaveRunningRef.current=false;}
+    }catch{
+      pendingCloudDataRef.current=pendingCloudDataRef.current??inFlight;
+      setCloudPhase(navigator.onLine?"error":"offline");setCloudError("Отправка не завершена. Проверьте локальное сохранение и повторите синхронизацию.");
+    }finally{cloudSaveRunningRef.current=false;setCloudSaving(false);}
   }
   useEffect(() => {
-    if(!hydrated||!session||cloudPhaseRef.current!=="ready")return;
+    if(!hydrated||!session||loadError||restoreBusy||cloudPhaseRef.current!=="ready")return;
     if(cloudBaseRef.current&&!workspaceChanged(data,cloudBaseRef.current))return;
     pendingCloudDataRef.current=structuredClone(data);
     const userId=session.user.id;
     const timer=window.setTimeout(()=>{void flushCloudQueue(userId)},900);
     return()=>window.clearTimeout(timer);
-  },[data,hydrated,session]);
-  useEffect(()=>{const online=()=>{if((cloudPhaseRef.current==="offline"||cloudPhaseRef.current==="error")&&session){setCloudPhase("ready");pendingCloudDataRef.current=structuredClone(dataRef.current);void flushCloudQueue(session.user.id);}};window.addEventListener("online",online);return()=>window.removeEventListener("online",online)},[session]);
+  },[data,hydrated,session,loadError,restoreBusy]);
+  useEffect(()=>{
+    const online=()=>{if((cloudPhaseRef.current==="offline"||cloudPhaseRef.current==="error")&&session){cloudPhaseRef.current="ready";setCloudPhase("ready");pendingCloudDataRef.current=structuredClone(dataRef.current);void flushCloudQueue(session.user.id);}};
+    const offline=()=>{if(cloudPhaseRef.current==="ready"){cloudPhaseRef.current="offline";setCloudPhase("offline");}};
+    window.addEventListener("online",online);window.addEventListener("offline",offline);
+    return()=>{window.removeEventListener("online",online);window.removeEventListener("offline",offline);};
+  },[session]);
+  useEffect(()=>{
+    if(!hydrated||loadError||localSavedData===data)return;
+    const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue="";};
+    window.addEventListener("beforeunload",warn);
+    return()=>window.removeEventListener("beforeunload",warn);
+  },[data,hydrated,loadError,localSavedData]);
 
-  async function migrateToCloud(){if(!session)return;setCloudBusy(true);setCloudError("");const {data:row,error}=await supabase.from("shtab_workspace").insert({user_id:session.user.id,data}).select("version").single();if(error){setCloudError("Перенос не выполнен: "+error.message);}else{cloudVersionRef.current=Number(row.version)||1;cloudBaseRef.current=structuredClone(data);await saveCloudSyncState({version:cloudVersionRef.current,data:structuredClone(data)});setCloudPhase("ready");setToast("Локальная база перенесена в облако");}setCloudBusy(false);}
-  async function reloadCloud(){if(!session)return;pendingCloudDataRef.current=structuredClone(dataRef.current);setCloudPhase("ready");setCloudError("");await flushCloudQueue(session.user.id);}
+  async function migrateToCloud(){
+    if(!session||cloudBusy)return;
+    setCloudBusy(true);setCloudError("");
+    let uploaded=false;
+    try{
+      const {data:row,error}=await supabase.from("shtab_workspace").insert({user_id:session.user.id,data}).select("version").single();
+      if(error){setCloudError("Перенос не выполнен: "+error.message);return;}
+      uploaded=true;cloudVersionRef.current=Number(row.version)||1;cloudBaseRef.current=structuredClone(data);
+      const savedAt=new Date().toISOString();setLastCloudData(data);setLastCloudSavedAt(savedAt);
+      cloudPhaseRef.current="ready";setCloudPhase("ready");
+      await saveCloudSyncState({version:cloudVersionRef.current,data:structuredClone(data),savedAt});
+      setToast("Локальная база перенесена в облако");
+    }catch{
+      setCloudError(uploaded?"Облако подтвердило перенос, но состояние синхронизации не сохранено на устройстве.":"Не удалось завершить перенос. Локальная база не удалена.");
+      if(uploaded){cloudPhaseRef.current="error";setCloudPhase("error");}
+    }finally{setCloudBusy(false);}
+  }
+  async function reloadCloud(){if(!session||cloudPhaseRef.current==="conflict")return;pendingCloudDataRef.current=structuredClone(dataRef.current);cloudPhaseRef.current="ready";setCloudPhase("ready");setCloudError("");await flushCloudQueue(session.user.id);}
+  function confirmSyncChoices(choices: Record<string,"local"|"remote">) {
+    if(!syncConflict)return;
+    const merge=mergeWorkspaceWithConflicts(syncConflict.base,dataRef.current,syncConflict.remote);
+    if(merge.conflicts.some((conflict)=>!choices[conflict.id])){setSyncConflict({...syncConflict,conflicts:merge.conflicts});return;}
+    const resolved=normalizeAppData(resolveWorkspaceConflicts(merge.data,merge.conflicts,choices));
+    cloudVersionRef.current=syncConflict.version;
+    cloudBaseRef.current=structuredClone(syncConflict.remote);
+    setLastCloudData(syncConflict.remote);
+    setLastCloudSavedAt(new Date().toISOString());
+    void saveCloudSyncState({version:syncConflict.version,data:structuredClone(syncConflict.remote),savedAt:new Date().toISOString()}).catch(()=>{setCloudError("Не удалось сохранить состояние синхронизации на устройстве.");setCloudPhase("error");});
+    dataRef.current=resolved;setData(resolved);setSyncConflict(null);
+    cloudPhaseRef.current="ready";setCloudPhase("ready");setCloudError("");
+    pendingCloudDataRef.current=workspaceChanged(resolved,syncConflict.remote)?structuredClone(resolved):null;
+    setToast("Выбранные версии применены. Ожидается подтверждение облака.");
+  }
   useEffect(() => {
     if (!hydrated || !previousDataRef.current) return;
     const previous = previousDataRef.current;
@@ -1316,14 +1398,34 @@ export default function Home() {
       const validation = validateBackupEnvelope(parsed);
       if (!validation.valid) throw new Error(validation.error);
       const restored = normalizeAppData(validation.data as Partial<AppData>);
-      previousDataRef.current = structuredClone(restored);
-      setData(restored);
-      setToast("Резервная копия проверена и восстановлена");
+      setRestoreError("");
+      setBackupPreview({ filename: file.name, data: restored });
     }).catch((caught) => setToast(caught instanceof Error ? caught.message : "Не удалось прочитать резервную копию"));
     event.target.value = "";
   }
+  async function confirmBackupRestore() {
+    if(!backupPreview || restoreBusy)return;
+    if(cloudSaveRunningRef.current){setRestoreError("Дождитесь завершения текущей отправки в облако, затем подтвердите восстановление ещё раз.");return;}
+    restoreRunningRef.current=true;
+    setRestoreBusy(true);setRestoreError("");
+    try {
+      const previous=structuredClone(dataRef.current);
+      const checkpoint: RecoveryCheckpoint<AppData>={id:uid(),createdAt:new Date().toISOString(),sections:["До восстановления базы из файла"],snapshot:previous};
+      const nextCheckpoints=[checkpoint,...checkpoints].slice(0,MAX_CHECKPOINTS);
+      await saveCheckpoints(nextCheckpoints);
+      const restored=backupPreview.data;
+      await saveData(restored);
+      setCheckpoints(nextCheckpoints);previousDataRef.current=structuredClone(restored);
+      dataRef.current=restored;setData(restored);setLocalSavedData(restored);setSaveState("saved");setBackupPreview(null);
+      setToast("База восстановлена. Предыдущее состояние сохранено в истории.");
+    }catch{setRestoreError("Восстановление не завершено. Не удалось сохранить контрольную точку или новую базу. Текущие данные в интерфейсе не заменены.");}
+    finally{restoreRunningRef.current=false;setRestoreBusy(false);}
+  }
+  const cloudPending=useMemo(()=>!lastCloudData||workspaceChanged(data,lastCloudData),[data,lastCloudData]);
+  const saveStatus=workspaceSaveStatus({localSaved:localSavedData===data,localError:saveState==="error",cloudPhase,cloudPending,cloudSaving,lastCloudSavedAt});
 
   if(session===undefined||!hydrated)return <Loading/>;
+  if(loadError)return <div className="loading"><p role="alert">{loadError}</p><button className="secondary-button" onClick={()=>window.location.reload()}>Повторить открытие</button></div>;
   if(!session)return <CloudLogin/>;
   if(cloudPhase==="checking")return <Loading/>;
   if(cloudPhase==="migration")return <CloudMigration counts={{people:data.people.length,shifts:data.shifts.length,documents:data.certifications.length}} onUpload={()=>void migrateToCloud()} onSignOut={()=>void supabase.auth.signOut()} loading={cloudBusy} error={cloudError}/>;
@@ -1341,7 +1443,7 @@ export default function Home() {
         <NavButton active={view === "import"} onClick={() => setView("import")} label="Импорт" glyph="⇩" />
         <NavButton active={view === "settings"} onClick={() => setView("settings")} label="Настройки" glyph="⚙" />
       </nav>
-      <div className="header-status"><span className="status-dot" /><div><strong>{cloudPhase==="ready"?"Облачная база":cloudPhase==="offline"?"Нет подключения":cloudPhase==="conflict"?"Конфликт версий":"Синхронизация"}</strong><span className={`save-state ${saveState}`}>{cloudPhase==="ready"?(saveState === "saving" ? "Сохраняю…" : "Синхронизировано"):cloudError||"Локальная копия сохранена"}</span></div>{cloudPhase==="conflict"&&<button className="row-action" onClick={()=>void reloadCloud()}>Загрузить облачную</button>}<button className="row-action" onClick={()=>void supabase.auth.signOut()}>Выйти</button></div>
+      <div className={`header-status ${saveStatus.tone}`}><span className="status-dot" /><div role="status" aria-live="polite" title={cloudError||undefined}><strong>{cloudPhase==="conflict"?"Конфликт версий":"Рабочая база"}</strong><span className="save-state">{saveStatus.local}</span><span className="save-state">{saveStatus.cloud}{!cloudPending&&!cloudSaving&&lastCloudSavedAt&&cloudPhase==="ready"?` · ${new Intl.DateTimeFormat("ru-RU",{hour:"2-digit",minute:"2-digit"}).format(new Date(lastCloudSavedAt))}`:""}</span></div>{["offline","error"].includes(cloudPhase)&&<button className="row-action" disabled={cloudSaving} onClick={()=>void reloadCloud()}>Повторить</button>}<button className="row-action" onClick={()=>void supabase.auth.signOut()}>Выйти</button></div>
       <input ref={importRef} hidden type="file" accept="application/json,.json" onChange={importBackup} />
     </header>
     <main className="workspace">
@@ -1497,6 +1599,8 @@ export default function Home() {
     />}
     {aviabitModal && <ImportAviabitModal people={data.people} onClose={() => setAviabitModal(false)} onSubmit={importAviabit} />}
     {workTimeImportModal && <WorkTimeImportModal people={data.people} shifts={data.shifts} onClose={() => setWorkTimeImportModal(false)} onSubmit={(records) => { importWorkTime(records); setWorkTimeImportModal(false); }} />}
+    {backupPreview&&!syncConflict&&<BackupPreviewDialog filename={backupPreview.filename} current={data as unknown as Record<string,unknown>} restored={backupPreview.data as unknown as Record<string,unknown>} busy={restoreBusy} error={restoreError} onCancel={()=>setBackupPreview(null)} onConfirm={()=>void confirmBackupRestore()}/>}
+    {syncConflict&&<SyncConflictDialog key={`${syncConflict.version}-${syncConflict.conflicts.map((conflict)=>conflict.id).join(";")}`} conflicts={syncConflict.conflicts} workspace={data as unknown as Record<string,unknown>} onConfirm={confirmSyncChoices}/>}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>;
 }
@@ -1756,7 +1860,7 @@ function ShiftsView({
   return <><section className="panel table-panel"><div className="panel-heading"><div><p className="eyebrow">Единый журнал</p><h2>Смены за выбранный период</h2></div><div className="journal-heading-actions"><button className="secondary-button" disabled={!people.length} onClick={() => setFlightTaskImportOpen(true)}>Импорт полётного задания</button><button className="secondary-button" disabled={!people.length} onClick={() => setImportOpen(true)}>Импорт рабочего времени</button><button className="secondary-button pdf-button" disabled={!people.length} onClick={() => setReportOpen(true)}>Отчёт PDF</button><button className="primary-button" disabled={!people.length} onClick={onAdd}>+ Новая смена</button></div></div>
     <div className="journal-filters"><Field label="Период с"><input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></Field><Field label="Период по"><input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field><Field label="Сотрудник"><select value={personId} onChange={(event) => setPersonId(event.target.value)}><option value="">Все сотрудники</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field><div className="quick-filters"><button className="secondary-button" onClick={showToday}>Сегодня</button><button className="secondary-button month-arrow" title="Предыдущий месяц" aria-label="Предыдущий месяц" onClick={() => showAdjacentMonth(-1)}>←</button><button className="secondary-button" onClick={showCurrentMonth}>Текущий месяц</button><button className="secondary-button month-arrow" title="Следующий месяц" aria-label="Следующий месяц" onClick={() => showAdjacentMonth(1)}>→</button></div></div>
     <div className="journal-summary">Показано строк: <strong>{journalRows.length}</strong>{dateFrom === dateTo ? ` · ${formatDate(dateFrom)}` : ` · ${formatDate(dateFrom)} — ${formatDate(dateTo)}`}</div>
-    {!journalRows.length ? <div className="panel-empty tall">За выбранный период смен нет.</div> : <div className="table-scroll journal-table-scroll"><table className="journal-table"><thead><tr><th>Дата</th><th>Сотрудник</th><th>Занятость</th><th>Полётное время</th><th>ВС / кресло</th><th>Цель</th><th>Рабочее</th><th>Ночь / посадки</th><th>Отдых</th><th>Примечание</th><th>Действия</th></tr></thead><tbody>{journalRows.map((row, rowIndex) => {
+    {!journalRows.length ? <div className="panel-empty tall">За выбранный период смен нет.</div> : <div className="table-scroll journal-table-scroll"><table className="journal-table"><thead><tr><th>Дата</th><th>Сотрудник</th><th>Занятость</th><th>Полётное время</th><th>ВС / кресло</th><th>Цель</th><th>Рабочее</th><th className="journal-night-col">Ночь / посадки</th><th>Отдых</th><th className="journal-note-col">Примечание</th><th className="journal-actions-col">Действия</th></tr></thead><tbody>{journalRows.map((row, rowIndex) => {
       const person = people.find((item) => item.id === row.personId);
       if (row.kind === "actual") {
         const { shift, sourceShift, segment, segmentIndex } = row;
@@ -1777,14 +1881,14 @@ function ShiftsView({
               ? `Пилот в экипаже: ${linkedPerson?.name ?? "связанная смена"}`
               : `КВС: ${linkedPerson?.name ?? "связанная смена"}`
             : "";
-        return <tr key={segment ? `${shift.id}-${segment.id}` : shift.id}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{activityLabels[shift.activity]}{shift.awayFromBase && <span className="source-pill">Вне базы</span>}{crewLabel && <span className="source-pill">Одна смена · {crewLabel}</span>}{segment?.splitShift && <span className="split-pill active">Разделённая · часть {segment.splitPart ?? 1}</span>}</span></td><td><strong>{flight ? formatDuration(flight) : "—"}</strong></td><td>{segment ? <span className="aircraft-cell"><strong>{[segment.aircraftType, segment.aircraft].filter(Boolean).join(" · ") || "—"}</strong><small>{segment.seat}</small></span> : "—"}</td><td>{segment?.purpose || "—"}</td><td>{segment ? <span className="flight-cell"><strong>{formatDuration(segmentCountedWorkMinutes(segment))}</strong>{Boolean(segment.excludedWorkMinutes) && <small>не учитывается {formatDuration(segment.excludedWorkMinutes ?? 0)}</small>}</span> : shift.workMinutes ? formatDuration(shift.workMinutes) : "—"}</td><td>{segment ? <span className="flight-cell"><strong>{night > 0 ? formatDuration(night) : "—"}</strong><small>посадки Д/Н: {segment.dayLandings ?? 0}/{segment.nightLandings ?? 0}</small></span> : "—"}</td><td><RestCell shift={shift} rest={rest} assumedCompliant={assumedCompliant} allShifts={expandedActualShifts} /></td><td className="note-cell">{shift.note || "—"}</td><td><div className="row-actions"><button onClick={() => onEdit(sourceShift)}>Изменить</button><button className="delete" onClick={() => segment ? onDeleteFlight(sourceShift, segment.id) : onDelete(sourceShift)}>Удалить</button></div></td></tr>;
+        return <tr key={segment ? `${shift.id}-${segment.id}` : shift.id}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{activityLabels[shift.activity]}{shift.awayFromBase && <span className="source-pill">Вне базы</span>}{crewLabel && <span className="source-pill">Одна смена · {crewLabel}</span>}{segment?.splitShift && <span className="split-pill active">Разделённая · часть {segment.splitPart ?? 1}</span>}</span></td><td><strong>{flight ? formatDuration(flight) : "—"}</strong></td><td>{segment ? <span className="aircraft-cell"><strong>{[segment.aircraftType, segment.aircraft].filter(Boolean).join(" · ") || "—"}</strong><small>{segment.seat}</small></span> : "—"}</td><td>{segment?.purpose || "—"}</td><td>{segment ? <span className="flight-cell"><strong>{formatDuration(segmentCountedWorkMinutes(segment))}</strong>{Boolean(segment.excludedWorkMinutes) && <small>не учитывается {formatDuration(segment.excludedWorkMinutes ?? 0)}</small>}</span> : shift.workMinutes ? formatDuration(shift.workMinutes) : "—"}</td><td className="journal-night-col">{segment ? <span className="flight-cell"><strong>{night > 0 ? formatDuration(night) : "—"}</strong><small>посадки Д/Н: {segment.dayLandings ?? 0}/{segment.nightLandings ?? 0}</small></span> : "—"}</td><td><RestCell shift={shift} rest={rest} assumedCompliant={assumedCompliant} allShifts={expandedActualShifts} /></td><td className="note-cell journal-note-col">{shift.note || "—"}</td><td className="journal-actions-col"><div className="row-actions"><button onClick={() => onEdit(sourceShift)}>Изменить</button><button className="delete" onClick={() => segment ? onDeleteFlight(sourceShift, segment.id) : onDelete(sourceShift)}>Удалить</button></div></td></tr>;
       }
       if (row.kind === "assignment") {
         const aircraftType = aircraftTypeForNumber(row.assignment.aircraft, aircraftNumbersByType);
         const plannedActivity = row.assignment.activity === "standby" ? "Ожидание полёта" : "Полётная смена";
-        return <tr className="planned-row" key={`assignment-${row.assignment.id}`}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{plannedActivity}<span className="source-pill">Из месячного плана</span></span></td><td>—</td><td><span className="aircraft-cell"><strong>{[aircraftType, row.assignment.aircraft].filter(Boolean).join(" · ")}</strong><small>{planRoleLabels[row.assignment.role]}</small></span></td><td>—</td><td>—</td><td>—</td><td>—</td><td className="note-cell">{plannedActivity} · месячный план</td><td><div className="row-actions"><button onClick={() => onEditPlan({ kind: "assignment", id: row.assignment.id })}>Изменить</button><button className="delete" onClick={() => { if (window.confirm(`Удалить назначение ${person?.name ?? "сотрудника"} на ${row.assignment.aircraft} за ${formatDate(row.date)}?`)) onDeletePlanAssignment(row.assignment.id); }}>Удалить</button></div></td></tr>;
+        return <tr className="planned-row" key={`assignment-${row.assignment.id}`}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{plannedActivity}<span className="source-pill">Из месячного плана</span></span></td><td>—</td><td><span className="aircraft-cell"><strong>{[aircraftType, row.assignment.aircraft].filter(Boolean).join(" · ")}</strong><small>{planRoleLabels[row.assignment.role]}</small></span></td><td>—</td><td>—</td><td>—</td><td>—</td><td className="note-cell journal-note-col">{plannedActivity} · месячный план</td><td className="journal-actions-col"><div className="row-actions"><button onClick={() => onEditPlan({ kind: "assignment", id: row.assignment.id })}>Изменить</button><button className="delete" onClick={() => { if (window.confirm(`Удалить назначение ${person?.name ?? "сотрудника"} на ${row.assignment.aircraft} за ${formatDate(row.date)}?`)) onDeletePlanAssignment(row.assignment.id); }}>Удалить</button></div></td></tr>;
       }
-      return <tr className="planned-row" key={`busy-${row.entry.id}-${row.date}`}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{planBusyLabels[row.entry.activity]}<span className="source-pill">Из месячного плана</span></span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td className="note-cell">{row.entry.note || "Из месячного плана"}</td><td><div className="row-actions"><button onClick={() => onEditPlan({ kind: "busy", id: row.entry.id })}>Изменить</button><button className="delete" onClick={() => { if (window.confirm(`Удалить занятость «${planBusyLabels[row.entry.activity]}» за ${formatDate(row.date)}?`)) onDeletePlanBusy(row.entry.id); }}>Удалить</button></div></td></tr>;
+      return <tr className="planned-row" key={`busy-${row.entry.id}-${row.date}`}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td><strong>{person?.name ?? "—"}</strong></td><td><span className="journal-activity">{planBusyLabels[row.entry.activity]}<span className="source-pill">Из месячного плана</span></span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td className="note-cell journal-note-col">{row.entry.note || "Из месячного плана"}</td><td className="journal-actions-col"><div className="row-actions"><button onClick={() => onEditPlan({ kind: "busy", id: row.entry.id })}>Изменить</button><button className="delete" onClick={() => { if (window.confirm(`Удалить занятость «${planBusyLabels[row.entry.activity]}» за ${formatDate(row.date)}?`)) onDeletePlanBusy(row.entry.id); }}>Удалить</button></div></td></tr>;
     })}</tbody></table></div>}
   </section>{reportOpen && <FlightReportModal people={people} shifts={shifts} externalFlights={externalFlights} assignments={assignments} busyEntries={busyEntries} onClose={() => setReportOpen(false)} onNotify={onNotify} />}{importOpen && <WorkTimeImportModal people={people} shifts={shifts} onClose={() => setImportOpen(false)} onSubmit={(records) => { onImport(records); setImportOpen(false); }} />}{flightTaskImportOpen && <FlightTaskImportModal people={people} onClose={() => setFlightTaskImportOpen(false)} onSubmit={(records) => { onImport(records); setFlightTaskImportOpen(false); onNotify("Полётное задание проверено и добавлено в Единый журнал."); }} />}</>;
 }

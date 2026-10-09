@@ -267,19 +267,41 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .table-panel table { min-width: 1260px; }
 .journal-table-scroll { position: relative; }
 .table-panel .journal-table { min-width: 1640px; }
-.journal-table th:nth-child(8), .journal-table td:nth-child(8) { width: 148px; min-width: 148px; }
-.journal-table th:nth-last-child(2), .journal-table td:nth-last-child(2) { position: sticky; z-index: 3; right: 132px; width: 210px; min-width: 210px; max-width: 210px; background: #fff; box-shadow: -8px 0 14px -14px rgba(24,56,75,.7); }
-.journal-table th:last-child, .journal-table td:last-child { position: sticky; z-index: 4; right: 0; width: 132px; min-width: 132px; max-width: 132px; background: #fff; }
-.journal-table thead th:nth-last-child(2), .journal-table thead th:last-child { z-index: 7; background: #f7f9fa; }
-.journal-table .planned-row td:nth-last-child(2), .journal-table .planned-row td:last-child { background: #f4f9f8; }
-.journal-table td:last-child .row-actions { justify-content: flex-end; gap: 8px; }
-.journal-table td:last-child .row-actions button { padding: 0; font-size: 11px; }
+.journal-table .journal-night-col { width: 148px; min-width: 148px; }
+.journal-table .journal-note-col { position: sticky; z-index: 3; right: 132px; width: 210px; min-width: 210px; max-width: 210px; background: #fff; box-shadow: -8px 0 14px -14px rgba(24,56,75,.7); }
+.journal-table .journal-actions-col { position: sticky; z-index: 4; right: 0; width: 132px; min-width: 132px; max-width: 132px; background: #fff; }
+.journal-table thead .journal-note-col, .journal-table thead .journal-actions-col { z-index: 7; background: #f7f9fa; }
+.journal-table .planned-row .journal-note-col, .journal-table .planned-row .journal-actions-col { background: #f4f9f8; }
+.journal-table .journal-actions-col .row-actions { justify-content: flex-end; gap: 8px; }
+.journal-table .journal-actions-col .row-actions button { padding: 0; font-size: 11px; }
 @media (max-width: 1500px) {
-  .journal-table th:nth-last-child(2), .journal-table td:nth-last-child(2),
-  .journal-table th:last-child, .journal-table td:last-child {
+  .journal-table .journal-note-col, .journal-table .journal-actions-col {
     position: static;
     box-shadow: none;
   }
+}
+.header-status.saving .status-dot { background: #d5a34e; }
+.header-status.error .status-dot { background: #e97676; }
+.header-status .save-state { font-size: 11px; line-height: 1.4; }
+.safety-backdrop { z-index: 150; }
+.safety-dialog-body { padding: 20px 24px 24px; }
+.safety-filename { overflow-wrap: anywhere; color: #405b68; }
+.backup-preview-table { margin-block: 16px; font-size: 13px; }
+.backup-preview-table th, .backup-preview-table td { white-space: normal; overflow-wrap: anywhere; }
+.backup-preview-table td { vertical-align: top; line-height: 1.5; }
+.sync-conflict-list { display: grid; gap: 16px; margin-block: 20px; }
+.sync-conflict { min-width: 0; margin: 0; padding: 14px; border: 1px solid #d6e1e5; border-radius: 10px; }
+.sync-conflict legend { max-width: 100%; padding-inline: 6px; color: #334f5e; font-size: 13px; font-weight: 800; overflow-wrap: anywhere; }
+.sync-conflict-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.sync-conflict-options label { min-width: 0; padding: 12px; border: 1px solid #dce5e8; border-radius: 8px; background: #f8fafb; cursor: pointer; }
+.sync-conflict-options label.selected { border-color: #178a7f; background: #eff9f7; }
+.sync-conflict-options label > span { display: flex; align-items: center; gap: 7px; color: #315461; font-size: 13px; font-weight: 700; }
+.sync-conflict-options input { width: auto; accent-color: #178a7f; }
+.sync-conflict-options pre { max-height: 240px; margin-bottom: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #435e69; font: inherit; font-size: 13px; }
+.safety-choice-count { align-self: center; margin-right: auto; color: #687f8a; font-size: 13px; }
+@media (max-width: 600px) {
+  .sync-conflict-options { grid-template-columns: 1fr; }
+  .safety-dialog-body { padding: 16px; }
 }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th { padding: 12px 15px; color: #7a8992; background: #f7f9fa; text-align: left; font-size: 12px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; white-space: nowrap; }

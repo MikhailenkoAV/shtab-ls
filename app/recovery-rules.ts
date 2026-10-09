@@ -15,7 +15,7 @@ export type TrashEntry = {
   payload: unknown;
 };
 
-const sectionLabels: Record<string, string> = {
+export const sectionLabels: Record<string, string> = {
   people: "Сотрудники",
   shifts: "Полётные смены",
   certifications: "Личные дела",
@@ -33,6 +33,24 @@ const sectionLabels: Record<string, string> = {
   personalDocumentDefinitions: "Библиотека документов",
   trash: "Корзина",
 };
+
+export function backupRestoreSummary(previous: Record<string, unknown>, next: Record<string, unknown>) {
+  return Object.keys(sectionLabels).filter((key) => JSON.stringify(previous[key]) !== JSON.stringify(next[key])).map((key) => {
+    const before = previous[key];
+    const after = next[key];
+    const count = (value: unknown) => Array.isArray(value) ? value.length : value && typeof value === "object" ? Object.keys(value).length : null;
+    const beforeCount = count(before);
+    const afterCount = count(after);
+    const beforeMap = Array.isArray(before) ? new Map(before.filter((item) => item?.id).map((item) => [item.id, item])) : null;
+    const afterMap = Array.isArray(after) ? new Map(after.filter((item) => item?.id).map((item) => [item.id, item])) : null;
+    return {
+      key, label: sectionLabels[key], beforeCount, afterCount,
+      added: beforeMap && afterMap ? [...afterMap.keys()].filter((id) => !beforeMap.has(id)).length : null,
+      removed: beforeMap && afterMap ? [...beforeMap.keys()].filter((id) => !afterMap.has(id)).length : null,
+      changed: beforeMap && afterMap ? [...afterMap.keys()].filter((id) => beforeMap.has(id) && JSON.stringify(beforeMap.get(id)) !== JSON.stringify(afterMap.get(id))).length : null,
+    };
+  });
+}
 
 export function changedDataSections(previous: Record<string, unknown>, next: Record<string, unknown>): string[] {
   return [...new Set([...Object.keys(previous), ...Object.keys(next)])]
