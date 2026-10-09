@@ -184,7 +184,8 @@ export function MonthlyPlanView({
         <span>Занятых сотрудников: {busyCount}</span>
         <span>Нажмите ячейку «Основной» или «Резерв», чтобы назначить пилота.</span>
       </div>
-      <div className="plan-table-scroll">
+      <p className="mobile-scroll-hint">Листайте план вправо и влево. Борт и роль экипажа закреплены.</p>
+      <div className="plan-table-scroll" tabIndex={0} role="region" aria-label="Месячный план: прокрутка по дням">
         <table className="plan-table">
           <thead><tr><th className="plan-aircraft-head">Борт</th><th className="plan-role-head">Экипаж</th>{dates.map((date) => {
             const meta = dayMeta(date);

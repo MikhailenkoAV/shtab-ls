@@ -47,6 +47,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .quick-nav button:hover { color: white; background: rgba(255,255,255,.07); }
 .quick-nav button.active { border-color: rgba(113,202,191,.25); color: white; background: rgba(85,181,171,.17); box-shadow: inset 0 -2px 0 #63c5b9; }
 .quick-nav button.active > span { color: #72d0c4; }
+.mobile-nav, .mobile-menu-backdrop, .mobile-scroll-hint { display: none; }
 .header-status { display: flex; align-items: center; gap: 10px; min-width: 150px; padding: 8px 11px; border: 1px solid rgba(255,255,255,.09); border-radius: 10px; background: rgba(0,0,0,.11); }
 .header-status .status-dot { margin-top: 0; }
 .header-status strong, .header-status span { display: block; }
@@ -1113,4 +1114,81 @@ td strong { color: #314956; }
   .flight-task-leg { grid-template-columns: 28px 1fr 1fr; }
   .flight-task-totals { grid-template-columns: 1fr 1fr; }
   .flight-task-confidence { align-items: flex-start; flex-direction: column; }
+}
+
+/* Phone layouts use the same records and actions as the desktop workspace. */
+@media (max-width: 760px) {
+  .app-header .desktop-nav { display: none; }
+  .mobile-nav { display: flex; z-index: 80; }
+  .mobile-nav button { font-size: 11px; }
+  .app-header { gap: 10px; padding-top: calc(10px + env(safe-area-inset-top)); }
+  .header-status { display: flex; min-width: 0; width: 100%; flex-wrap: wrap; }
+  .header-status > div { min-width: 0; flex: 1; }
+  .header-status .row-action { min-height: 44px; padding-inline: 10px; color: #d1e7eb; }
+  .header-status .save-state { color: #b3c8d1; }
+  .mobile-menu-backdrop { position: fixed; z-index: 130; inset: 0; display: grid; align-items: end; background: rgba(7,25,36,.56); }
+  .mobile-menu { max-height: 85dvh; overflow: auto; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); border-radius: 20px 20px 0 0; background: white; }
+  .mobile-menu > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .mobile-menu h2 { margin: 0; font-size: 20px; }
+  .mobile-menu nav { display: grid; gap: 6px; }
+  .mobile-menu nav button { display: grid; grid-template-columns: 24px 1fr 16px; align-items: center; gap: 10px; min-height: 48px; padding: 12px; border: 0; border-radius: 10px; color: #315461; background: #f3f7f8; text-align: left; font-weight: 700; }
+  .mobile-menu nav button.active { color: #10695f; background: #e6f4ef; }
+  .modal-backdrop { z-index: 140; }
+  .modal-backdrop.safety-backdrop { z-index: 150; }
+  .modal { overscroll-behavior: contain; }
+  .modal input:not([type="checkbox"]):not([type="radio"]), .modal select, .modal textarea { min-height: 44px; font-size: 16px; }
+  .modal .form-actions { gap: 8px; flex-wrap: wrap; }
+  .modal .form-actions button { min-height: 44px; }
+  .panel, .panel-heading > div, .settings-layout > *, .workspace > * { min-width: 0; }
+  .settings-card > .panel-heading { flex-wrap: wrap; padding: 16px; }
+  .settings-form, .backup-card-content { padding: 16px; }
+  .fleet-settings-list { max-height: none; padding: 12px; }
+  .fleet-settings-row, .fleet-add-row { grid-template-columns: minmax(72px, .7fr) minmax(0, 1.3fr); gap: 8px; }
+  .fleet-settings-row > input, .fleet-add-row > input { width: 100%; min-height: 44px; font-size: 16px; }
+  .fleet-operator-options { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
+  .fleet-operator-options label, .fleet-plan-toggle { min-height: 44px; padding: 4px 8px; font-size: 14px; }
+  .fleet-operator-options input, .fleet-plan-toggle input { width: 20px; height: 20px; }
+  .fleet-settings-row .delete { min-height: 44px; padding: 8px; }
+  .fleet-add-row { margin-inline: 12px; }
+  .fleet-add-row > button { grid-column: 1 / -1; }
+  .backup-card-content > div { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .backup-card-content > div > button { padding: 10px; overflow-wrap: anywhere; }
+  .recovery-list { margin: 12px; }
+  .recovery-list > div { flex-wrap: wrap; gap: 8px; }
+  .recovery-list .row-action, .recovery-list .row-actions button { min-height: 44px; }
+  .journal-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 15px; }
+  .journal-filters > .field:nth-of-type(3), .journal-filters .quick-filters { grid-column: 1 / -1; }
+  .journal-filters .quick-filters { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 8px; }
+  .journal-filters .quick-filters .secondary-button { grid-column: auto; min-width: 0; }
+  .journal-filters .quick-filters > button:first-child { grid-column: 1 / -1; }
+  .journal-filters .quick-filters .month-arrow { width: 44px; }
+  .journal-heading-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .journal-heading-actions button { min-width: 0; width: 100%; padding: 10px; font-size: 12px; white-space: normal; }
+  .journal-summary { padding-inline: 15px; overflow-wrap: anywhere; }
+  .journal-table-scroll { overflow: visible; border: 0; }
+  .table-panel .journal-table { display: block; width: 100%; min-width: 0; }
+  .journal-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .journal-table tbody { display: grid; gap: 12px; padding: 12px; }
+  .journal-table tr { display: block; min-width: 0; padding: 14px; border: 1px solid #d9e5e8; border-radius: 12px; background: white; }
+  .journal-table tr::before { content: attr(data-date); display: block; padding-bottom: 10px; color: #116f69; font-size: 14px; font-weight: 800; }
+  .table-panel .journal-table-scroll .journal-table td { position: static; display: grid; grid-template-columns: minmax(92px, .8fr) minmax(0, 1.2fr); gap: 12px; width: auto; min-width: 0; max-width: none; padding: 9px 0; white-space: normal; overflow-wrap: anywhere; box-shadow: none; font-size: 14px; vertical-align: top; }
+  .journal-table td::before { content: attr(data-label); color: #71828c; font-size: 12px; font-weight: 600; }
+  .table-panel .journal-table-scroll .journal-table .journal-date-cell { display: none; }
+  .journal-table .journal-activity, .journal-table .aircraft-cell, .journal-table .flight-cell, .journal-table .rest-cell { min-width: 0; }
+  .journal-table .journal-actions-col .row-actions { flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+  .journal-table .journal-actions-col .row-actions button { min-height: 44px; padding: 9px; border: 1px solid #d9e5e8; border-radius: 8px; font-size: 13px; }
+  .mobile-scroll-hint { display: block; margin: 0; padding: 10px 15px; color: #52707d; background: #eff6f7; font-size: 13px; }
+  .control-journal-panel .table-scroll { overflow: visible; }
+  .control-journal-table { display: block; min-width: 0; width: 100%; }
+  .control-journal-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .control-journal-table tbody { display: grid; gap: 12px; padding: 12px; }
+  .control-journal-table tr { display: block; padding: 14px; border: 1px solid #d9e5e8; border-radius: 12px; background: white; }
+  .control-journal-table td { display: grid; grid-template-columns: minmax(92px, .8fr) minmax(0, 1.2fr); gap: 12px; min-width: 0; max-width: none; padding: 9px 0; white-space: normal; overflow-wrap: anywhere; }
+  .control-journal-table td::before { content: attr(data-label); color: #71828c; font-size: 12px; font-weight: 600; }
+  .plan-table-scroll, .actual-plan-scroll { max-height: 65dvh; overscroll-behavior: contain; }
+  .plan-table td > button { min-height: 44px; }
+  .plan-table .plan-aircraft-head, .plan-aircraft-name { width: 88px; min-width: 88px; }
+  .plan-table .plan-role-head, .plan-role-name { left: 88px; width: 64px; min-width: 64px; white-space: normal; }
+  .plan-busy-name { width: 152px; min-width: 152px; white-space: normal; }
+  .actual-plan-table .actual-person-head, .actual-person-name { width: 136px; min-width: 136px; white-space: normal; }
 }
