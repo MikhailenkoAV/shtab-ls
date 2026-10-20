@@ -13,7 +13,7 @@ import {
   busyBlockReason,
   dateInPlanEntry,
   datesInRange,
-  isMonthlyPlanPerson,
+  monthlyPlanPeople,
   monthDates,
   planBusyActivities,
   planBusyLabels,
@@ -124,7 +124,7 @@ export function MonthlyPlanView({
   const planningFleet = useMemo(() => fleet.filter((aircraft) => aircraft.monthlyPlanEnabled), [fleet]);
   const numbersByType = useMemo(() => aircraftNumbersMap(planningFleet), [planningFleet]);
   const aircraftNumbers = useMemo(() => planningFleet.map((aircraft) => aircraft.number), [planningFleet]);
-  const planPeople = useMemo(() => people.filter(isMonthlyPlanPerson), [people]);
+  const planPeople = useMemo(() => monthlyPlanPeople(people, month, assignments, busyEntries, shifts), [people, month, assignments, busyEntries, shifts]);
   const planPersonIds = useMemo(() => new Set(planPeople.map((person) => person.id)), [planPeople]);
   const planAssignments = useMemo(() => assignments.filter((item) =>
     planPersonIds.has(item.personId) && aircraftNumbers.includes(item.aircraft)), [assignments, planPersonIds, aircraftNumbers]);
@@ -183,6 +183,7 @@ export function MonthlyPlanView({
         <span>Назначений: {monthAssignments.length}</span>
         <span>Занятых сотрудников: {busyCount}</span>
         <span>Нажмите ячейку «Основной» или «Резерв», чтобы назначить пилота.</span>
+        {planPeople.some((person) => !person.active) && <span>Архивные сотрудники показаны только в сохранённых записях. Новые назначения для них недоступны.</span>}
       </div>
       <p className="mobile-scroll-hint">Листайте план вправо и влево. Борт и роль экипажа закреплены.</p>
       <div className="plan-table-scroll" tabIndex={0} role="region" aria-label="Месячный план: прокрутка по дням">

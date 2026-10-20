@@ -62,6 +62,8 @@ import { mergeWorkspaceWithConflicts, resolveWorkspaceConflicts, WorkspaceConfli
 import { workspaceSaveStatus } from "./save-status-rules";
 import { BackupPreviewDialog, SyncConflictDialog } from "./workspace-safety-dialogs";
 import { MobileNavigation } from "./mobile-navigation";
+import { changeEmploymentStatus, EmploymentEvent } from "./employment-rules";
+import { EmploymentHistory, EmploymentStatusDialog } from "./employment-status";
 import { DocumentationView } from "./documentation";
 import { AircraftDocumentRecord, normalizeAircraftDocument } from "./aircraft-documents-rules";
 import registrySeedJson from "./document-registry-seed.json";
@@ -104,7 +106,7 @@ type Qualification = {
   seats: string[];
   nightAircraftTypes: string[];
 };
-type Person = { id: string; name: string; position: string; permissions: string[]; aircraftTypes: string[]; qualifications: Qualification[]; active: boolean; monthlyPlanEnabled?: boolean };
+type Person = { id: string; name: string; position: string; permissions: string[]; aircraftTypes: string[]; qualifications: Qualification[]; active: boolean; monthlyPlanEnabled?: boolean; employmentHistory?: EmploymentEvent[] };
 type Segment = {
   id: string; aircraft: string; aircraftType?: string; seat: Seat; purpose: string;
   dutyStart: string; dutyEnd: string; flightMinutes: number; nightMinutes: number; splitShift: boolean;
@@ -755,6 +757,7 @@ export default function Home() {
   const [restoreError, setRestoreError] = useState("");
   const [syncConflict, setSyncConflict] = useState<{ conflicts: WorkspaceConflict[]; base: AppData | undefined; remote: AppData; version: number } | null>(null);
   const [personModal, setPersonModal] = useState<Person | "new" | null>(null);
+  const [employmentPerson, setEmploymentPerson] = useState<Person | null>(null);
   const [shiftModal, setShiftModal] = useState<Shift | "new" | null>(null);
   const [newShiftDefaults, setNewShiftDefaults] = useState<{ personId: string; date: string } | null>(null);
   const [aviabitModal, setAviabitModal] = useState(false);
@@ -992,6 +995,7 @@ export default function Home() {
     const result: DashboardAlert[] = [];
     restIssues.filter((issue) => isCurrentMonthDate(issue.date, todayIso) && isRestIssueVisible(issue)).forEach((issue) => {
       const person = data.people.find((item) => item.id === issue.personId);
+      if (!person?.active) return;
       result.push({
         id: issue.id,
         severity: "danger",
@@ -1005,6 +1009,7 @@ export default function Home() {
       .map((issue) => issue.personId));
     weeklyRestWarnings.filter((warning) => !weeklyViolationPeople.has(warning.personId)).forEach((warning) => {
       const person = data.people.find((item) => item.id === warning.personId);
+      if (!person?.active) return;
       result.push({
         id: warning.id,
         severity: "warning",
@@ -1119,6 +1124,14 @@ export default function Home() {
     if (personModal && personModal !== "new") setData((current) => ({ ...current, people: current.people.map((item) => item.id === personModal.id ? { ...item, ...person } : item) }));
     else setData((current) => ({ ...current, people: [...current.people, { ...person, id: uid(), active: true }] }));
     setPersonModal(null); setToast(personModal === "new" ? "Сотрудник добавлен" : "Данные сотрудника обновлены");
+  }
+  function saveEmploymentChange(event: Omit<EmploymentEvent, "id" | "recordedAt">) {
+    const person = dataRef.current.people.find((item) => item.id === employmentPerson?.id);
+    if (!person) throw new Error("Карточка сотрудника не найдена. Откройте список заново.");
+    const changed = changeEmploymentStatus(person, { ...event, id: uid(), recordedAt: new Date().toISOString() }, localIsoDate(new Date()));
+    setData((current) => ({ ...current, people: current.people.map((item) => item.id === person.id ? { ...item, active: changed.active, employmentHistory: changed.employmentHistory } : item) }));
+    setEmploymentPerson(null); setPersonModal(null);
+    setToast(changed.active ? "Сотрудник принят повторно. Проверьте документы и допуски." : "Сотрудник переведён в архив. Все связанные данные сохранены.");
   }
   function deletePerson(person: Person) {
     const related = expandedShifts.filter((shift) => shift.personId === person.id).length
@@ -1543,7 +1556,7 @@ export default function Home() {
           : view === "training"
             ? <TrainingMatrixView people={data.people} records={data.certifications} definitions={data.personalDocumentDefinitions} busyEntries={data.planBusyEntries} onOpenPerson={(personId) => { setPersonalTargetId(personId); setView("personal"); }} onPlan={savePlanBusy} onNotify={setToast} />
           : view === "people"
-            ? <PeopleView people={data.people} shifts={expandedShifts} readinessByPerson={readinessByPerson} onAdd={() => setPersonModal("new")} onEdit={setPersonModal} onOpenPersonal={(personId) => { setPersonalTargetId(personId); setView("personal"); }} />
+            ? <PeopleView people={data.people} shifts={expandedShifts} readinessByPerson={readinessByPerson} onAdd={() => setPersonModal("new")} onEdit={setPersonModal} onEmploymentChange={setEmploymentPerson} onOpenPersonal={(personId) => { setPersonalTargetId(personId); setView("personal"); }} />
             : view === "personal"
               ? <PersonalFilesView
                 people={data.people}
@@ -1596,6 +1609,7 @@ export default function Home() {
               />}
     </main>
     {personModal && <PersonModal person={personModal === "new" ? null : personModal} availableAircraftTypes={orderedUnique(data.aircraftFleet.map((aircraft) => canonicalAircraftType(aircraft.type)), aircraftTypeOptions)} onClose={() => setPersonModal(null)} onSubmit={savePerson} onDelete={personModal === "new" ? undefined : () => deletePerson(personModal)} />}
+    {employmentPerson && <EmploymentStatusDialog person={employmentPerson} onClose={() => setEmploymentPerson(null)} onConfirm={saveEmploymentChange} />}
     {shiftModal && <ShiftModal
       people={data.people}
       fleet={data.aircraftFleet}
@@ -1983,10 +1997,15 @@ function FlightReportModal({ people, shifts, externalFlights, assignments, busyE
   }}><option value="flight">Справка о налёте</option><option value="employment">Отчёт о занятости</option><option value="cumulative">Отчёт по нарастающему налёту</option><option value="summary">Итоговая справка о налёте</option></select></Field>{reportType === "cumulative" ? <Field label="Дополнить исходный отчёт по дату"><input required min={CUMULATIVE_APPEND_START} type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field> : <><div className="form-grid two"><Field label="Период с"><input required type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></Field><Field label="Период по"><input required type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field></div><Field label="Состав отчёта"><select value={personId} onChange={(event) => setPersonId(event.target.value)}><option value="">Все сотрудники — общий отчёт</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field></>}<div className="report-scope-note">{reportHint}</div>{error && <div className="form-error">{error}</div>}<div className="form-actions"><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button" disabled={exporting}>{exporting ? "Формирую…" : reportType === "cumulative" ? "Скачать Excel" : "Скачать PDF"}</button></div></form></Modal>;
 }
 
-function PeopleView({ people, shifts, readinessByPerson, onAdd, onEdit, onOpenPersonal }: { people: Person[]; shifts: Shift[]; readinessByPerson: Record<string, EmployeeReadiness>; onAdd: () => void; onEdit: (person: Person) => void; onOpenPersonal: (personId: string) => void }) {
+function PeopleView({ people, shifts, readinessByPerson, onAdd, onEdit, onOpenPersonal, onEmploymentChange }: { people: Person[]; shifts: Shift[]; readinessByPerson: Record<string, EmployeeReadiness>; onAdd: () => void; onEdit: (person: Person) => void; onOpenPersonal: (personId: string) => void; onEmploymentChange: (person: Person) => void }) {
+  const [tab, setTab] = useState<"active" | "archive">("active");
+  const [query, setQuery] = useState("");
+  const archived = tab === "archive";
+  const visiblePeople = people.filter((person) => person.active !== archived && person.name.toLocaleLowerCase("ru-RU").includes(query.trim().toLocaleLowerCase("ru-RU"))).sort((a,b) => a.name.localeCompare(b.name,"ru-RU"));
   return <section className="panel people-panel">
     <div className="panel-heading"><div><p className="eyebrow">Реестр</p><h2>Сотрудники</h2></div><button className="primary-button" onClick={onAdd}>+ Добавить</button></div>
-    {!people.length ? <div className="panel-empty tall">Карточки сотрудников ещё не созданы.</div> : <div className="people-grid">{people.map((person) => {
+    <div className="employment-toolbar"><div className="filter-buttons" role="group" aria-label="Состав сотрудников"><button aria-pressed={!archived} className={!archived ? "active" : ""} onClick={() => setTab("active")}>Работающие · {people.filter((person) => person.active).length}</button><button aria-pressed={archived} className={archived ? "active" : ""} onClick={() => setTab("archive")}>Архив · {people.filter((person) => !person.active).length}</button></div><input aria-label="Поиск сотрудника" placeholder="Поиск по Ф. И. О." value={query} onChange={(event) => setQuery(event.target.value)} /></div>
+    {!visiblePeople.length ? <div className="panel-empty tall">{query ? "Сотрудники по запросу не найдены." : archived ? "В архиве пока нет сотрудников." : "Нет работающих сотрудников. При повторном приёме откройте «Архив» и восстановите прежнюю карточку."}</div> : <div className="people-grid">{visiblePeople.map((person) => {
       const personShifts = shifts.filter((shift) => shift.personId === person.id);
       const readiness = readinessByPerson[person.id];
       return <article className="person-card" key={person.id}>
@@ -1994,14 +2013,15 @@ function PeopleView({ people, shifts, readinessByPerson, onAdd, onEdit, onOpenPe
         <div className="person-body">
           <strong>{person.name}</strong>
           <span>{person.position || "Кресла не указаны"}</span>
-          {readiness && <div className={`readiness-badge ${readiness.status}`}><span>{readiness.label}</span>{readiness.reasons[0] && <small>{readiness.reasons[0].label}: {readiness.reasons[0].detail}</small>}</div>}
+          {archived ? <div className="employment-archived">В архиве{person.employmentHistory?.at(-1)?.kind === "dismissed" ? ` · уволен ${formatDate(person.employmentHistory.at(-1)!.date)}` : ""}</div> : readiness && <div className={`readiness-badge ${readiness.status}`}><span>{readiness.label}</span>{readiness.reasons[0] && <small>{readiness.reasons[0].label}: {readiness.reasons[0].detail}</small>}</div>}
           <div className="person-qualification-list">{person.qualifications.length ? person.qualifications.map((qualification) => <div key={qualification.id}>
             <b>{qualification.operators.join(", ") || "Эксплуатант не указан"}</b>
             <span>{qualification.aircraftTypes.join(", ") || "Тип ВС не указан"}</span>
             <small>{qualification.seats.join(", ") || "Кресла не указаны"}</small>
             {qualification.nightAircraftTypes.length > 0 && <small>Ночь: {qualification.nightAircraftTypes.join(", ")}</small>}
           </div>) : <div><span>Наборы допуска не указаны</span></div>}</div>
-          <div className="person-card-actions"><button onClick={() => onOpenPersonal(person.id)}>Личное дело</button><button onClick={() => onEdit(person)}>Изменить</button></div>
+          <EmploymentHistory history={person.employmentHistory} />
+          <div className="person-card-actions"><button onClick={() => onOpenPersonal(person.id)}>Личное дело</button><button onClick={() => onEdit(person)}>Изменить</button><button className={archived ? "" : "delete"} onClick={() => onEmploymentChange(person)}>{archived ? "Принять повторно" : "Уволить / В архив"}</button></div>
         </div>
         <div className="person-stat"><strong>{personShifts.length}</strong><span>смен</span></div>
       </article>;
@@ -2064,6 +2084,7 @@ function PersonModal({ person, availableAircraftTypes, onClose, onSubmit, onDele
   return <Modal title={person ? "Редактирование сотрудника" : "Новый сотрудник"} subtitle="Эксплуатант → тип ВС → занимаемые кресла → ночной допуск" onClose={onClose} wide>
     <form onSubmit={submit} className="form-stack person-form">
       <Field label="Ф. И. О."><input autoFocus required value={name} onChange={(event) => setName(event.target.value)} placeholder="Иванов Иван Иванович" /></Field>
+      {person && <><div className="report-scope-note">{person.active ? "Работающий сотрудник" : "Сотрудник в архиве. Изменение карточки не восстанавливает его в составе."}</div><EmploymentHistory history={person.employmentHistory} /></>}
       <label className="split-shift-checkbox"><input type="checkbox" checked={monthlyPlanEnabled} onChange={(event) => setMonthlyPlanEnabled(event.target.checked)} /><span>Включать сотрудника в месячное планирование</span><small>Отключение не удаляет смены, документы и прежние назначения.</small></label>
       <section className="qualification-builder">
         <div className="qualification-builder-heading"><div><strong>{editingQualificationId ? "Изменение набора допуска" : "Новый набор допуска"}</strong><span>Последовательно выберите данные и добавьте набор в карточку сотрудника.</span></div>{editingQualificationId && <button type="button" className="link-button" onClick={resetQualificationDraft}>Отменить изменение набора</button>}</div>
@@ -2392,7 +2413,7 @@ function ShiftModal({
 
   return <Modal title={shift ? "Редактирование записи" : "Новая запись"} subtitle={shift?.periodId ? "Изменения применятся ко всему связанному периоду" : "Данные о выполненной занятости"} onClose={onClose} wide>
     <form onSubmit={submit} className="form-stack">
-      <Field label="Сотрудник"><select required value={personId} onChange={(event) => changePerson(event.target.value)}><option value="">Выберите сотрудника</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field>
+      <Field label="Сотрудник"><select required value={personId} onChange={(event) => changePerson(event.target.value)}><option value="">Выберите сотрудника</option>{people.filter((person) => person.active || person.id === shift?.personId).map((person) => <option key={person.id} value={person.id}>{person.name}{!person.active ? " · архив" : ""}</option>)}</select></Field>
       <Field label="Вид занятости"><div className="activity-grid">{Object.entries(activityLabels).map(([key, label]) => <button type="button" key={key} className={activity === key ? "selected" : ""} onClick={() => { setActivity(key as Activity); setError(""); }}>{label}</button>)}</div></Field>
       {supportsPeriod ? <div className="form-grid two"><Field label="Период с"><input required type="date" value={date} onChange={(event) => { setDate(event.target.value); if (dateTo < event.target.value) setDateTo(event.target.value); }} /></Field><Field label="Период по" hint="Каждый календарный день"><input required type="date" min={date} value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field></div> : <Field label="Дата"><input required type="date" value={date} onChange={(event) => { setDate(event.target.value); setDateTo(event.target.value); }} /></Field>}
       {usesTime(activity) && activity !== "flight" && <div className="form-grid two"><Field label="Начало" hint="Например, 0830 → 08:30"><TimeEntry required clock value={start} onChange={setStart} /></Field><Field label="Рабочее время" hint="Например, 800 → 08:00"><TimeEntry required value={work} onChange={setWork} /></Field></div>}

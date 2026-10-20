@@ -3,6 +3,7 @@
 import { ChangeEvent, useMemo, useState } from "react";
 import { getExpiryState, isExpiryAttention, latestCertificationRecords } from "./personal-files-rules";
 import { FlightBookView } from "./flight-book";
+import type { EmploymentEvent } from "./employment-rules";
 import {
   buildFlightBook,
   FlightBookBaseline,
@@ -23,6 +24,7 @@ export type PersonRef = {
     nightAircraftTypes?: string[];
   }[];
   active: boolean;
+  employmentHistory?: EmploymentEvent[];
 };
 export type FlightTimeShiftRef = {
   id?: string;

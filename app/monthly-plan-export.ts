@@ -6,7 +6,7 @@ import {
   buildAutomaticPlanActivityMap,
   dateInPlanEntry,
   isMonthlyPlanAircraft,
-  isMonthlyPlanPerson,
+  monthlyPlanPeople,
   monthDates,
   planBusyActivities,
   planBusyLabels,
@@ -69,7 +69,7 @@ export function buildMonthlyPlanMatrix(
     ? fleet.filter((aircraft) => aircraft.monthlyPlanEnabled).map((aircraft) => aircraft.number)
     : Object.values(aircraftNumbersByType).flat().filter(isMonthlyPlanAircraft);
   const dates = monthDates(month);
-  const planPeople = people.filter(isMonthlyPlanPerson);
+  const planPeople = monthlyPlanPeople(people, month, assignments, busyEntries, shifts);
   const planPersonIds = new Set(planPeople.map((person) => person.id));
   const planAssignments = assignments.filter((item) =>
     planPersonIds.has(item.personId) && aircraftNumbers.includes(item.aircraft));

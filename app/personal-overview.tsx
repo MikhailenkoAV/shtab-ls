@@ -30,6 +30,7 @@ import { downloadPersonalFlightPdf } from "./personal-file-pdf";
 import { employeeReadiness, readinessLabels } from "./readiness-rules";
 import { operatorsForDocument } from "./personal-document-rules";
 import { isSimulatorOrCabinTraining, trainingNameForAircraft } from "./training-record-rules";
+import { EmploymentHistory } from "./employment-status";
 
 const uid = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const localIsoDate = () => {
@@ -106,9 +107,10 @@ export function PersonalFilesView({
   const definitions = documentDefinitions.length
     ? documentDefinitions
     : DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS;
+  const [showArchived, setShowArchived] = useState(() => Boolean(initialPersonId && people.some((person) => person.id === initialPersonId && !person.active)));
   const sortedPeople = useMemo(
-    () => [...people].filter((person) => person.active).sort((left, right) => left.name.localeCompare(right.name, "ru-RU")),
-    [people],
+    () => [...people].filter((person) => person.active !== showArchived).sort((left, right) => left.name.localeCompare(right.name, "ru-RU")),
+    [people, showArchived],
   );
   const [selected, setSelected] = useState(initialPersonId ?? sortedPeople[0]?.id ?? "");
   const [mode, setMode] = useState<"overview" | "flightbook">("overview");
@@ -177,6 +179,7 @@ export function PersonalFilesView({
         </div>
       </div>
       <div className="pilot-filters">
+        <select aria-label="Состав личных дел" value={showArchived ? "archive" : "active"} onChange={(event) => { setShowArchived(event.target.value === "archive"); setSelected(""); }}><option value="active">Работающие сотрудники</option><option value="archive">Архив сотрудников</option></select>
         <select value={operatorFilter} onChange={(event) => setOperatorFilter(event.target.value)}><option value="">Все эксплуатанты</option>{operatorOptions.map((item) => <option key={item}>{item}</option>)}</select>
         <select value={aircraftFilter} onChange={(event) => setAircraftFilter(event.target.value)}><option value="">Все типы ВС</option>{aircraftOptions.map((item) => <option key={item}>{item}</option>)}</select>
         <select value={seatFilter} onChange={(event) => setSeatFilter(event.target.value)}><option value="">Все кресла</option>{seatOptions.map((item) => <option key={item}>{item}</option>)}</select>
@@ -192,8 +195,8 @@ export function PersonalFilesView({
         return <button key={item.id} className={item.id === personId ? "active" : ""} onClick={() => { setSelected(item.id); setMode("overview"); }}>
           <span className="person-avatar small">{item.name.split(" ").slice(0, 2).map((part) => part[0]).join("")}</span>
           <span><strong>{item.name}</strong><small>{displayMinutes(total)} · {item.aircraftTypes.join(", ")}</small></span>
-          <em className={`readiness-dot ${readiness.status}`} title={readiness.label} />
-          {warnings > 0 && <i>{warnings}</i>}
+          {item.active && <em className={`readiness-dot ${readiness.status}`} title={readiness.label} />}
+          {item.active && warnings > 0 && <i>{warnings}</i>}
         </button>;
       })}{!filteredPeople.length && <div className="pilot-filter-empty">Сотрудники по фильтрам не найдены.</div>}</div>
     </aside>
@@ -202,7 +205,7 @@ export function PersonalFilesView({
       <div className="record-hero panel">
         <div className="record-person"><p className="eyebrow">Личное дело</p><h2>{person.name}</h2><span>{[person.position, person.aircraftTypes.join(", ")].filter(Boolean).join(" · ")}</span></div>
         <div className="record-hero-side">
-          {(() => { const readiness = employeeReadiness(personRecords, profile); return <div className={`readiness-summary ${readiness.status}`}>
+          {!person.active ? <div className="employment-archived">В архиве · документы и история сохранены</div> : (() => { const readiness = employeeReadiness(personRecords, profile); return <div className={`readiness-summary ${readiness.status}`}>
             <div><span>Готовность к работе</span><strong>{readiness.label}</strong>{readiness.manual && <small>Установлено вручную</small>}</div>
             <button className="row-action" onClick={() => setProfileEditing("readiness")}>Настроить</button>
             {readiness.reasons.length > 0 && <button className="readiness-reason" onClick={() => setHistoryOpen(true)}>{readiness.reasons[0].label}: {readiness.reasons[0].detail}</button>}
@@ -218,6 +221,7 @@ export function PersonalFilesView({
           </div>
         </div>
       </div>
+      <EmploymentHistory history={person.employmentHistory} />
       <div className="personal-view-tabs">
         <button className={mode === "overview" ? "active" : ""} onClick={() => setMode("overview")}>Обзор</button>
         <button className={mode === "flightbook" ? "active" : ""} onClick={() => setMode("flightbook")}>Лётная книжка</button>

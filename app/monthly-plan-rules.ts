@@ -1,3 +1,6 @@
+import { hasStoredMonthlyHistory, isEmployedOnDate } from "./employment-rules.ts";
+import type { EmploymentEvent } from "./employment-rules.ts";
+
 export type PlanRole = "primary" | "reserve";
 
 export type PlanAssignment = {
@@ -64,7 +67,8 @@ export function isMonthlyPlanAircraft(aircraft: string): boolean {
   return !monthlyPlanExcludedAircraft.has(aircraft.trim().toUpperCase());
 }
 
-export function isMonthlyPlanPerson(person: { name: string }): boolean {
+export function isMonthlyPlanPerson(person: { name: string; active?: boolean }): boolean {
+  if (person.active === false) return false;
   if ("monthlyPlanEnabled" in person && typeof person.monthlyPlanEnabled === "boolean") return person.monthlyPlanEnabled;
   const surname = person.name.trim().split(/\s+/)[0]?.toLocaleLowerCase("ru-RU") ?? "";
   return !monthlyPlanExcludedSurnames.has(surname);
@@ -74,7 +78,13 @@ export type PlanPersonInput = {
   id: string;
   aircraftTypes: string[];
   active: boolean;
+  employmentHistory?: EmploymentEvent[];
 };
+
+export function monthlyPlanPeople<T extends PlanPersonInput & { name: string }>(people: T[], month: string, assignments: PlanAssignment[], busy: PlanBusyEntry[], shifts: ActualBusyInput[]): T[] {
+  return people.filter((person) => isMonthlyPlanPerson(person)
+    || (!person.active && isMonthlyPlanPerson({ ...person, active: true }) && hasStoredMonthlyHistory(person.id, month, assignments, busy, shifts)));
+}
 
 export type ActualBusyInput = {
   personId: string;
@@ -188,11 +198,12 @@ export function buildAutomaticPlanActivityMap<T extends PlanPersonInput>(
   const end = new Date(`${endDate}T12:00:00`);
   const requested = new Set(requestedDates);
 
-  people.filter((person) => person.active).forEach((person) => {
+  people.filter((person) => person.active || person.employmentHistory?.length).forEach((person) => {
     let consecutiveWorkDays = 0;
     const cursor = new Date(start);
     while (cursor <= end) {
       const date = localDateValue(cursor);
+      if (!isEmployedOnDate(person, date)) { consecutiveWorkDays = 0; cursor.setDate(cursor.getDate() + 1); continue; }
       const actual = actualEntries.filter((entry) => entry.personId === person.id && entry.date === date);
       const plannedBusy = busyEntries.find((entry) =>
         entry.personId === person.id && date >= entry.dateFrom && date <= entry.dateTo);
@@ -267,6 +278,7 @@ export function assignmentBlockReason({
 }: AssignmentBlockReasonInput): string | null {
   if (!person) return "Выберите сотрудника.";
   if (!person.active) return "Сотрудник неактивен.";
+  if (!isEmployedOnDate(person, date)) return "На эту дату сотрудник не состоял в работающем составе.";
   if (!person.aircraftTypes.includes(aircraftType)) return `Нет допуска на тип ВС ${aircraftType}.`;
   const plannedBusy = busyEntries.find((entry) =>
     entry.personId === person.id && dateInPlanEntry(date, entry));
