@@ -922,6 +922,15 @@ function Workspace({ session }: { session: Session }) {
       if (!active || reading || cloudSaveRunningRef.current || restoreRunningRef.current || cloudPhaseRef.current === "conflict") return;
       reading = true; cloudReadRunningRef.current = true;
       try {
+        if (cloudBaseRef.current && cloudPhaseRef.current !== "checking") {
+          const { data: head, error: headError } = await supabase.from("shtab_workspace").select("version").eq("user_id", session.user.id).maybeSingle();
+          if (!active) return;
+          if (headError) throw headError;
+          if (head && Number(head.version) === cloudVersionRef.current) {
+            cloudPhaseRef.current = "ready"; setCloudPhase("ready"); setCloudError("");
+            return;
+          }
+        }
         const { data: remote, error } = await supabase.from("shtab_workspace").select("data,version").eq("user_id", session.user.id).maybeSingle();
         if (!active) return;
         if (error) throw error;
