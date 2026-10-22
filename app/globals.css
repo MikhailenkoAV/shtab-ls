@@ -729,6 +729,8 @@ td strong { color: #314956; }
 .split-pill.active { color: #81571f; background: #fff0cf; }
 .journal-activity, .aircraft-cell, .flight-cell { display: grid; gap: 4px; }
 .journal-activity { justify-items: start; }
+.journal-table .journal-activity { width: 100%; min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.journal-table .journal-activity > .source-pill, .journal-table .journal-activity > .split-pill { display: block; width: fit-content; max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.4; border-radius: 8px; }
 .rest-cell { display: grid; min-width: 92px; gap: 2px; }
 .rest-cell strong { font-size: 12px; font-weight: 800; }
 .rest-cell small { color: #7d8d96; font-size: 10px; line-height: 1.25; white-space: nowrap; }
