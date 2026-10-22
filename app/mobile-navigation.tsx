@@ -17,7 +17,7 @@ export function MobileNavigation<T extends string>({ active, primary, secondary,
     const trigger = triggerRef.current;
     document.body.style.overflow = "hidden";
     menuRef.current?.focus();
-    const media = window.matchMedia("(max-width: 760px)");
+    const media = window.matchMedia("(max-width: 1100px)");
     const resize = () => { if (!media.matches) setOpen(false); };
     media.addEventListener("change", resize);
     return () => { media.removeEventListener("change", resize); document.body.style.overflow = overflow; trigger?.focus(); };

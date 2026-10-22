@@ -1161,23 +1161,11 @@ td strong { color: #314956; }
 
 /* Phone layouts use the same records and actions as the desktop workspace. */
 @media (max-width: 760px) {
-  .app-header .desktop-nav { display: none; }
-  .mobile-nav { display: flex; z-index: 80; }
-  .mobile-nav button { font-size: 11px; }
   .app-header { gap: 10px; padding-top: calc(10px + env(safe-area-inset-top)); }
   .header-status { display: flex; min-width: 0; width: 100%; flex-wrap: wrap; }
   .header-status > div { min-width: 0; flex: 1; }
   .header-status .row-action { min-height: 44px; padding-inline: 10px; color: #d1e7eb; }
   .header-status .save-state { color: #b3c8d1; }
-  .mobile-menu-backdrop { position: fixed; z-index: 130; inset: 0; display: grid; align-items: end; background: rgba(7,25,36,.56); }
-  .mobile-menu { max-height: 85dvh; overflow: auto; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); border-radius: 20px 20px 0 0; background: white; }
-  .mobile-menu > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-  .mobile-menu h2 { margin: 0; font-size: 20px; }
-  .mobile-menu nav { display: grid; gap: 6px; }
-  .mobile-menu nav button { display: grid; grid-template-columns: 24px 1fr 16px; align-items: center; gap: 10px; min-height: 48px; padding: 12px; border: 0; border-radius: 10px; color: #315461; background: #f3f7f8; text-align: left; font-weight: 700; }
-  .mobile-menu nav button.active { color: #10695f; background: #e6f4ef; }
-  .modal-backdrop { z-index: 140; }
-  .modal-backdrop.safety-backdrop { z-index: 150; }
   .modal { overscroll-behavior: contain; }
   .modal input:not([type="checkbox"]):not([type="radio"]), .modal select, .modal textarea { min-height: 44px; font-size: 16px; }
   .modal .form-actions { gap: 8px; flex-wrap: wrap; }
@@ -1246,4 +1234,29 @@ td strong { color: #314956; }
   .world-clocks .clock-card { padding: 8px 10px; }
   .world-clocks .clock-card strong { font-size: 15px; }
   .report-scope-note { overflow-wrap: anywhere; line-height: 1.5; }
+}
+
+/* Narrow desktop/PWA windows share compact navigation without forcing phone tables. */
+.aircraft-bar { grid-template-columns: minmax(88px, 110px) minmax(0, 1fr) max-content; }
+.aircraft-bar > b { white-space: nowrap; }
+@media (max-width: 1100px) {
+  .app-header .desktop-nav { display: none; }
+  .mobile-nav { position: fixed; z-index: 80; inset: auto 0 0; display: flex; width: 100%; min-height: calc(64px + env(safe-area-inset-bottom)); justify-content: stretch; gap: 0; padding: 5px 5px env(safe-area-inset-bottom); border-top: 1px solid rgba(255,255,255,.13); background: linear-gradient(90deg, #0e283a, #102f43 58%, #0b2232); box-shadow: 0 -8px 28px rgba(9,31,45,.2); }
+  .mobile-nav button { min-width: 0; min-height: 54px; flex: 1; flex-direction: column; gap: 1px; padding: 4px 2px; border-radius: 8px; font-size: 11px; line-height: 1.15; }
+  .mobile-nav button > span { display: block; font-size: 19px; line-height: 1; }
+  .workspace { padding-bottom: calc(90px + env(safe-area-inset-bottom)); }
+  .mobile-menu-backdrop { position: fixed; z-index: 130; inset: 0; display: grid; align-items: end; background: rgba(7,25,36,.56); }
+  .mobile-menu { max-height: 85dvh; overflow: auto; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); border-radius: 20px 20px 0 0; background: white; }
+  .mobile-menu > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .mobile-menu h2 { margin: 0; font-size: 20px; }
+  .mobile-menu nav { display: grid; gap: 6px; }
+  .mobile-menu nav button { display: grid; grid-template-columns: 24px 1fr 16px; align-items: center; gap: 10px; min-height: 48px; padding: 12px; border: 0; border-radius: 10px; color: #315461; background: #f3f7f8; text-align: left; font-weight: 700; }
+  .mobile-menu nav button.active { color: #10695f; background: #e6f4ef; }
+  .modal-backdrop { z-index: 140; }
+  .modal-backdrop.safety-backdrop { z-index: 150; }
+}
+@media (min-width: 761px) and (max-width: 1100px) {
+  .app-header { grid-template-columns: auto minmax(0, 1fr); gap: 16px; }
+  .header-status { display: flex; min-width: 0; justify-self: end; }
+  .header-status > div { min-width: 0; }
 }
