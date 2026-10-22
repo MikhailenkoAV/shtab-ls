@@ -1,6 +1,7 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { ChangeEvent, FormEvent, useEffect, useCallback, useMemo, useRef, useState } from "react";
 import { activityUsesTime as usesTime, isRestNeutralActivity, normalizeActivityTiming } from "./activity-rules";
 import { AIRCRAFT_OPERATORS, AircraftConfig, AircraftOperator, aircraftNumbersByType, canonicalAircraftType, DEFAULT_AIRCRAFT_FLEET, normalizeAircraftOperators, toggleAircraftOperator } from "./aircraft-rules";
 import { normalizeTrainingRecord } from "./training-record-rules";
@@ -11,10 +12,11 @@ import {
 } from "./monthly-report";
 import {
   CUMULATIVE_APPEND_START,
+  SourceWorkbookData,
   downloadCumulativeFlightExcel,
 } from "./cumulative-flight-report";
-import { MonthlyPlanView, PlanEditRequest } from "./monthly-plan";
-import { ActualPlanView } from "./actual-plan";
+import type { PlanEditRequest } from "./monthly-plan";
+
 import {
   aircraftTypeForNumber,
   planBusyLabels,
@@ -22,9 +24,10 @@ import {
   PlanAssignment,
   PlanBusyEntry,
 } from "./monthly-plan-rules";
-import { CertificationRecord, ImportAviabitModal, ImportPayload } from "./personal-files";
+import type { CertificationRecord, ImportPayload } from "./personal-files";
+const ImportAviabitModal = dynamic(() => import("./personal-files").then((module) => module.ImportAviabitModal), { loading: () => <Loading /> });
 import { isMedicalCertificationSuperseded, latestCertificationRecords } from "./personal-files-rules";
-import { PersonalFilesView } from "./personal-overview";
+
 import {
   AWAY_FROM_BASE_DAILY_REST_MINUTES,
   calculateRestIssues,
@@ -37,10 +40,10 @@ import {
   WeeklyRestWarning,
 } from "./rest-rules";
 import { groupedDateCells } from "./journal-rules";
-import { WorkTimeImportModal } from "./work-time-import";
+
 import { ImportedWorkTimeShift, mergeImportedWorkTime } from "./work-time-import-rules";
-import { FlightTaskImportModal } from "./flight-task-import";
-import { ControlJournalView } from "./control-journal";
+
+
 import {
   buildControlRows,
   compareAttentionDates,
@@ -62,13 +65,14 @@ import { mergeWorkspaceWithConflicts, resolveWorkspaceConflicts, WorkspaceConfli
 import { workspaceSaveStatus } from "./save-status-rules";
 import { BackupPreviewDialog, SyncConflictDialog } from "./workspace-safety-dialogs";
 import { MobileNavigation } from "./mobile-navigation";
+import { workspaceKey } from "./workspace-storage-rules";
+import { appendMissingRecords, restorePersonShifts } from "./person-recovery-rules";
+import { externalFlightsForReport } from "./external-flight-rules";
 import { ResizableJournalTable } from "./resizable-journal-table";
 import { changeEmploymentStatus, EmploymentEvent } from "./employment-rules";
 import { EmploymentHistory, EmploymentStatusDialog } from "./employment-status";
-import { DocumentationView } from "./documentation";
+
 import { AircraftDocumentRecord, normalizeAircraftDocument } from "./aircraft-documents-rules";
-import registrySeedJson from "./document-registry-seed.json";
-import medicalReferralsSeedJson from "./medical-referrals-seed.json";
 import {
   DocumentPersonProfile,
   DocumentRegistryRecord,
@@ -80,10 +84,10 @@ import {
 } from "./documentation-rules";
 import { ExternalFlightRecord, FlightBookBaseline } from "./flight-book-rules";
 import { employeeReadiness, EmployeeReadiness, readinessBlockReason, readinessForOperator } from "./readiness-rules";
-import { CrewDeploymentView } from "./crew-deployment";
-import { TrainingMatrixView } from "./training-matrix";
-import { ImportCenterView } from "./import-center";
-import { AnalyticsView } from "./analytics";
+
+
+
+
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./cloud-client";
 import { CloudLogin, CloudMigration } from "./cloud-access";
@@ -95,6 +99,28 @@ import {
   PersonalDocumentDefinition,
   PilotPersonalProfile,
 } from "./pilot-profile-rules";
+
+const MonthlyPlanView = dynamic(() => import("./monthly-plan").then((module) => module.MonthlyPlanView), { loading: () => <Loading /> });
+
+const ActualPlanView = dynamic(() => import("./actual-plan").then((module) => module.ActualPlanView), { loading: () => <Loading /> });
+
+const PersonalFilesView = dynamic(() => import("./personal-overview").then((module) => module.PersonalFilesView), { loading: () => <Loading /> });
+
+const WorkTimeImportModal = dynamic(() => import("./work-time-import").then((module) => module.WorkTimeImportModal), { loading: () => <Loading /> });
+
+const FlightTaskImportModal = dynamic(() => import("./flight-task-import").then((module) => module.FlightTaskImportModal), { loading: () => <Loading /> });
+
+const ControlJournalView = dynamic(() => import("./control-journal").then((module) => module.ControlJournalView), { loading: () => <Loading /> });
+
+const DocumentationView = dynamic(() => import("./documentation").then((module) => module.DocumentationView), { loading: () => <Loading /> });
+
+const CrewDeploymentView = dynamic(() => import("./crew-deployment").then((module) => module.CrewDeploymentView), { loading: () => <Loading /> });
+
+const TrainingMatrixView = dynamic(() => import("./training-matrix").then((module) => module.TrainingMatrixView), { loading: () => <Loading /> });
+
+const ImportCenterView = dynamic(() => import("./import-center").then((module) => module.ImportCenterView), { loading: () => <Loading /> });
+
+const AnalyticsView = dynamic(() => import("./analytics").then((module) => module.AnalyticsView), { loading: () => <Loading /> });
 
 type View = "dashboard" | "shifts" | "people" | "personal" | "control" | "crew" | "training" | "import" | "analytics" | "planning" | "actual" | "documentation" | "settings";
 type Activity = "flight" | "trip" | "office" | "periodic_training" | "ground_training" | "standby" | "vacation" | "dayoff";
@@ -160,13 +186,12 @@ type AppData = {
   externalFlightRecords: ExternalFlightRecord[];
   aircraftDocuments: AircraftDocumentRecord[];
   aircraftFleet: AircraftConfig[];
+  cumulativeFlightSource: SourceWorkbookData | null;
   personalProfiles: Record<string, PilotPersonalProfile>;
   personalDocumentDefinitions: PersonalDocumentDefinition[];
   personalDocumentDefinitionsVersion: number;
   trash: TrashEntry[];
 };
-const REGISTRY_SEED = registrySeedJson as DocumentRegistryRecord[];
-const MEDICAL_REFERRALS_SEED = medicalReferralsSeedJson as MedicalReferralRecord[];
 
 const EMPTY_SETTINGS: CompanySettings = {
   fullName: "",
@@ -187,14 +212,15 @@ const EMPTY_DATA: AppData = {
   planAssignments: [],
   planBusyEntries: [],
   settings: EMPTY_SETTINGS,
-  documentRegistry: REGISTRY_SEED,
-  medicalReferrals: MEDICAL_REFERRALS_SEED,
+  documentRegistry: [],
+  medicalReferrals: [],
   documentProfiles: {},
   documentSettings: EMPTY_DOCUMENT_SETTINGS,
   flightBookBaselines: [],
   externalFlightRecords: [],
   aircraftDocuments: [],
   aircraftFleet: DEFAULT_AIRCRAFT_FLEET,
+  cumulativeFlightSource: null,
   personalProfiles: {},
   personalDocumentDefinitions: DEFAULT_PERSONAL_DOCUMENT_DEFINITIONS,
   personalDocumentDefinitionsVersion: PERSONAL_DOCUMENT_DEFINITIONS_VERSION,
@@ -352,14 +378,15 @@ function normalizeAppData(stored?: Partial<AppData>): AppData {
         planAssignments: stored?.planAssignments ?? [],
         planBusyEntries: stored?.planBusyEntries ?? [],
         settings: { ...EMPTY_SETTINGS, ...(stored?.settings ?? {}) },
-        documentRegistry: stored?.documentRegistry ?? REGISTRY_SEED,
-        medicalReferrals: stored?.medicalReferrals ?? MEDICAL_REFERRALS_SEED,
+        documentRegistry: stored?.documentRegistry ?? [],
+        medicalReferrals: stored?.medicalReferrals ?? [],
         documentProfiles: stored?.documentProfiles ?? {},
         documentSettings: normalizeDocumentSettings(stored?.documentSettings),
         flightBookBaselines: stored?.flightBookBaselines ?? [],
         externalFlightRecords: stored?.externalFlightRecords ?? [],
+        cumulativeFlightSource: stored?.cumulativeFlightSource ?? null,
         aircraftDocuments: (stored?.aircraftDocuments ?? []).map(normalizeAircraftDocument),
-        aircraftFleet: (stored?.aircraftFleet?.length ? stored.aircraftFleet : DEFAULT_AIRCRAFT_FLEET).map((aircraft) => {
+        aircraftFleet: (stored?.aircraftFleet ?? DEFAULT_AIRCRAFT_FLEET).map((aircraft) => {
           const operators = normalizeAircraftOperators(aircraft.operators, aircraft.operator);
           return {
             ...aircraft,
@@ -381,11 +408,22 @@ function normalizeAppData(stored?: Partial<AppData>): AppData {
   };
 }
 
-async function loadData(): Promise<AppData> {
+async function readLegacyWorkspace(): Promise<Partial<AppData> | undefined> {
   const db = await openDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readonly");
     const request = tx.objectStore(STORE_NAME).get(STATE_KEY);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => db.close();
+  });
+}
+
+async function loadData(userId: string): Promise<AppData> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const request = tx.objectStore(STORE_NAME).get(workspaceKey(userId, STATE_KEY));
     request.onsuccess = () => {
       resolve(normalizeAppData(request.result as Partial<AppData> | undefined));
     };
@@ -394,53 +432,53 @@ async function loadData(): Promise<AppData> {
   });
 }
 
-async function loadCheckpoints(): Promise<RecoveryCheckpoint<AppData>[]> {
+async function loadCheckpoints(userId: string): Promise<RecoveryCheckpoint<AppData>[]> {
   const db = await openDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readonly");
-    const request = tx.objectStore(STORE_NAME).get(RECOVERY_KEY);
+    const request = tx.objectStore(STORE_NAME).get(workspaceKey(userId, RECOVERY_KEY));
     request.onsuccess = () => resolve(Array.isArray(request.result) ? request.result : []);
     request.onerror = () => reject(request.error);
     tx.oncomplete = () => db.close();
   });
 }
 
-async function saveCheckpoints(checkpoints: RecoveryCheckpoint<AppData>[]): Promise<void> {
+async function saveCheckpoints(checkpoints: RecoveryCheckpoint<AppData>[], userId: string): Promise<void> {
   const db = await openDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).put(checkpoints, RECOVERY_KEY);
+    tx.objectStore(STORE_NAME).put(checkpoints, workspaceKey(userId, RECOVERY_KEY));
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onerror = () => reject(tx.error);
   });
 }
 
-async function loadCloudSyncState(): Promise<CloudSyncState | null> {
+async function loadCloudSyncState(userId: string): Promise<CloudSyncState | null> {
   const db = await openDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readonly");
-    const request = tx.objectStore(STORE_NAME).get(CLOUD_SYNC_KEY);
+    const request = tx.objectStore(STORE_NAME).get(workspaceKey(userId, CLOUD_SYNC_KEY));
     request.onsuccess = () => resolve(request.result?.data ? request.result as CloudSyncState : null);
     request.onerror = () => reject(request.error);
     tx.oncomplete = () => db.close();
   });
 }
 
-async function saveCloudSyncState(state: CloudSyncState): Promise<void> {
+async function saveCloudSyncState(state: CloudSyncState, userId: string): Promise<void> {
   const db = await openDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).put(state, CLOUD_SYNC_KEY);
+    tx.objectStore(STORE_NAME).put(state, workspaceKey(userId, CLOUD_SYNC_KEY));
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onerror = () => reject(tx.error);
   });
 }
 
-async function saveData(data: AppData): Promise<void> {
+async function saveData(data: AppData, userId: string): Promise<void> {
   const db = await openDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, "readwrite");
-    tx.objectStore(STORE_NAME).put(data, STATE_KEY);
+    tx.objectStore(STORE_NAME).put(data, workspaceKey(userId, STATE_KEY));
     tx.oncomplete = () => { db.close(); resolve(); };
     tx.onerror = () => reject(tx.error);
   });
@@ -744,7 +782,24 @@ function isRestIssueVisible(issue: RestIssue): boolean {
 }
 
 export default function Home() {
+  const [session, setSession] = useState<Session | null | undefined>(undefined);
+  useEffect(() => {
+    let active = true;
+    void supabase.auth.getSession().then(({ data }) => { if (active) setSession(data.session); }).catch(() => { if (active) setSession(null); });
+    const { data } = supabase.auth.onAuthStateChange((_event, next) => {
+      // Remount the complete workspace when its authenticated owner changes.
+      setSession(next);
+    });
+    return () => { active = false; data.subscription.unsubscribe(); };
+  }, []);
+  if (session === undefined) return <Loading />;
+  if (!session) return <CloudLogin />;
+  return <Workspace key={session.user.id} session={session} />;
+}
+
+function Workspace({ session }: { session: Session }) {
   const [view, setView] = useState<View>("dashboard");
+  const [controlFocus, setControlFocus] = useState("");
   const [data, setData] = useState<AppData>(EMPTY_DATA);
   const [hydrated, setHydrated] = useState(false);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
@@ -767,7 +822,6 @@ export default function Home() {
   const [personalTargetId, setPersonalTargetId] = useState("");
   const [toast, setToast] = useState("");
   const [checkpoints, setCheckpoints] = useState<RecoveryCheckpoint<AppData>[]>([]);
-  const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [cloudPhase, setCloudPhase] = useState<"checking"|"migration"|"ready"|"offline"|"conflict"|"error">("checking");
   const [cloudError, setCloudError] = useState("");
   const [cloudBusy, setCloudBusy] = useState(false);
@@ -777,84 +831,29 @@ export default function Home() {
   const cloudBaseRef = useRef<AppData | null>(null);
   const pendingCloudDataRef = useRef<AppData | null>(null);
   const cloudSaveRunningRef = useRef(false);
+  const cloudReadRunningRef = useRef(false);
   const restoreRunningRef = useRef(false);
   const cloudPhaseRef = useRef(cloudPhase);
   const dataRef = useRef(data);
+  const activeWorkspaceRef = useRef(true);
+  useEffect(() => { activeWorkspaceRef.current = true; return () => { activeWorkspaceRef.current = false; pendingCloudDataRef.current = null; }; }, []);
   useEffect(() => { cloudPhaseRef.current = cloudPhase; }, [cloudPhase]);
   useEffect(() => { dataRef.current = data; }, [data]);
 
-  useEffect(() => {
-    let active=true;
-    const timeout=window.setTimeout(()=>{if(active)setSession((current)=>current===undefined?null:current)},5000);
-    void supabase.auth.getSession().then(({data:auth})=>{if(active)setSession(auth.session)}).catch(()=>{if(active)setSession(null)}).finally(()=>window.clearTimeout(timeout));
-    const {data:listener}=supabase.auth.onAuthStateChange((_event,next)=>setSession(next));
-    return ()=>{active=false;window.clearTimeout(timeout);listener.subscription.unsubscribe()};
-  },[]);
-
-  useEffect(() => {
-    Promise.all([loadData(), loadCheckpoints(), loadCloudSyncState()]).then(([loadedData, loadedCheckpoints, syncState]) => {
-      previousDataRef.current = structuredClone(loadedData);
-      dataRef.current = loadedData;
-      if (syncState) {
-        cloudVersionRef.current = syncState.version;
-        cloudBaseRef.current = normalizeAppData(syncState.data);
-      }
-      setData(loadedData);
-      setLocalSavedData(loadedData);
-      setCheckpoints(loadedCheckpoints);
-    }).catch(() => setLoadError("Не удалось прочитать локальную базу. Автосохранение остановлено, чтобы не заменить данные пустой базой.")).finally(() => setHydrated(true));
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register(new URL("sw.js", window.location.href).pathname).catch(() => undefined);
-  }, []);
-  useEffect(() => {
-    if (!hydrated || !session || loadError) return;
-    let active=true;
-    void Promise.resolve(supabase.from("shtab_workspace").select("data,version").eq("user_id",session.user.id).maybeSingle()).then(({data:remote,error})=>{
-      if(!active)return;
-      if(error){setCloudError("Не удалось прочитать облачную базу.");setCloudPhase(navigator.onLine?"error":"offline");return;}
-      if(!remote){setCloudPhase("migration");return;}
-      const remoteData=normalizeAppData(remote.data as Partial<AppData>);
-      const localData=dataRef.current;
-      const base=cloudBaseRef.current ?? undefined;
-      const localHasRecords=localData.people.length>0||localData.shifts.length>0||localData.certifications.length>0||localData.planAssignments.length>0||localData.planBusyEntries.length>0;
-      const merge=base||localHasRecords ? mergeWorkspaceWithConflicts(base,localData,remoteData) : {data:remoteData,conflicts:[]};
-      setLastCloudData(remoteData); setLastCloudSavedAt(new Date().toISOString());
-      if (merge.conflicts.length) {
-        pendingCloudDataRef.current=null;
-        setSyncConflict({conflicts:merge.conflicts,base,remote:remoteData,version:Number(remote.version)||1});
-        cloudPhaseRef.current="conflict"; setCloudPhase("conflict");
-        return;
-      }
-      const merged=normalizeAppData(merge.data);
-      cloudVersionRef.current=Number(remote.version)||1;
-      cloudBaseRef.current=structuredClone(remoteData);
-      previousDataRef.current=structuredClone(localData);
-      if(workspaceChanged(merged,remoteData)) pendingCloudDataRef.current=structuredClone(merged);
-      else void saveCloudSyncState({version:cloudVersionRef.current,data:structuredClone(remoteData),savedAt:new Date().toISOString()}).catch(()=>{setCloudError("Не удалось сохранить состояние синхронизации на устройстве.");setCloudPhase("error");});
-      dataRef.current=merged;setData(merged);setCloudPhase("ready");
-    }).catch(()=>{if(active){setCloudError("Не удалось прочитать облачную базу. Локальная копия не изменена.");setCloudPhase(navigator.onLine?"error":"offline");}});
-    return()=>{active=false};
-  },[hydrated,session,loadError]);
-  useEffect(() => {
-    if (!hydrated || loadError) return;
-    const timer = window.setTimeout(() => {
-      setSaveState("saving");
-      saveData(data).then(() => { setLocalSavedData(data); setSaveState("saved"); }).catch(() => setSaveState("error"));
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [data, hydrated, loadError]);
-  async function flushCloudQueue(userId: string) {
-    if(cloudSaveRunningRef.current || restoreRunningRef.current || cloudPhaseRef.current === "conflict")return;
+  const flushCloudQueue = useCallback(async (userId: string) => {
+    if(!activeWorkspaceRef.current || cloudReadRunningRef.current || cloudSaveRunningRef.current || restoreRunningRef.current || cloudPhaseRef.current === "conflict")return;
     cloudSaveRunningRef.current=true;
     setCloudSaving(true);
     let inFlight: AppData | null = null;
     try{
-      while(pendingCloudDataRef.current){
+      while(pendingCloudDataRef.current && activeWorkspaceRef.current){
         let payload=pendingCloudDataRef.current;
         inFlight=payload;
         pendingCloudDataRef.current=null;
         let saved=false;
         for(let attempt=0;attempt<3&&!saved;attempt+=1){
           const expected=cloudVersionRef.current;
+          if (!activeWorkspaceRef.current) return;
           const {data:updated,error}=await supabase.from("shtab_workspace").update({data:payload}).eq("user_id",userId).eq("version",expected).select("version").maybeSingle();
           if(error){pendingCloudDataRef.current=pendingCloudDataRef.current??payload;setCloudPhase(navigator.onLine?"error":"offline");setCloudError("Изменения сохранены на устройстве и ожидают синхронизации.");return;}
           if(updated){
@@ -862,7 +861,7 @@ export default function Home() {
             cloudBaseRef.current=structuredClone(payload);
             const savedAt=new Date().toISOString();
             setLastCloudData(payload);setLastCloudSavedAt(savedAt);
-            await saveCloudSyncState({version:cloudVersionRef.current,data:structuredClone(payload),savedAt});
+            await saveCloudSyncState({version:cloudVersionRef.current,data:structuredClone(payload),savedAt}, userId);
             saved=true;setCloudPhase("ready");setCloudError("");
             continue;
           }
@@ -891,7 +890,82 @@ export default function Home() {
       pendingCloudDataRef.current=pendingCloudDataRef.current??inFlight;
       setCloudPhase(navigator.onLine?"error":"offline");setCloudError("Отправка не завершена. Проверьте локальное сохранение и повторите синхронизацию.");
     }finally{cloudSaveRunningRef.current=false;setCloudSaving(false);}
-  }
+  }, []);
+  const [legacyAvailable, setLegacyAvailable] = useState(false);
+  const [todayIso, setTodayIso] = useState(() => localIsoDate(new Date()));
+  useEffect(() => {
+    const update = () => setTodayIso(localIsoDate(new Date()));
+    const timer = window.setInterval(update, 30_000);
+    window.addEventListener("focus", update);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", update); };
+  }, []);
+  useEffect(() => {
+    Promise.all([loadData(session.user.id), loadCheckpoints(session.user.id), loadCloudSyncState(session.user.id)]).then(([loadedData, loadedCheckpoints, syncState]) => {
+      previousDataRef.current = structuredClone(loadedData);
+      dataRef.current = loadedData;
+      if (syncState) {
+        cloudVersionRef.current = syncState.version;
+        cloudBaseRef.current = normalizeAppData(syncState.data);
+      }
+      setData(loadedData);
+      setLocalSavedData(loadedData);
+      setCheckpoints(loadedCheckpoints);
+    }).catch(() => setLoadError("Не удалось прочитать локальную базу. Автосохранение остановлено, чтобы не заменить данные пустой базой.")).finally(() => setHydrated(true));
+    void readLegacyWorkspace().then((legacy) => setLegacyAvailable(Boolean(legacy && (legacy.people?.length || legacy.shifts?.length)))).catch(() => undefined);
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register(new URL("sw.js", window.location.href).pathname).catch(() => undefined);
+  }, [session.user.id]);
+  useEffect(() => {
+    if (!hydrated || loadError) return;
+    let active = true;
+    let reading = false;
+    async function refresh() {
+      if (!active || reading || cloudSaveRunningRef.current || restoreRunningRef.current || cloudPhaseRef.current === "conflict") return;
+      reading = true; cloudReadRunningRef.current = true;
+      try {
+        const { data: remote, error } = await supabase.from("shtab_workspace").select("data,version").eq("user_id", session.user.id).maybeSingle();
+        if (!active) return;
+        if (error) throw error;
+        if (!remote) { cloudPhaseRef.current = "migration"; setCloudPhase("migration"); return; }
+        const remoteData = normalizeAppData(remote.data as Partial<AppData>);
+        const base = cloudBaseRef.current ?? undefined;
+        const local = dataRef.current;
+        const hasRecords = local.people.length || local.shifts.length || local.certifications.length;
+        const merge = base || hasRecords ? mergeWorkspaceWithConflicts(base, local, remoteData) : { data: remoteData, conflicts: [] };
+        setLastCloudData(remoteData);
+        setLastCloudSavedAt(new Date().toISOString());
+        if (merge.conflicts.length) {
+          pendingCloudDataRef.current = null;
+          setSyncConflict({ conflicts: merge.conflicts, base, remote: remoteData, version: Number(remote.version) || 1 });
+          cloudPhaseRef.current = "conflict"; setCloudPhase("conflict"); return;
+        }
+        const merged = normalizeAppData(merge.data);
+        cloudVersionRef.current = Number(remote.version) || 1;
+        cloudBaseRef.current = structuredClone(remoteData);
+        pendingCloudDataRef.current = workspaceChanged(merged, remoteData) ? structuredClone(merged) : null;
+        await saveCloudSyncState({ version: cloudVersionRef.current, data: remoteData, savedAt: new Date().toISOString() }, session.user.id);
+        if (!active) return;
+        if (workspaceChanged(merged, dataRef.current)) { dataRef.current = merged; setData(merged); }
+        cloudPhaseRef.current = "ready"; setCloudPhase("ready"); setCloudError("");
+
+      } catch {
+        if (active) { cloudPhaseRef.current = navigator.onLine ? "error" : "offline"; setCloudPhase(cloudPhaseRef.current); setCloudError("Не удалось проверить облачную базу. Локальные изменения сохранены на устройстве."); }
+      } finally { reading = false; cloudReadRunningRef.current = false; if (active && pendingCloudDataRef.current && cloudPhaseRef.current === "ready") void flushCloudQueue(session.user.id); }
+    }
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    void refresh();
+    const interval = window.setInterval(onVisible, 30_000);
+    window.addEventListener("focus", onVisible); document.addEventListener("visibilitychange", onVisible);
+    return () => { active = false; window.clearInterval(interval); window.removeEventListener("focus", onVisible); document.removeEventListener("visibilitychange", onVisible); };
+  }, [hydrated, session.user.id, loadError, flushCloudQueue]);
+  useEffect(() => {
+    if (!hydrated || loadError) return;
+    const timer = window.setTimeout(() => {
+      setSaveState("saving");
+      saveData(data, session.user.id).then(() => { setLocalSavedData(data); setSaveState("saved"); }).catch(() => setSaveState("error"));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [data, hydrated, loadError, session.user.id]);
+
   useEffect(() => {
     if(!hydrated||!session||loadError||restoreBusy||cloudPhaseRef.current!=="ready")return;
     if(cloudBaseRef.current&&!workspaceChanged(data,cloudBaseRef.current))return;
@@ -899,13 +973,13 @@ export default function Home() {
     const userId=session.user.id;
     const timer=window.setTimeout(()=>{void flushCloudQueue(userId)},900);
     return()=>window.clearTimeout(timer);
-  },[data,hydrated,session,loadError,restoreBusy]);
+  },[data,hydrated,session,loadError,restoreBusy,flushCloudQueue]);
   useEffect(()=>{
     const online=()=>{if((cloudPhaseRef.current==="offline"||cloudPhaseRef.current==="error")&&session){cloudPhaseRef.current="ready";setCloudPhase("ready");pendingCloudDataRef.current=structuredClone(dataRef.current);void flushCloudQueue(session.user.id);}};
     const offline=()=>{if(cloudPhaseRef.current==="ready"){cloudPhaseRef.current="offline";setCloudPhase("offline");}};
     window.addEventListener("online",online);window.addEventListener("offline",offline);
     return()=>{window.removeEventListener("online",online);window.removeEventListener("offline",offline);};
-  },[session]);
+  },[session,flushCloudQueue]);
   useEffect(()=>{
     if(!hydrated||loadError||localSavedData===data)return;
     const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue="";};
@@ -923,7 +997,7 @@ export default function Home() {
       uploaded=true;cloudVersionRef.current=Number(row.version)||1;cloudBaseRef.current=structuredClone(data);
       const savedAt=new Date().toISOString();setLastCloudData(data);setLastCloudSavedAt(savedAt);
       cloudPhaseRef.current="ready";setCloudPhase("ready");
-      await saveCloudSyncState({version:cloudVersionRef.current,data:structuredClone(data),savedAt});
+      await saveCloudSyncState({version:cloudVersionRef.current,data:structuredClone(data),savedAt}, session.user.id);
       setToast("Локальная база перенесена в облако");
     }catch{
       setCloudError(uploaded?"Облако подтвердило перенос, но состояние синхронизации не сохранено на устройстве.":"Не удалось завершить перенос. Локальная база не удалена.");
@@ -940,7 +1014,7 @@ export default function Home() {
     cloudBaseRef.current=structuredClone(syncConflict.remote);
     setLastCloudData(syncConflict.remote);
     setLastCloudSavedAt(new Date().toISOString());
-    void saveCloudSyncState({version:syncConflict.version,data:structuredClone(syncConflict.remote),savedAt:new Date().toISOString()}).catch(()=>{setCloudError("Не удалось сохранить состояние синхронизации на устройстве.");setCloudPhase("error");});
+    void saveCloudSyncState({version:syncConflict.version,data:structuredClone(syncConflict.remote),savedAt:new Date().toISOString()}, session.user.id).catch(()=>{setCloudError("Не удалось сохранить состояние синхронизации на устройстве.");setCloudPhase("error");});
     dataRef.current=resolved;setData(resolved);setSyncConflict(null);
     cloudPhaseRef.current="ready";setCloudPhase("ready");setCloudError("");
     pendingCloudDataRef.current=workspaceChanged(resolved,syncConflict.remote)?structuredClone(resolved):null;
@@ -959,11 +1033,13 @@ export default function Home() {
       snapshot: structuredClone(previous),
     };
     setCheckpoints((current) => {
-      const next = [checkpoint, ...current].slice(0, MAX_CHECKPOINTS);
-      void saveCheckpoints(next);
+      const recent = current[0];
+      const coalesce = recent && checkpoint.sections.join("|") === recent.sections.join("|") && Date.parse(checkpoint.createdAt) - Date.parse(recent.createdAt) < 2000;
+      const next = coalesce ? [{ ...recent, createdAt: checkpoint.createdAt }, ...current.slice(1)] : [checkpoint, ...current].slice(0, MAX_CHECKPOINTS);
+      void saveCheckpoints(next, session.user.id);
       return next;
     });
-  }, [data, hydrated]);
+  }, [data, hydrated, session.user.id]);
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(""), 2800);
@@ -971,7 +1047,6 @@ export default function Home() {
   }, [toast]);
 
   const expandedShifts = useMemo(() => expandLinkedCrewShifts(data.shifts), [data.shifts]);
-  const todayIso = localIsoDate(new Date());
   const restMap = useMemo(() => getRestMap(expandedShifts), [expandedShifts]);
   const assumedCompliantRestIds = useMemo(() => getAssumedCompliantRestIds(expandedShifts), [expandedShifts]);
   const restIssues = useMemo(() => getRestIssues(expandedShifts), [expandedShifts]);
@@ -990,8 +1065,9 @@ export default function Home() {
     employeeReadiness(
       data.certifications.filter((record) => record.personId === person.id),
       normalizePilotPersonalProfile(data.personalProfiles[person.id]),
+      new Date(`${todayIso}T12:00:00`),
     ),
-  ])), [data.certifications, data.people, data.personalProfiles]);
+  ])), [data.certifications, data.people, data.personalProfiles, todayIso]);
   const alerts = useMemo(() => {
     const result: DashboardAlert[] = [];
     restIssues.filter((issue) => isCurrentMonthDate(issue.date, todayIso) && isRestIssueVisible(issue)).forEach((issue) => {
@@ -1065,17 +1141,18 @@ export default function Home() {
     setData((current) => {
       const next = { ...current, trash: current.trash.filter((item) => item.id !== entry.id) };
       if (entry.kind === "person") {
-        const bundle = entry.payload as { person: Person; shifts: Shift[]; certifications: CertificationRecord[]; planAssignments: PlanAssignment[]; planBusyEntries: PlanBusyEntry[]; baselines: FlightBookBaseline[]; documentProfile?: DocumentPersonProfile; personalProfile?: PilotPersonalProfile };
+        const bundle = entry.payload as { person: Person; shifts: Shift[]; certifications: CertificationRecord[]; planAssignments: PlanAssignment[]; planBusyEntries: PlanBusyEntry[]; baselines: FlightBookBaseline[]; externalFlightRecords?: ExternalFlightRecord[]; documentProfile?: DocumentPersonProfile; personalProfile?: PilotPersonalProfile };
         return {
           ...next,
           people: next.people.some((item) => item.id === bundle.person.id) ? next.people : [...next.people, bundle.person],
-          shifts: [...next.shifts.filter((item) => !bundle.shifts.some((saved) => saved.id === item.id)), ...bundle.shifts],
-          certifications: [...next.certifications.filter((item) => !bundle.certifications.some((saved) => saved.id === item.id)), ...bundle.certifications.map(normalizeTrainingRecord)],
-          planAssignments: [...next.planAssignments.filter((item) => !bundle.planAssignments.some((saved) => saved.id === item.id)), ...bundle.planAssignments],
-          planBusyEntries: [...next.planBusyEntries.filter((item) => !bundle.planBusyEntries.some((saved) => saved.id === item.id)), ...bundle.planBusyEntries],
-          flightBookBaselines: [...next.flightBookBaselines.filter((item) => !bundle.baselines.some((saved) => saved.id === item.id)), ...bundle.baselines],
-          documentProfiles: bundle.documentProfile ? { ...next.documentProfiles, [bundle.person.id]: bundle.documentProfile } : next.documentProfiles,
-          personalProfiles: bundle.personalProfile ? { ...next.personalProfiles, [bundle.person.id]: bundle.personalProfile } : next.personalProfiles,
+          shifts: restorePersonShifts(next.shifts, bundle.shifts, bundle.person.id),
+          certifications: appendMissingRecords(next.certifications, bundle.certifications.map(normalizeTrainingRecord)),
+          planAssignments: appendMissingRecords(next.planAssignments, bundle.planAssignments),
+          planBusyEntries: appendMissingRecords(next.planBusyEntries, bundle.planBusyEntries),
+          flightBookBaselines: appendMissingRecords(next.flightBookBaselines, bundle.baselines),
+          externalFlightRecords: appendMissingRecords(next.externalFlightRecords, bundle.externalFlightRecords ?? []),
+          documentProfiles: bundle.documentProfile && !next.documentProfiles[bundle.person.id] ? { ...next.documentProfiles, [bundle.person.id]: bundle.documentProfile } : next.documentProfiles,
+          personalProfiles: bundle.personalProfile && !next.personalProfiles[bundle.person.id] ? { ...next.personalProfiles, [bundle.person.id]: bundle.personalProfile } : next.personalProfiles,
         };
       }
       if (entry.kind === "shift") {
@@ -1115,7 +1192,7 @@ export default function Home() {
     setData(normalizeAppData(checkpoint.snapshot));
     setCheckpoints((current) => {
       const next = current.slice(1);
-      void saveCheckpoints(next);
+      void saveCheckpoints(next, session.user.id);
       return next;
     });
     setToast("Последнее изменение отменено");
@@ -1149,6 +1226,7 @@ export default function Home() {
         planAssignments: current.planAssignments.filter((assignment) => assignment.personId === person.id),
         planBusyEntries: current.planBusyEntries.filter((entry) => entry.personId === person.id),
         baselines: current.flightBookBaselines.filter((baseline) => baseline.personId === person.id),
+        externalFlightRecords: current.externalFlightRecords.filter((record) => record.personId === person.id),
         documentProfile: current.documentProfiles[person.id],
         personalProfile: current.personalProfiles[person.id],
       }), ...current.trash],
@@ -1165,6 +1243,7 @@ export default function Home() {
       planBusyEntries: current.planBusyEntries.filter((entry) => entry.personId !== person.id),
       documentProfiles: Object.fromEntries(Object.entries(current.documentProfiles).filter(([personId]) => personId !== person.id)),
       flightBookBaselines: current.flightBookBaselines.filter((baseline) => baseline.personId !== person.id),
+      externalFlightRecords: current.externalFlightRecords.filter((record) => record.personId !== person.id),
       personalProfiles: Object.fromEntries(Object.entries(current.personalProfiles).filter(([personId]) => personId !== person.id)),
     }));
     setPersonModal(null); setToast("Сотрудник удалён");
@@ -1412,7 +1491,7 @@ export default function Home() {
       const parsed = JSON.parse(text) as unknown;
       const validation = validateBackupEnvelope(parsed);
       if (!validation.valid) throw new Error(validation.error);
-      const restored = normalizeAppData(validation.data as Partial<AppData>);
+      const restored = normalizeAppData({ ...validation.data, cumulativeFlightSource: validation.data.cumulativeFlightSource ?? dataRef.current.cumulativeFlightSource } as Partial<AppData>);
       setRestoreError("");
       setBackupPreview({ filename: file.name, data: restored });
     }).catch((caught) => setToast(caught instanceof Error ? caught.message : "Не удалось прочитать резервную копию"));
@@ -1427,9 +1506,9 @@ export default function Home() {
       const previous=structuredClone(dataRef.current);
       const checkpoint: RecoveryCheckpoint<AppData>={id:uid(),createdAt:new Date().toISOString(),sections:["До восстановления базы из файла"],snapshot:previous};
       const nextCheckpoints=[checkpoint,...checkpoints].slice(0,MAX_CHECKPOINTS);
-      await saveCheckpoints(nextCheckpoints);
+      await saveCheckpoints(nextCheckpoints, session.user.id);
       const restored=backupPreview.data;
-      await saveData(restored);
+      await saveData(restored, session.user.id);
       setCheckpoints(nextCheckpoints);previousDataRef.current=structuredClone(restored);
       dataRef.current=restored;setData(restored);setLocalSavedData(restored);setSaveState("saved");setBackupPreview(null);
       setToast("База восстановлена. Предыдущее состояние сохранено в истории.");
@@ -1439,9 +1518,8 @@ export default function Home() {
   const cloudPending=useMemo(()=>!lastCloudData||workspaceChanged(data,lastCloudData),[data,lastCloudData]);
   const saveStatus=workspaceSaveStatus({localSaved:localSavedData===data,localError:saveState==="error",cloudPhase,cloudPending,cloudSaving,lastCloudSavedAt});
 
-  if(session===undefined||!hydrated)return <Loading/>;
+  if(!hydrated)return <Loading/>;
   if(loadError)return <div className="loading"><p role="alert">{loadError}</p><button className="secondary-button" onClick={()=>window.location.reload()}>Повторить открытие</button></div>;
-  if(!session)return <CloudLogin/>;
   if(cloudPhase==="checking")return <Loading/>;
   if(cloudPhase==="migration")return <CloudMigration counts={{people:data.people.length,shifts:data.shifts.length,documents:data.certifications.length}} onUpload={()=>void migrateToCloud()} onSignOut={()=>void supabase.auth.signOut()} loading={cloudBusy} error={cloudError}/>;
   return <div className="app-shell">
@@ -1471,6 +1549,7 @@ export default function Home() {
       { id: "settings", label: "Настройки", glyph: "⚙" },
     ]} />
     <main className="workspace">
+      {legacyAvailable && <div className="report-scope-note" role="status">На устройстве сохранена локальная копия предыдущей версии. Она не привязана к аккаунту. Сохраните её файлом и при необходимости импортируйте в свой аккаунт после проверки. <button className="row-action" onClick={() => void readLegacyWorkspace().then((legacy) => { if (legacy) download("BaseShtab-before-account-separation.json", JSON.stringify(legacy, null, 2)); })}>Скачать прежнюю копию</button><button className="row-action" onClick={() => setLegacyAvailable(false)}>Скрыть</button></div>}
       <header className="topbar"><div className="topbar-title"><p className="eyebrow current-date">{new Intl.DateTimeFormat("ru-RU", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date())}</p><h1>{viewTitle(view)}</h1></div>
         <WorldClocks />
         <div className="top-actions">{!["dashboard", "documentation", "settings"].includes(view) && <button className="secondary-button" onClick={() => setView("dashboard")}>← На главную</button>}</div>
@@ -1487,6 +1566,7 @@ export default function Home() {
           onAddShift={() => openNewShift()}
           onRestore={() => importRef.current?.click()}
           onNavigate={setView}
+          onOpenAlert={(alert) => { setControlFocus(alert.title); setView("control"); }}
         />
         : view === "analytics"
           ? <AnalyticsView people={data.people} shifts={expandedShifts} busyEntries={data.planBusyEntries} alerts={alerts} onNavigate={setView} />
@@ -1540,6 +1620,7 @@ export default function Home() {
             assignments={data.planAssignments}
             busyEntries={data.planBusyEntries}
             externalFlights={data.externalFlightRecords}
+            cumulativeFlightSource={data.cumulativeFlightSource}
             restMap={restMap}
             assumedCompliantRestIds={assumedCompliantRestIds}
             onAdd={() => openNewShift()}
@@ -1580,7 +1661,7 @@ export default function Home() {
                 initialPersonId={personalTargetId}
               />
               : view === "control"
-                ? <ControlJournalView rows={controlRows} alerts={alerts} onNotify={setToast} />
+                ? <ControlJournalView key={controlFocus} initialQuery={controlFocus} rows={controlRows} alerts={alerts} onNotify={setToast} />
                 : view === "actual"
                   ? <ActualPlanView
                     people={data.people}
@@ -1672,6 +1753,7 @@ function Dashboard({
   onAddShift,
   onRestore,
   onNavigate,
+  onOpenAlert,
 }: {
   people: Person[];
   shifts: Shift[];
@@ -1683,6 +1765,7 @@ function Dashboard({
   onAddShift: () => void;
   onRestore: () => void;
   onNavigate: (view: View) => void;
+  onOpenAlert: (alert: DashboardAlert) => void;
 }) {
   if (!people.length) return <section className="empty-start"><div className="empty-visual"><span>01</span><i /></div><p className="eyebrow">Новая или пустая база</p><h2>Восстановите рабочую базу из резервной копии</h2><p>Выберите ранее сохранённый файл BaseShtab. Сотрудники, смены, планы, личные дела и настройки предприятия будут восстановлены на этом устройстве.</p><button className="primary-button" onClick={onRestore}>Восстановить базу из файла</button></section>;
   const readiness = readinessSummary(people, readinessByPerson);
@@ -1694,7 +1777,7 @@ function Dashboard({
   return <><section className="metric-grid dashboard-metrics"><Metric label="Готовы к работе" value={`${readiness.allowed} из ${readiness.total}`} detail="полностью допущены" tone="green" /><Metric label="С ограничениями" value={String(readiness.restricted)} detail="требуют контроля" tone="violet" /><Metric label="Не допущены" value={String(readiness.notAllowed)} detail="есть критические замечания" tone={readiness.notAllowed ? "red" : "green"} /><Metric label="Полётное время" value={formatDuration(totalFlight)} detail="в текущем месяце" tone="teal" /><Metric label="Предупреждения" value={String(alerts.length)} detail={alerts.length ? "открытых замечаний" : "замечаний нет"} tone={alerts.length ? "red" : "green"} /></section>
     <section className="dashboard-insights">
       <article className="panel readiness-card"><div className="insight-heading"><div><p className="eyebrow">Готовность состава</p><h2>Допуски и документы</h2></div><button className="link-button" onClick={() => onNavigate("control")}>Открыть контроль →</button></div><div className="readiness-content"><div className="readiness-donut" style={{ background: `conic-gradient(#317a5f 0 ${(readiness.allowed/readinessTotal)*100}%, #d5a34e 0 ${((readiness.allowed+readiness.restricted)/readinessTotal)*100}%, #c84c4c 0 ${((readiness.allowed+readiness.restricted+readiness.notAllowed)/readinessTotal)*100}%, #dce4e8 0 100%)` }}><div><strong>{Math.round(readiness.allowed/readinessTotal*100)}%</strong><span>готовы</span></div></div><div className="readiness-legend"><span><i className="good" />Допущены <strong>{readiness.allowed}</strong></span><span><i className="warning" />С ограничениями <strong>{readiness.restricted}</strong></span><span><i className="danger" />Не допущены <strong>{readiness.notAllowed}</strong></span><span><i className="neutral" />Не определено <strong>{readiness.undetermined}</strong></span></div></div></article>
-      <article className="panel deadlines-card"><div className="insight-heading"><div><p className="eyebrow">Ближайшие события</p><h2>Что требует внимания</h2></div><span className="count-badge">{alerts.length}</span></div><div className="deadline-list">{!alerts.length ? <div className="good-state"><span>✓</span><div><strong>Критических замечаний нет</strong><p>Сроки и режим труда находятся под контролем.</p></div></div> : dashboardRows(alerts).map((alert) => <button type="button" className={`deadline-row ${alert.severity}`} key={alert.id} onClick={() => onNavigate("control")}><i>!</i><span><strong>{alert.title}</strong><small>{alert.detail}</small></span><b>→</b></button>)}</div></article>
+      <article className="panel deadlines-card"><div className="insight-heading"><div><p className="eyebrow">Ближайшие события</p><h2>Что требует внимания</h2></div><span className="count-badge">{alerts.length}</span></div><div className="deadline-list">{!alerts.length ? <div className="good-state"><span>✓</span><div><strong>Критических замечаний нет</strong><p>Сроки и режим труда находятся под контролем.</p></div></div> : dashboardRows(alerts).map((alert) => <button type="button" className={`deadline-row ${alert.severity}`} key={alert.id} onClick={() => onOpenAlert(alert)}><i>!</i><span><strong>{alert.title}</strong><small>{alert.detail}</small></span><b>→</b></button>)}</div></article>
       <article className="panel chart-card workload-card"><div className="insight-heading"><div><p className="eyebrow">Текущий месяц</p><h2>Загрузка сотрудников</h2></div><button className="link-button" onClick={() => onNavigate("analytics")}>Вся аналитика →</button></div><div className="bar-chart">{workload.length ? workload.map((row) => <div className="bar-row" key={row.id}><span title={row.name}>{row.name}</span><div><i style={{ width: `${Math.max(3,row.workMinutes/maxWorkload*100)}%` }} /><em style={{ width: `${Math.max(0,row.flightMinutes/maxWorkload*100)}%` }} /></div><strong>{formatDuration(row.workMinutes)}<small> · налёт {formatDuration(row.flightMinutes)}</small></strong></div>) : <div className="panel-empty">В текущем месяце смен пока нет</div>}</div><div className="chart-legend"><span><i />Рабочее время</span><span><i className="flight" />Полётное время</span></div></article>
       <article className="panel chart-card aircraft-usage-card"><div className="insight-heading"><div><p className="eyebrow">Текущий месяц</p><h2>Использование воздушных судов</h2></div><button className="link-button" onClick={() => onNavigate("shifts")}>Открыть журнал →</button></div><div className="aircraft-bars">{aircraftUsage.length ? aircraftUsage.map((row) => <div className="aircraft-bar" key={row.aircraft}><div><strong>{row.aircraft}</strong><small>{row.shiftCount} смен</small></div><span><i style={{ width: `${Math.max(4,row.flightMinutes/maxAircraftFlight*100)}%` }} /></span><b>{formatDuration(row.flightMinutes)}</b></div>) : <div className="panel-empty">Нет полётных смен с указанными бортами</div>}</div></article>
     </section>
@@ -1788,8 +1871,8 @@ function SettingsView({
     </div></article>
     <article className="panel settings-card fleet-settings-card"><div className="panel-heading"><div><p className="eyebrow">Парк ВС</p><h2>Воздушные суда и планирование</h2></div><span className="settings-auto-save">{fleet.length} бортов</span></div>
       <div className="fleet-settings-list">{fleet.map((aircraft) => <div className="fleet-settings-row" key={aircraft.id}>
-        <input aria-label="Тип ВС" value={aircraft.type} onChange={(event) => onFleetChange(fleet.map((item) => item.id === aircraft.id ? { ...item, type: canonicalAircraftType(event.target.value) } : item))} />
-        <input aria-label="Бортовой номер" value={aircraft.number} onChange={(event) => onFleetChange(fleet.map((item) => item.id === aircraft.id ? { ...item, number: event.target.value.toUpperCase() } : item))} />
+        <FleetTextInput key={`${aircraft.id}-type-${aircraft.type}`} label="Тип ВС" value={aircraft.type} validate={(value) => value ? "" : "Укажите тип ВС."} onCommit={(value) => onFleetChange(fleet.map((item) => item.id === aircraft.id ? { ...item, type: canonicalAircraftType(value) } : item))} />
+        <FleetTextInput key={`${aircraft.id}-number-${aircraft.number}`} label="Бортовой номер" value={aircraft.number} validate={(value) => !value ? "Укажите бортовой номер." : fleet.some((item) => item.id !== aircraft.id && item.number.toUpperCase() === value.toUpperCase()) ? "Такой бортовой номер уже добавлен." : ""} onCommit={(value) => onFleetChange(fleet.map((item) => item.id === aircraft.id ? { ...item, number: value.toUpperCase() } : item))} />
         <div className="fleet-operator-options" aria-label={`Эксплуатант ${aircraft.number}`}>{AIRCRAFT_OPERATORS.map((operator) => <label key={operator}><input type="checkbox" checked={normalizeAircraftOperators(aircraft.operators, aircraft.operator).includes(operator)} onChange={() => onFleetChange(fleet.map((item) => { if (item.id !== aircraft.id) return item; const operators = toggleAircraftOperator(normalizeAircraftOperators(item.operators, item.operator), operator); return { ...item, operator: operators[0], operators }; }))} /><span>{operator}</span></label>)}</div>
         <label className="fleet-plan-toggle" title="Показывать в месячном плане"><input type="checkbox" checked={aircraft.monthlyPlanEnabled} onChange={(event) => onFleetChange(fleet.map((item) => item.id === aircraft.id ? { ...item, monthlyPlanEnabled: event.target.checked } : item))} /><span>В плане</span></label>
         <button type="button" className="delete" onClick={() => { if (window.confirm(`Удалить ${aircraft.number} из справочника ВС? Фактические записи сохранятся.`)) onFleetChange(fleet.filter((item) => item.id !== aircraft.id)); }}>Удалить</button>
@@ -1815,6 +1898,7 @@ function ShiftsView({
   assignments,
   busyEntries,
   externalFlights,
+  cumulativeFlightSource,
   restMap,
   assumedCompliantRestIds,
   onAdd,
@@ -1832,6 +1916,7 @@ function ShiftsView({
   assignments: PlanAssignment[];
   busyEntries: PlanBusyEntry[];
   externalFlights: ExternalFlightRecord[];
+  cumulativeFlightSource: SourceWorkbookData | null;
   restMap: Map<string, number>;
   assumedCompliantRestIds: Set<string>;
   onAdd: () => void;
@@ -1915,7 +2000,7 @@ function ShiftsView({
       }
       return <tr data-date={formatDate(row.date)} className="planned-row" key={`busy-${row.entry.id}-${row.date}`}>{dateCells[rowIndex].showDate && <td className="journal-date-cell" rowSpan={dateCells[rowIndex].rowSpan}>{formatDate(row.date)}</td>}<td data-label="Сотрудник"><strong>{person?.name ?? "—"}</strong></td><td data-label="Занятость"><span className="journal-activity">{planBusyLabels[row.entry.activity]}<span className="source-pill">Из месячного плана</span></span></td><td data-label="Полётное время">—</td><td data-label="ВС / кресло">—</td><td data-label="Цель">—</td><td data-label="Рабочее время">—</td><td data-label="Ночь / посадки">—</td><td data-label="Отдых">—</td><td className="note-cell journal-note-col" data-label="Примечание">{row.entry.note || "Из месячного плана"}</td><td className="journal-actions-col" data-label="Действия"><div className="row-actions"><button onClick={() => onEditPlan({ kind: "busy", id: row.entry.id })}>Изменить</button><button className="delete" onClick={() => { if (window.confirm(`Удалить занятость «${planBusyLabels[row.entry.activity]}» за ${formatDate(row.date)}?`)) onDeletePlanBusy(row.entry.id); }}>Удалить</button></div></td></tr>;
     })}</tbody></ResizableJournalTable>}
-  </section>{reportOpen && <FlightReportModal people={people} shifts={shifts} externalFlights={externalFlights} assignments={assignments} busyEntries={busyEntries} onClose={() => setReportOpen(false)} onNotify={onNotify} />}{importOpen && <WorkTimeImportModal people={people} shifts={shifts} onClose={() => setImportOpen(false)} onSubmit={(records) => { onImport(records); setImportOpen(false); }} />}{flightTaskImportOpen && <FlightTaskImportModal people={people} onClose={() => setFlightTaskImportOpen(false)} onSubmit={(records) => { onImport(records); setFlightTaskImportOpen(false); onNotify("Полётное задание проверено и добавлено в Единый журнал."); }} />}</>;
+  </section>{reportOpen && <FlightReportModal people={people} shifts={shifts} externalFlights={externalFlights} cumulativeFlightSource={cumulativeFlightSource} assignments={assignments} busyEntries={busyEntries} onClose={() => setReportOpen(false)} onNotify={onNotify} />}{importOpen && <WorkTimeImportModal people={people} shifts={shifts} onClose={() => setImportOpen(false)} onSubmit={(records) => { onImport(records); setImportOpen(false); }} />}{flightTaskImportOpen && <FlightTaskImportModal people={people} onClose={() => setFlightTaskImportOpen(false)} onSubmit={(records) => { onImport(records); setFlightTaskImportOpen(false); onNotify("Полётное задание проверено и добавлено в Единый журнал."); }} />}</>;
 }
 
 function RestCell({
@@ -1953,10 +2038,10 @@ function RestCell({
   </span>;
 }
 
-function FlightReportModal({ people, shifts, externalFlights, assignments, busyEntries, onClose, onNotify }: { people: Person[]; shifts: Shift[]; externalFlights: ExternalFlightRecord[]; assignments: PlanAssignment[]; busyEntries: PlanBusyEntry[]; onClose: () => void; onNotify: (message: string) => void }) {
+function FlightReportModal({ people, shifts, externalFlights, cumulativeFlightSource, assignments, busyEntries, onClose, onNotify }: { people: Person[]; shifts: Shift[]; externalFlights: ExternalFlightRecord[]; cumulativeFlightSource: SourceWorkbookData | null; assignments: PlanAssignment[]; busyEntries: PlanBusyEntry[]; onClose: () => void; onNotify: (message: string) => void }) {
   const today = new Date();
   const reportShifts = useMemo(() => expandLinkedCrewShifts(shifts), [shifts]);
-  const flightReportShifts = useMemo(() => [...reportShifts, ...externalFlights.map((record) => ({ id: `external-${record.id}`, personId: record.personId, date: `${record.month}-01`, activity: "flight", note: record.note, segments: [{ id: record.id, aircraft: record.aircraft, aircraftType: record.aircraftType, seat: record.seat, purpose: record.purpose || "По справке", flightMinutes: record.flightMinutes, nightMinutes: record.nightMinutes }] }))], [externalFlights, reportShifts]);
+
   type ReportType = "flight" | "employment" | "cumulative" | "summary";
   const [reportType, setReportType] = useState<ReportType>("flight");
   const [dateFrom, setDateFrom] = useState(localIsoDate(new Date(today.getFullYear(), today.getMonth(), 1)));
@@ -1969,19 +2054,21 @@ function FlightReportModal({ people, shifts, externalFlights, assignments, busyE
     if (!dateTo || (reportType !== "cumulative" && (!dateFrom || dateFrom > dateTo))) { setError("Проверьте даты периода отчёта."); return; }
     setExporting(true); setError("");
     try {
+      const flightReportShifts = reportType === "employment" ? reportShifts : [...reportShifts, ...externalFlightsForReport(externalFlights, reportType === "cumulative" ? CUMULATIVE_APPEND_START : dateFrom, dateTo, personId || null)];
       if (reportType === "flight") await downloadFlightReport(dateFrom, dateTo, people, flightReportShifts, personId || null);
       else if (reportType === "employment") await downloadEmploymentReport(dateFrom, dateTo, people, reportShifts, personId || null, assignments, busyEntries);
-      else if (reportType === "cumulative") await downloadCumulativeFlightExcel(dateTo, people, flightReportShifts);
+      else if (reportType === "cumulative") await downloadCumulativeFlightExcel(dateTo, people, flightReportShifts, cumulativeFlightSource);
       else await downloadSummaryFlightReport(dateFrom, dateTo, people, flightReportShifts, personId || null);
       onNotify(reportType === "cumulative" ? "Excel-отчёт сформирован" : "PDF-отчёт сформирован"); onClose();
-    } catch {
+    } catch (cause) {
+      if (cause instanceof Error && cause.message.startsWith("Справка")) { setError(cause.message); return; }
       setError(`Не удалось сформировать ${reportType === "cumulative" ? "Excel" : "PDF"}. Попробуйте ещё раз.`);
     } finally {
       setExporting(false);
     }
   }
   const reportHint = reportType === "flight"
-    ? "Справка показывает налёт по креслу, типу ВС, бортовому номеру, цели полёта и отмечает разделённые смены."
+    ? "Справка показывает налёт по креслу, типу ВС и цели полёта, объединяя все борта одного типа и отмечает разделённые смены."
     : reportType === "employment"
       ? "Фактические смены имеют приоритет. Если записи нет, отчёт использует месячный план: свободный день становится ожиданием полёта, а после 6 рабочих дней подряд — выходным."
       : reportType === "cumulative"
@@ -2541,5 +2628,18 @@ function CheckboxGroup({ label, options, values, onChange, columns = 3 }: { labe
   return <fieldset className={`checkbox-group columns-${columns}`}><legend>{label}</legend><div>{options.map((option) => <label key={option}><input type="checkbox" checked={values.includes(option)} onChange={(event) => onChange(event.target.checked ? [...values, option] : values.filter((value) => value !== option))} /><span>{option}</span></label>)}</div></fieldset>;
 }
 
-function Modal({ title, subtitle, onClose, wide, children }: { title: string; subtitle: string; onClose: () => void; wide?: boolean; children: React.ReactNode }) { return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className={`modal ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="modal-title"><header><div><p className="eyebrow">ШТАБ ЛС</p><h2 id="modal-title">{title}</h2><span>{subtitle}</span></div><button className="modal-close" aria-label="Закрыть" onClick={onClose}>×</button></header>{children}</section></div>; }
+function Modal({ title, subtitle, onClose, wide, children }: { title: string; subtitle: string; onClose: () => void; wide?: boolean; children: React.ReactNode }) {
+  const [dirty, setDirty] = useState(false);
+  const close = () => { if (!dirty || window.confirm("Закрыть форму без сохранения изменений?")) onClose(); };
+  return <div onChangeCapture={() => setDirty(true)} className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}><section className={`modal ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="modal-title"><header><div><p className="eyebrow">ШТАБ ЛС</p><h2 id="modal-title">{title}</h2><span>{subtitle}</span></div><button className="modal-close" aria-label="Закрыть" onClick={close}>×</button></header>{children}</section></div>; }
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) { return <label className="field"><span>{label}{hint && <small>{hint}</small>}</span>{children}</label>; }
+
+function FleetTextInput({ label, value, validate, onCommit }: { label: string; value: string; validate: (value: string) => string; onCommit: (value: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const [error, setError] = useState("");
+  return <input aria-label={label} aria-invalid={Boolean(error)} title={error || label} value={draft} onChange={(event) => { setDraft(event.target.value); setError(""); }} onBlur={(event) => {
+    const next = draft.trim(); const message = validate(next); event.currentTarget.setCustomValidity(message); setError(message);
+    if (message) { event.currentTarget.reportValidity(); return; }
+    setDraft(next); onCommit(next);
+  }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") { setDraft(value); setError(""); event.currentTarget.setCustomValidity(""); } }} />;
+}

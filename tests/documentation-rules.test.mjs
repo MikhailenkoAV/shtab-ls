@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import test from "node:test";
 import {
   DEFAULT_TRAINING_PROGRAMS,
@@ -10,20 +9,9 @@ import {
   nextMedicalReferralNumber,
 } from "../app/documentation-rules.ts";
 
-const seed = JSON.parse(fs.readFileSync(new URL("../app/document-registry-seed.json", import.meta.url), "utf8"));
-const medicalSeed = JSON.parse(fs.readFileSync(new URL("../app/medical-referrals-seed.json", import.meta.url), "utf8"));
-
-test("current personnel registry is preloaded from the supplied workbook", () => {
-  assert.equal(seed.length, 167);
-  assert.ok(seed.some((record) => record.kind === "order" && record.number === "13/24-ЛС"));
-  assert.ok(seed.some((record) => record.kind === "certificate" && record.number === "33-ЛС"));
-});
-
-test("medical referral history is preloaded and continues its numbering", () => {
-  assert.equal(medicalSeed.length, 26);
-  assert.equal(medicalSeed[0].number, "13");
-  assert.equal(medicalSeed.at(-1).number, "38");
-  assert.equal(nextMedicalReferralNumber(medicalSeed), "39");
+test("medical referral numbering continues the authenticated history", () => {
+  const history = [{ id: "synthetic-1", number: "13" }, { id: "synthetic-2", number: "38" }];
+  assert.equal(nextMedicalReferralNumber(history), "39");
 });
 
 test("AUC program library is populated with program kind and hours", () => {

@@ -64,8 +64,8 @@ test("period report aggregates chair, aircraft type, purpose, total and night fl
   assert.match(serialized, /АОН \(УТП\)/);
   assert.match(serialized, /Кресло/);
   assert.match(serialized, /Тип ВС/);
-  assert.match(serialized, /Бортовой №/);
-  assert.match(serialized, /RA-00001/);
+  assert.doesNotMatch(serialized, /Бортовой №/);
+  assert.doesNotMatch(serialized, /RA-00001/);
   assert.doesNotMatch(serialized, /РС/);
   assert.doesNotMatch(serialized, /Разделение полетной смены на части/);
   assert.match(serialized, /Цель/);

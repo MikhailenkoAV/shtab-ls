@@ -21,6 +21,6 @@ test("backup import opens preview and saves a checkpoint before replacement", ()
   assert.ok(importFunction.includes("setBackupPreview("));
   assert.equal(importFunction.includes("setData(restored)"), false);
   const confirmFunction = page.slice(page.indexOf("async function confirmBackupRestore("), page.indexOf("const cloudPending="));
-  assert.ok(confirmFunction.indexOf("await saveCheckpoints(") < confirmFunction.indexOf("await saveData(restored)"));
-  assert.ok(confirmFunction.indexOf("await saveData(restored)") < confirmFunction.indexOf("setData(restored)"));
+  assert.ok(confirmFunction.indexOf("await saveCheckpoints(") < confirmFunction.indexOf("await saveData(restored, session.user.id)"));
+  assert.ok(confirmFunction.indexOf("await saveData(restored, session.user.id)") < confirmFunction.indexOf("setData(restored)"));
 });

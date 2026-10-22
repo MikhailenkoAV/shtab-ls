@@ -24,10 +24,12 @@ function displayDate(value: string): string {
 
 export function ControlJournalView({
   rows,
+  initialQuery = "",
   alerts,
   onNotify,
 }: {
   rows: ControlRow[];
+  initialQuery?: string;
   alerts: {
     id: string;
     severity: "danger" | "warning";
@@ -37,8 +39,8 @@ export function ControlJournalView({
   }[];
   onNotify: (message: string) => void;
 }) {
-  const [kind, setKind] = useState<ControlKind>("type");
-  const [query, setQuery] = useState("");
+  const [kind, setKind] = useState<ControlKind>(initialQuery ? "certification" : "type");
+  const [query, setQuery] = useState(initialQuery);
   const today = new Date();
   const after45Days = new Date(today);
   after45Days.setDate(after45Days.getDate() + 45);

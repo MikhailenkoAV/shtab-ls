@@ -386,7 +386,7 @@ function BusyModal({
     event.preventDefault();
     if (!personId || !dateFrom || !dateTo || dateTo < dateFrom) return;
     const conflict = datesInRange(dateFrom, dateTo)
-      .map((date) => ({ date, reason: busyBlockReason(personId, date, assignments, busyEntries, actualBusy, entry?.id) }))
+      .map((date) => ({ date, reason: busyBlockReason(personId, date, assignments, busyEntries, actualBusy, entry?.id, people.find((person) => person.id === personId)) }))
       .find((item) => item.reason);
     if (conflict) {
       setError(`${new Intl.DateTimeFormat("ru-RU").format(new Date(`${conflict.date}T12:00:00`))}: ${conflict.reason}`);
@@ -460,7 +460,7 @@ function EmploymentPlannerModal({
     if (!person) return "Сначала выберите сотрудника.";
     if (usesAircraftPlacement && person.readinessStatus === "not_allowed") return person.readinessReason || "Сотрудник не допущен к полётам.";
     if (!usesAircraftPlacement) {
-      return busyBlockReason(person.id, date, assignments, busyEntries, actualBusy);
+      return busyBlockReason(person.id, date, assignments, busyEntries, actualBusy, undefined, person);
     }
     if (!selectedAircraft.length) return "Выберите хотя бы один борт.";
     for (const aircraft of selectedAircraft) {

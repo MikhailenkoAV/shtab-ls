@@ -23,6 +23,7 @@ export const sectionLabels: Record<string, string> = {
   planBusyEntries: "Занятость",
   settings: "Настройки предприятия",
   aircraftFleet: "Парк ВС",
+  cumulativeFlightSource: "Исторический налёт",
   documentRegistry: "Реестр документов",
   medicalReferrals: "Медицинские направления",
   documentProfiles: "Анкетные данные",

@@ -13,6 +13,14 @@ function initialWidths() {
 
 export function ResizableJournalTable({ children }: { children: ReactNode }) {
   const [layout, setLayout] = useState(initialWidths);
+  const [hidden, setHidden] = useState<JournalColumnId[]>(() => {
+    try { const saved: unknown = JSON.parse(localStorage.getItem("shtab-ls.journal-hidden-columns.v1") ?? "[]"); return Array.isArray(saved) ? JOURNAL_COLUMNS.filter((column) => !["date", "person", "actions"].includes(column.id) && saved.includes(column.id)).map((column) => column.id) : []; } catch { return []; }
+  });
+  function updateHidden(next: JournalColumnId[]) {
+    setHidden(next);
+    try { localStorage.setItem("shtab-ls.journal-hidden-columns.v1", JSON.stringify(next)); }
+    catch { setLayout((current) => ({ ...current, error: "Не удалось запомнить набор столбцов. Он действует до закрытия страницы." })); }
+  }
   const widthsRef = useRef(layout.widths);
   const dragRef = useRef<{ id: JournalColumnId; pointerId: number; x: number; width: number } | null>(null);
   const [dragging, setDragging] = useState<JournalColumnId | null>(null);
@@ -35,12 +43,17 @@ export function ResizableJournalTable({ children }: { children: ReactNode }) {
     updateWidths(widthsRef.current, true);
   }
   const widths = layout.widths;
-  const style = { "--journal-table-width": `${Object.values(widths).reduce((sum, width) => sum + width, 0)}px`, "--journal-actions-width": `${widths.actions}px` } as CSSProperties;
+  const style = { "--journal-table-width": `${JOURNAL_COLUMNS.filter((column) => !hidden.includes(column.id)).reduce((sum, column) => sum + widths[column.id], 0)}px`, "--journal-actions-width": `${widths.actions}px` } as CSSProperties;
   return <>
-    <div className="journal-column-tools"><span>Тяните границы заголовков для изменения ширины. Двойной щелчок — стандартная ширина столбца.</span><button type="button" className="row-action" onClick={() => updateWidths(journalColumnWidths(), true)}>Сбросить ширину</button>{layout.error && <small role="status">{layout.error}</small>}</div>
+    <style>{`@media (min-width: 761px) { ${hidden.map((id) => {
+      const column = JOURNAL_COLUMNS.find((item) => item.id === id)!;
+      const label = id === "work" ? "Рабочее время" : column.label;
+      return `.resizable-journal-table th[data-column="${id}"], .resizable-journal-table col[data-column="${id}"], .resizable-journal-table td[data-label="${label}"] { display:none; }`;
+    }).join(" ")} }`}</style>
+    <div className="journal-column-tools"><details className="journal-column-picker"><summary>Столбцы · {JOURNAL_COLUMNS.length - hidden.length} из {JOURNAL_COLUMNS.length}</summary><div>{JOURNAL_COLUMNS.filter((column) => !["date", "person", "actions"].includes(column.id)).map((column) => <label key={column.id}><input type="checkbox" checked={!hidden.includes(column.id)} onChange={() => updateHidden(hidden.includes(column.id) ? hidden.filter((id) => id !== column.id) : [...hidden, column.id])} />{column.label}</label>)}<button className="row-action" onClick={() => updateHidden([])}>Показать все</button></div></details><span>Тяните границы заголовков для изменения ширины. Двойной щелчок — стандартная ширина столбца.</span><button type="button" className="row-action" onClick={() => updateWidths(journalColumnWidths(), true)}>Сбросить ширину</button>{layout.error && <small role="status">{layout.error}</small>}</div>
     <div className="table-scroll journal-table-scroll"><table style={style} className={`journal-table resizable-journal-table${dragging ? " journal-resizing" : ""}${widths.note + widths.actions > 600 ? " journal-wide-tail" : ""}`}>
-      <colgroup>{JOURNAL_COLUMNS.map((column) => <col key={column.id} style={{ width: widths[column.id] }} />)}</colgroup>
-      <thead><tr>{JOURNAL_COLUMNS.map((column) => <th key={column.id} scope="col" className={"className" in column ? column.className : undefined}><span>{column.label}</span><span
+      <colgroup>{JOURNAL_COLUMNS.map((column) => <col key={column.id} data-column={column.id} style={{ width: widths[column.id] }} />)}</colgroup>
+      <thead><tr>{JOURNAL_COLUMNS.map((column) => <th key={column.id} data-column={column.id} scope="col" className={"className" in column ? column.className : undefined}><span>{column.label}</span><span
         className={`journal-column-resizer${dragging === column.id ? " active" : ""}`}
         role="separator" tabIndex={0} aria-orientation="vertical" aria-label={`Ширина столбца «${column.label}»`}
         aria-valuemin={column.min} aria-valuemax={MAX_JOURNAL_COLUMN_WIDTH} aria-valuenow={widths[column.id]} aria-valuetext={`${widths[column.id]} пикселей`}

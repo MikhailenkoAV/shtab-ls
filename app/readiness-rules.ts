@@ -89,7 +89,8 @@ export function employeeReadiness(
         ? "allowed"
         : "undetermined";
   const override = profile.readiness?.override ?? "auto";
-  const manual = override !== "auto";
+  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const manual = override !== "auto" && (!profile.readiness?.until || profile.readiness.until >= todayIso);
   const status = manual ? override : automaticStatus;
   const manualReason = profile.readiness?.reason.trim();
   const reasons = manual && manualReason

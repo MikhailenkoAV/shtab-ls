@@ -1,3 +1,4 @@
+import { externalFlightBaselineState, externalFlightPeriod } from "./external-flight-rules.ts";
 import { aircraftNumbersByType, canonicalAircraftType } from "./aircraft-rules.ts";
 
 export type FlightBookBaselineRow = {
@@ -28,6 +29,9 @@ export type ExternalFlightRecord = {
   id: string;
   personId: string;
   month: string;
+  dateFrom?: string;
+  dateTo?: string;
+  baselineDisposition?: "auto" | "additional" | "included";
   aircraftType: string;
   aircraft: string;
   seat: string;
@@ -86,6 +90,7 @@ export type FlightBookResult = {
   rows: FlightBookTypeTotal[];
   total: FlightBookTotals;
   entries: FlightBookEntry[];
+  warnings: string[];
 };
 
 const EMPTY_TOTALS: FlightBookTotals = {
@@ -198,8 +203,10 @@ export function buildFlightBook(
       });
     }));
 
+  const warnings = externalFlights.filter((record) => record.personId === personId && externalFlightBaselineState(record, baseline?.date) === "ambiguous")
+    .map((record) => `Справка за ${record.month} пересекает дату исходного налёта ${baseline?.date}. Уточните в записи, включён ли этот налёт в исходный итог. До уточнения он не прибавляется.`);
   externalFlights
-    .filter((record) => record.personId === personId && (!baseline?.date || `${record.month}-01` > baseline.date))
+    .filter((record) => record.personId === personId && externalFlightBaselineState(record, baseline?.date) === "additional")
     .forEach((record) => {
       const aircraftType = canonicalAircraftType(record.aircraftType) || "Без типа";
       const flightMinutes = Math.max(0, record.flightMinutes || 0);
@@ -214,7 +221,7 @@ export function buildFlightBook(
       });
       entries.push({
         id: record.id,
-        date: `${record.month}-01`,
+        date: externalFlightPeriod(record).to,
         aircraftType,
         aircraft: record.aircraft,
         seat,
@@ -231,5 +238,5 @@ export function buildFlightBook(
   const total = { ...EMPTY_TOTALS };
   rows.forEach((row) => addTotals(total, row));
   entries.sort((left, right) => `${right.date}|${right.id}`.localeCompare(`${left.date}|${left.id}`));
-  return { baseline, rows, total, entries };
+  return { baseline, rows, total, entries, warnings };
 }

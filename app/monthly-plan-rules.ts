@@ -302,7 +302,9 @@ export function busyBlockReason(
   busyEntries: PlanBusyEntry[],
   actualBusy: ActualBusyInput[],
   currentEntryId?: string,
+  person?: PlanPersonInput,
 ): string | null {
+  if (person && !isEmployedOnDate(person, date)) return "На эту дату сотрудник не состоял в работающем составе.";
   const assignment = assignments.find((item) => item.personId === personId && item.date === date);
   if (assignment) return `На эту дату уже назначен полёт на ${assignment.aircraft}.`;
   const plannedBusy = busyEntries.find((entry) =>

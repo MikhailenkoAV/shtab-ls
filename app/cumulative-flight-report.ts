@@ -301,19 +301,11 @@ export async function downloadCumulativeFlightExcel(
   dateTo: string,
   people: FlightReportPerson[],
   shifts: FlightReportShift[],
+  source: SourceWorkbookData | null,
 ) {
   const XLSXModule = await import("xlsx-js-style");
   const XLSX = XLSXModule.default ?? XLSXModule;
-  const response = await fetch(new URL("report-templates/barkov-source.xlsx", window.location.href).toString());
-  if (!response.ok) throw new Error("Не удалось загрузить исходные данные отчёта.");
-  const sourceBook = XLSX.read(await response.arrayBuffer(), { type: "array", cellDates: false });
-  const aircraftSheet = sourceBook.Sheets["ВС"];
-  const pilotSheet = sourceBook.Sheets["КВС"];
-  if (!aircraftSheet || !pilotSheet) throw new Error("В исходном файле отсутствуют листы «ВС» или «КВС».");
-  const source = sourceDataFromRows(
-    XLSX.utils.sheet_to_json<XlsxCellValue[]>(aircraftSheet, { header: 1, raw: true, defval: null }),
-    XLSX.utils.sheet_to_json<XlsxCellValue[]>(pilotSheet, { header: 1, raw: true, defval: null }),
-  );
+  if (!source) throw new Error("Исходный налёт отсутствует в базе аккаунта. Восстановите актуальную резервную копию.");
   const model = buildCumulativeWorkbookModel(dateTo, people, shifts, source);
   const workbook = buildCumulativeFlightWorkbook(XLSX, model);
   XLSX.writeFile(workbook, `narastayushchiy-nalet-po-${dateTo}.xlsx`);

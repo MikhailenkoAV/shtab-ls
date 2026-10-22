@@ -1,5 +1,5 @@
 import type { Content, StyleDictionary, TableCell, TDocumentDefinitions } from "pdfmake/interfaces";
-import { aircraftNumbersByType } from "./aircraft-rules.ts";
+import { aircraftNumbersByType, canonicalAircraftType } from "./aircraft-rules.ts";
 import { crewDutyMinutes } from "./crew-rules.ts";
 import {
   aircraftTypeForNumber,
@@ -41,6 +41,7 @@ export type FlightReportShift = {
   workMinutes?: number;
   note?: string;
   segments?: FlightReportSegment[];
+  externalFlight?: boolean;
   linkedSourceShiftId?: string;
   linkedPrimaryPersonId?: string;
 };
@@ -113,7 +114,7 @@ function datesBetween(dateFrom: string, dateTo: string): string[] {
 }
 
 function addDetail(target: Map<string, FlightDetail>, detail: FlightDetail) {
-  const key = [detail.seat, detail.aircraftType, detail.aircraft, detail.purpose].join("\u0001");
+  const key = [detail.seat, detail.aircraftType, detail.purpose].join("\u0001");
   const current = target.get(key);
   target.set(key, current
     ? { ...current, flight: current.flight + detail.flight, night: current.night + detail.night }
@@ -131,12 +132,10 @@ function collectPersonTotals(person: FlightReportPerson, shifts: FlightReportShi
   shifts.forEach((shift) => (shift.segments ?? []).forEach((segment) => {
     const segmentFlight = Math.max(0, segment.flightMinutes || 0);
     const segmentNight = Math.max(0, segment.nightMinutes || 0);
-    const aircraftType = segment.aircraftType?.trim()
-      || (person.aircraftTypes.length === 1 ? person.aircraftTypes[0] : "")
-      || "Тип не указан";
+    const aircraftType = canonicalAircraftType(segment.aircraftType?.trim() || (person.aircraftTypes.length === 1 ? person.aircraftTypes[0] : "")) || "Тип не указан";
     const seat = segment.seat?.trim() || "КВС";
     const aircraft = segment.aircraft?.trim() || "Борт не указан";
-    const purpose = segment.purpose?.trim() || "Цель не указана";
+    const purpose = segment.purpose?.trim().replace(/\s+/g, " ").toLocaleUpperCase("ru-RU") || "Цель не указана";
     flight += segmentFlight;
     night += segmentNight;
     addDetail(details, {
@@ -149,6 +148,7 @@ function collectPersonTotals(person: FlightReportPerson, shifts: FlightReportShi
     });
   }));
   const shiftCount = shifts.reduce((sum, shift) => {
+    if (shift.externalFlight) return sum;
     const segments = shift.segments ?? [];
     if (!segments.length) return sum + 1;
     const entries = new Set(segments.map((segment, index) =>
@@ -160,8 +160,8 @@ function collectPersonTotals(person: FlightReportPerson, shifts: FlightReportShi
 
 function flightDetailsTable(title: string, details: Map<string, FlightDetail>): Content {
   const rows = [...details.values()].sort((left, right) =>
-    `${left.seat}\u0001${left.aircraftType}\u0001${left.aircraft}\u0001${left.purpose}`
-      .localeCompare(`${right.seat}\u0001${right.aircraftType}\u0001${right.aircraft}\u0001${right.purpose}`, "ru-RU"));
+    `${left.seat}\u0001${left.aircraftType}\u0001${left.purpose}`
+      .localeCompare(`${right.seat}\u0001${right.aircraftType}\u0001${right.purpose}`, "ru-RU"));
   const total = rows.reduce((result, row) => ({
     flight: result.flight + row.flight,
     night: result.night + row.night,
@@ -172,12 +172,11 @@ function flightDetailsTable(title: string, details: Map<string, FlightDetail>): 
       {
         table: {
           headerRows: 1,
-          widths: [72, 58, 78, "*", 52, 58],
+          widths: [90, 72, "*", 70, 70],
           body: [
             [
               { text: "Кресло", style: "tableHeader" },
               { text: "Тип ВС", style: "tableHeader" },
-              { text: "Бортовой №", style: "tableHeader" },
               { text: "Цель", style: "tableHeader" },
               { text: "Налёт", style: "tableHeader", alignment: "right" },
               { text: "Из них ночь", style: "tableHeader", alignment: "right" },
@@ -185,14 +184,13 @@ function flightDetailsTable(title: string, details: Map<string, FlightDetail>): 
             ...(rows.length ? rows.map((row) => [
               { text: row.seat },
               { text: row.aircraftType },
-              { text: row.aircraft },
               { text: row.purpose },
               { text: formatMinutes(row.flight), alignment: "right" as const },
               { text: row.night ? formatMinutes(row.night) : "—", alignment: "right" as const },
-            ]) : [[{ text: "Нет данных о налёте", colSpan: 6, color: "#7b8b93", italics: true }, {}, {}, {}, {}, {}]]),
+            ]) : [[{ text: "Нет данных о налёте", colSpan: 5, color: "#7b8b93", italics: true }, {}, {}, {}, {}]]),
             [
-              { text: "ИТОГО", colSpan: 4, bold: true, fillColor: "#e7f1f2" },
-              {}, {}, {},
+              { text: "ИТОГО", colSpan: 3, bold: true, fillColor: "#e7f1f2" },
+              {}, {},
               { text: formatMinutes(total.flight), bold: true, alignment: "right", fillColor: "#e7f1f2" },
               { text: total.night ? formatMinutes(total.night) : "—", bold: true, alignment: "right", fillColor: "#e7f1f2" },
             ],
@@ -669,7 +667,11 @@ export function buildEmploymentReport(
   busyEntries: EmploymentPlanBusyEntry[] = [],
 ): TDocumentDefinitions {
   const periodShifts = shifts.filter((shift) => shift.date >= dateFrom && shift.date <= dateTo);
-  const peopleWithEntries = new Set(periodShifts.map((shift) => shift.personId));
+  const peopleWithEntries = new Set([
+    ...periodShifts.map((shift) => shift.personId),
+    ...assignments.filter((item) => item.date >= dateFrom && item.date <= dateTo).map((item) => item.personId),
+    ...busyEntries.filter((item) => item.dateFrom <= dateTo && item.dateTo >= dateFrom).map((item) => item.personId),
+  ]);
   const includedPeople = people
     .filter((person) => personId ? person.id === personId : person.active || peopleWithEntries.has(person.id))
     .sort((left, right) => left.name.localeCompare(right.name, "ru-RU"));
