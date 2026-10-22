@@ -8,7 +8,8 @@ test("journal columns use semantic classes independent of merged date cells", ()
   const journal = page.slice(page.indexOf("function ShiftsView("), page.indexOf("function RestCell("));
   assert.ok(journal.includes("rowSpan={dateCells[rowIndex].rowSpan}"));
   assert.equal((journal.match(/className="note-cell journal-note-col"/g) ?? []).length, 3);
-  assert.equal((journal.match(/className="journal-actions-col"/g) ?? []).length, 4);
+  assert.equal((journal.match(/className="journal-actions-col"/g) ?? []).length, 3);
+  assert.ok(journal.includes("<ResizableJournalTable>"));
   assert.ok(journal.includes('className="journal-night-col"'));
   assert.ok(css.includes(".journal-table .journal-night-col"));
   assert.equal(/\.journal-table[^{}]*(?:nth-child|nth-last-child|last-child)/.test(css), false);
