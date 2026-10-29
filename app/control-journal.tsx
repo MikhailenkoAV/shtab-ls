@@ -39,7 +39,7 @@ export function ControlJournalView({
   }[];
   onNotify: (message: string) => void;
 }) {
-  const [kind, setKind] = useState<ControlKind>(initialQuery ? "certification" : "type");
+  const [kind, setKind] = useState<ControlKind>("certification");
   const [query, setQuery] = useState(initialQuery);
   const today = new Date();
   const after45Days = new Date(today);
@@ -80,13 +80,15 @@ export function ControlJournalView({
       <button className="secondary-button" disabled={exporting} onClick={exportJournal}>{exporting ? "Формирую…" : "Выгрузить Excel"}</button>
     </div></div>
     <div className="control-journal-tabs" role="tablist">{(["type", "night", "certification"] as ControlKind[]).map((item) =>
-      <button key={item} className={kind === item ? "active" : ""} onClick={() => setKind(item)} role="tab" aria-selected={kind === item}><span>{kindLabels[item]}</span><i>{counts[item]}</i></button>)}</div>
+      <button key={item} className={kind === item ? "active" : ""} onClick={() => { if (item !== kind) { setKind(item); setQuery(""); } }} role="tab" aria-selected={kind === item}><span>{kindLabels[item]}</span><i>{counts[item]}</i></button>)}</div>
     <div className="records-toolbar control-journal-toolbar">
-      <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по сотруднику, типу или документу…" />
+      <input type="search" aria-label="Поиск в контрольном журнале" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Поиск по сотруднику, типу или документу…" />
+      {query && <button type="button" className="secondary-button" onClick={() => setQuery("")}>Сбросить поиск</button>}
       <span className="control-attention-note">{kind === "certification"
         ? "Все предупреждения полностью совпадают с разделом «Требует внимания» на главной"
         : "Показаны допуски, по которым в базе уже есть опорная дата"}</span>
     </div>
+    <div className="journal-summary" role="status">Показано строк: <strong>{kind === "certification" ? visibleAlerts.length : visible.length}</strong> из {counts[kind]}{query.trim() && " · применяется поиск"}</div>
     <div className="control-journal-note">{kind === "type"
       ? "Срок 90 дней рассчитывается от последнего полёта сотрудника на каждом допущенном типе ВС."
       : kind === "night"
@@ -94,11 +96,11 @@ export function ControlJournalView({
         : "Здесь собраны нарушения отдыха, контроль 90-дневных сроков и документы из личных дел, требующие внимания."}</div>
     {kind === "certification"
       ? !visibleAlerts.length
-        ? <div className="panel-empty tall">На главной странице нет предупреждений, требующих внимания.</div>
+        ? <div className="panel-empty tall">{query.trim() ? "По этому запросу предупреждения не найдены. Сбросьте поиск, чтобы увидеть все записи." : "Сейчас нет предупреждений, требующих внимания."}</div>
         : <div className="table-scroll"><table className="control-journal-table attention-table"><thead><tr><th>Предупреждение</th><th>Подробности</th><th>Контрольная дата</th><th>Уровень</th></tr></thead><tbody>{visibleAlerts.map((alert) =>
           <tr key={alert.id}><td data-label="Предупреждение"><strong>{alert.title}</strong></td><td className="note-cell" data-label="Подробности">{alert.detail}</td><td data-label="Контрольная дата">{displayDate(alert.sortDate)}</td><td data-label="Уровень"><span className={`attention-level ${alert.severity}`}>{alert.severity === "danger" ? "Срочно" : "Внимание"}</span></td></tr>)}</tbody></table></div>
       : !visible.length
-        ? <div className="panel-empty tall">Нет записей с опорной датой. Отсчёт начнётся после внесения первого полёта на типе или трёх ночных посадок.</div>
+        ? <div className="panel-empty tall">{query.trim() ? "По этому запросу записи не найдены. Сбросьте поиск, чтобы увидеть все записи." : "Нет записей с опорной датой. Отсчёт начнётся после внесения первого полёта на типе или трёх ночных посадок."}</div>
         : <div className="table-scroll"><table className="control-journal-table"><thead><tr><th>Сотрудник</th><th>Тип ВС</th><th>{kind === "night" ? "Опорная посадка" : "Последний полёт"}</th>{kind === "night" && <th>Посадки за 90 дней</th>}<th>Срок</th><th>Осталось</th><th>Состояние</th></tr></thead><tbody>{visible.map((row) =>
           <tr key={row.id}><td data-label="Сотрудник"><strong>{row.personName}</strong></td><td data-label="Тип ВС"><strong>{row.aircraftType}</strong></td><td data-label={kind === "night" ? "Опорная посадка" : "Последний полёт"}>{displayDate(row.referenceDate)}</td>{kind === "night" && <td data-label="Посадки за 90 дней"><strong>{row.landingCount ?? 0}</strong> / 3</td>}<td data-label="Срок">{displayDate(row.dueDate)}</td><td data-label="Осталось">{row.daysLeft === null ? "—" : row.daysLeft < 0 ? `−${Math.abs(row.daysLeft)} дн.` : `${row.daysLeft} дн.`}</td><td data-label="Состояние"><span className={`expiry-pill ${row.status}`}>{row.statusLabel}</span></td></tr>)}</tbody></table></div>}
   </section>;

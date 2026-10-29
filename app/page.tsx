@@ -26,7 +26,6 @@ import {
 } from "./monthly-plan-rules";
 import type { CertificationRecord, ImportPayload } from "./personal-files";
 const ImportAviabitModal = dynamic(() => import("./personal-files").then((module) => module.ImportAviabitModal), { loading: () => <Loading /> });
-import { isMedicalCertificationSuperseded, latestCertificationRecords } from "./personal-files-rules";
 
 import {
   AWAY_FROM_BASE_DAILY_REST_MINUTES,
@@ -800,6 +799,10 @@ export default function Home() {
 function Workspace({ session }: { session: Session }) {
   const [view, setView] = useState<View>("dashboard");
   const [controlFocus, setControlFocus] = useState("");
+  function navigateView(next: View) {
+    setControlFocus("");
+    setView(next);
+  }
   const [data, setData] = useState<AppData>(EMPTY_DATA);
   const [hydrated, setHydrated] = useState(false);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
@@ -1062,12 +1065,9 @@ function Workspace({ session }: { session: Session }) {
   const weeklyRestWarnings = useMemo(() => getWeeklyRestWarnings(expandedShifts, todayIso), [expandedShifts, todayIso]);
   const monthKey = todayIso.slice(0, 7);
   const monthShifts = useMemo(() => data.shifts.filter((shift) => shift.date.startsWith(monthKey)), [data.shifts, monthKey]);
-  const controlCertifications = useMemo(() => latestCertificationRecords(data.certifications).filter((record) =>
-    !isMedicalCertificationSuperseded(record, data.personalProfiles[record.personId]?.medical.expiryDate ?? "")),
-  [data.certifications, data.personalProfiles]);
   const controlRows = useMemo(
-    () => buildControlRows(data.people, expandedShifts, controlCertifications, todayIso),
-    [data.people, expandedShifts, controlCertifications, todayIso],
+    () => buildControlRows(data.people, expandedShifts, data.certifications, todayIso, data.personalProfiles),
+    [data.people, expandedShifts, data.certifications, todayIso, data.personalProfiles],
   );
   const readinessByPerson = useMemo(() => Object.fromEntries(data.people.map((person) => [
     person.id,
@@ -1548,7 +1548,7 @@ function Workspace({ session }: { session: Session }) {
       <div className={`header-status ${saveStatus.tone}`}><span className="status-dot" /><div role="status" aria-live="polite" title={cloudError||undefined}><strong>{cloudPhase==="conflict"?"Конфликт версий":"Рабочая база"}</strong><span className="save-state">{saveStatus.local}</span><span className="save-state">{saveStatus.cloud}{!cloudPending&&!cloudSaving&&lastCloudSavedAt&&cloudPhase==="ready"?` · ${new Intl.DateTimeFormat("ru-RU",{hour:"2-digit",minute:"2-digit"}).format(new Date(lastCloudSavedAt))}`:""}</span></div>{["offline","error"].includes(cloudPhase)&&<button className="row-action" disabled={cloudSaving} onClick={()=>void reloadCloud()}>Повторить</button>}<button className="row-action" onClick={()=>void supabase.auth.signOut()}>Выйти</button></div>
       <input ref={importRef} hidden type="file" accept="application/json,.json" onChange={importBackup} />
     </header>
-    <MobileNavigation<View> active={view} onNavigate={setView} primary={[
+    <MobileNavigation<View> active={view} onNavigate={navigateView} primary={[
       { id: "dashboard", label: "Главная", glyph: "⌂" }, { id: "shifts", label: "Смены", glyph: "▤" },
       { id: "planning", label: "План", glyph: "▦" }, { id: "control", label: "Контроль", glyph: "✓" },
     ]} secondary={[
@@ -1574,11 +1574,11 @@ function Workspace({ session }: { session: Session }) {
           readinessByPerson={readinessByPerson}
           onAddShift={() => openNewShift()}
           onRestore={() => importRef.current?.click()}
-          onNavigate={setView}
+          onNavigate={navigateView}
           onOpenAlert={(alert) => { setControlFocus(alert.title); setView("control"); }}
         />
         : view === "analytics"
-          ? <AnalyticsView people={data.people} shifts={expandedShifts} busyEntries={data.planBusyEntries} alerts={alerts} onNavigate={setView} />
+          ? <AnalyticsView people={data.people} shifts={expandedShifts} busyEntries={data.planBusyEntries} alerts={alerts} onNavigate={navigateView} />
         : view === "import"
           ? <ImportCenterView counts={{ people: data.people.length, shifts: data.shifts.length, documents: data.certifications.length, baselines: data.flightBookBaselines.length }} onStart={(kind) => {
             if (kind === "backup") importRef.current?.click();

@@ -1,5 +1,5 @@
 import { aircraftNumbersByType } from "./aircraft-rules.ts";
-import { getExpiryState } from "./personal-files-rules.ts";
+import { getExpiryState, isMedicalCertificationSuperseded, latestCertificationRecords } from "./personal-files-rules.ts";
 
 export type ControlStatus = "expired" | "alert14" | "alert45" | "valid" | "undated" | "incomplete";
 export type ControlKind = "type" | "night" | "certification";
@@ -41,6 +41,27 @@ export type ControlCertificationRef = {
   documentType: string;
   number: string;
 };
+
+export type ControlMedicalProfiles = Record<string, {
+  medical?: { expiryDate?: string; examinationDate?: string; seriesNumber?: string };
+}>;
+
+/** Include the current medical card even when an older imported VLEK is superseded. */
+export function controlCertificationRecords(records: ControlCertificationRef[], profiles: ControlMedicalProfiles = {}): ControlCertificationRef[] {
+  const current = latestCertificationRecords(records).filter((record) =>
+    !isMedicalCertificationSuperseded(record, profiles[record.personId]?.medical?.expiryDate ?? ""));
+  const medical = Object.entries(profiles).flatMap(([personId, profile]): ControlCertificationRef[] => {
+    const card = profile.medical;
+    if (!card?.expiryDate) return [];
+    const represented = current.some((record) => record.personId === personId && record.endDate === card.expiryDate
+      && /влэк|медицинск.*заключ/i.test(`${record.category} ${record.certificationType} ${record.documentType}`));
+    if (represented) return [];
+    return [{ id: `profile-medical-${personId}`, personId, category: "Медицина", certificationType: "ВЛЭК", aircraftType: "",
+      issuedDate: card.examinationDate ?? "", startDate: card.examinationDate ?? "", endDate: card.expiryDate,
+      organization: "", documentType: "Медицинское заключение", number: card.seriesNumber ?? "" }];
+  });
+  return [...current, ...medical];
+}
 
 export type ControlRow = {
   id: string;
@@ -177,6 +198,7 @@ export function buildControlRows(
   shifts: ControlShiftRef[],
   certifications: ControlCertificationRef[],
   today: string,
+  profiles: ControlMedicalProfiles = {},
 ): ControlRow[] {
   const peopleById = new Map(people.map((person) => [person.id, person]));
   const flightRows = people.filter((person) => person.active).flatMap((person) => {
@@ -190,7 +212,7 @@ export function buildControlRows(
     ];
   });
   const todayDate = parseIso(today) ?? new Date();
-  const certificationRows = certifications.flatMap((record): ControlRow[] => {
+  const certificationRows = controlCertificationRecords(certifications, profiles).flatMap((record): ControlRow[] => {
     const person = peopleById.get(record.personId);
     // A placeholder/imported row without an expiry date is not an existing
     // document and must not create a false warning (for example “ID” or an

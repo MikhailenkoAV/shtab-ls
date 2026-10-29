@@ -153,3 +153,31 @@ test("document headings without an expiry date do not create false certification
   ];
   assert.deepEqual(buildControlRows(people, [], certifications, "2026-08-04"), []);
 });
+
+test("medical card expiry participates in control when the older imported VLEK is superseded", () => {
+  const people = [{ id: "pilot", name: "Тестовый Пилот", active: true, qualifications: [] }];
+  const old = { id: "vlek-old", personId: "pilot", category: "Медицина", certificationType: "ВЛЭК", aircraftType: "", issuedDate: "2025-08-01", startDate: "2025-08-01", endDate: "2026-08-01", organization: "", documentType: "Медицинское заключение", number: "" };
+  const profiles = { pilot: { medical: { expiryDate: "2026-11-05", examinationDate: "2026-05-05" } } };
+  const rows = buildControlRows(people, [], [old], "2026-10-29", profiles);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].dueDate, "2026-11-05");
+  assert.equal(rows[0].status, "alert14");
+  assert.equal(rows[0].subject, "ВЛЭК");
+});
+
+test("a medical card with the same expiry as the imported document never creates a duplicate warning", () => {
+  const people = [{ id: "pilot", name: "Тестовый Пилот", active: true, qualifications: [] }];
+  const record = { id: "vlek", personId: "pilot", category: "Медицина", certificationType: "ВЛЭК", aircraftType: "", issuedDate: "2026-05-05", startDate: "2026-05-05", endDate: "2026-11-05", organization: "", documentType: "Медицинское заключение", number: "" };
+  const rows = buildControlRows(people, [], [record], "2026-10-29", { pilot: { medical: { expiryDate: record.endDate } } });
+  assert.equal(rows.filter(isControlAttention).length, 1);
+  assert.equal(rows[0].id, "certification-vlek");
+});
+
+test("profile-only medical warnings are shown for active staff, without reviving archived staff", () => {
+  const people = [{ id: "active", name: "Работающий Пилот", active: true, qualifications: [] }, { id: "archived", name: "Архивный Пилот", active: false, qualifications: [] }];
+  const profiles = { active: { medical: { expiryDate: "2026-10-01" } }, archived: { medical: { expiryDate: "2026-10-01" } } };
+  const rows = buildControlRows(people, [], [], "2026-10-29", profiles);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].personId, "active");
+  assert.equal(rows[0].status, "expired");
+});
