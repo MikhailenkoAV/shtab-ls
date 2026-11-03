@@ -51,6 +51,8 @@ import {
 import { expandLinkedCrewShifts } from "./crew-rules";
 import { dashboardRows, isCurrentMonthDate } from "./dashboard-rules";
 import { aircraftUsageSummary, readinessSummary, workloadSummary } from "./dashboard-infographics";
+import { WorkTimeDashboard } from "./work-time-dashboard";
+import type { WorkTimeDashboardInput } from "./work-time-dashboard-rules";
 import { backupFileName } from "./backup-rules";
 import {
   backupChecksum,
@@ -687,7 +689,7 @@ function formatRestBoundary(value: number): string {
   }).format(new Date(value)).replace(",", "");
 }
 
-function getRestIssues(shifts: Shift[]): RestIssue[] {
+function getRestInputs(shifts: Shift[]): { days: RestDayInput[]; intervals: RestIntervalInput[] } {
   const dayInputs: RestDayInput[] = [...getWorkDays(shifts).entries()].flatMap(([personId, days]) => days.map((day) => ({
     shiftId: day.items[0].id,
     personId,
@@ -720,7 +722,7 @@ function getRestIssues(shifts: Shift[]): RestIssue[] {
       if (start && end) intervalInputs.push({ shiftId: shift.id, personId: shift.personId, date: shift.date, start: start.getTime(), end: end.getTime(), split: false });
     }
   });
-  return calculateRestIssues(dayInputs, intervalInputs);
+  return { days: dayInputs, intervals: intervalInputs };
 }
 
 function getWeeklyRestWarnings(shifts: Shift[], todayIso: string): WeeklyRestWarning[] {
@@ -1061,7 +1063,13 @@ function Workspace({ session }: { session: Session }) {
   const expandedShifts = useMemo(() => expandLinkedCrewShifts(data.shifts), [data.shifts]);
   const restMap = useMemo(() => getRestMap(expandedShifts), [expandedShifts]);
   const assumedCompliantRestIds = useMemo(() => getAssumedCompliantRestIds(expandedShifts), [expandedShifts]);
-  const restIssues = useMemo(() => getRestIssues(expandedShifts), [expandedShifts]);
+  const restInputs = useMemo(() => getRestInputs(expandedShifts), [expandedShifts]);
+  const restIssues = useMemo(() => calculateRestIssues(restInputs.days, restInputs.intervals), [restInputs]);
+  const workTimeInput = useMemo<WorkTimeDashboardInput>(() => ({
+    ...restInputs,
+    records: expandedShifts.map((shift) => ({ id: shift.id, personId: shift.personId, date: shift.date,
+      activity: shift.activity, workMinutes: shift.workMinutes, startTime: shiftStart(shift)?.getTime() ?? null })),
+  }), [expandedShifts, restInputs]);
   const weeklyRestWarnings = useMemo(() => getWeeklyRestWarnings(expandedShifts, todayIso), [expandedShifts, todayIso]);
   const monthKey = todayIso.slice(0, 7);
   const monthShifts = useMemo(() => data.shifts.filter((shift) => shift.date.startsWith(monthKey)), [data.shifts, monthKey]);
@@ -1568,6 +1576,7 @@ function Workspace({ session }: { session: Session }) {
           people={data.people}
           shifts={monthSortedShifts}
           alerts={alerts}
+          workTimeInput={workTimeInput}
           totalFlight={totalFlight}
           restMap={restMap}
           assumedCompliantRestIds={assumedCompliantRestIds}
@@ -1755,6 +1764,7 @@ function Dashboard({
   people,
   shifts,
   alerts,
+  workTimeInput,
   totalFlight,
   restMap,
   assumedCompliantRestIds,
@@ -1767,6 +1777,7 @@ function Dashboard({
   people: Person[];
   shifts: Shift[];
   alerts: DashboardAlert[];
+  workTimeInput: WorkTimeDashboardInput;
   totalFlight: number;
   restMap: Map<string, number>;
   assumedCompliantRestIds: Set<string>;
@@ -1787,6 +1798,7 @@ function Dashboard({
     <section className="dashboard-insights">
       <article className="panel readiness-card"><div className="insight-heading"><div><p className="eyebrow">Готовность состава</p><h2>Допуски и документы</h2></div><button className="link-button" onClick={() => onNavigate("control")}>Открыть контроль →</button></div><div className="readiness-content"><div className="readiness-donut" style={{ background: `conic-gradient(#317a5f 0 ${(readiness.allowed/readinessTotal)*100}%, #d5a34e 0 ${((readiness.allowed+readiness.restricted)/readinessTotal)*100}%, #c84c4c 0 ${((readiness.allowed+readiness.restricted+readiness.notAllowed)/readinessTotal)*100}%, #dce4e8 0 100%)` }}><div><strong>{Math.round(readiness.allowed/readinessTotal*100)}%</strong><span>готовы</span></div></div><div className="readiness-legend"><span><i className="good" />Допущены <strong>{readiness.allowed}</strong></span><span><i className="warning" />С ограничениями <strong>{readiness.restricted}</strong></span><span><i className="danger" />Не допущены <strong>{readiness.notAllowed}</strong></span><span><i className="neutral" />Не определено <strong>{readiness.undetermined}</strong></span></div></div></article>
       <article className="panel deadlines-card"><div className="insight-heading"><div><p className="eyebrow">Ближайшие события</p><h2>Что требует внимания</h2></div><span className="count-badge">{alerts.length}</span></div><div className="deadline-list">{!alerts.length ? <div className="good-state"><span>✓</span><div><strong>Критических замечаний нет</strong><p>Сроки и режим труда находятся под контролем.</p></div></div> : dashboardRows(alerts).map((alert) => <button type="button" className={`deadline-row ${alert.severity}`} key={alert.id} onClick={() => onOpenAlert(alert)}><i>!</i><span><strong>{alert.title}</strong><small>{alert.detail}</small></span><b>→</b></button>)}</div></article>
+      <WorkTimeDashboard people={people} input={workTimeInput} onOpenJournal={() => onNavigate("shifts")} />
       <article className="panel chart-card workload-card"><div className="insight-heading"><div><p className="eyebrow">Текущий месяц</p><h2>Загрузка сотрудников</h2></div><button className="link-button" onClick={() => onNavigate("analytics")}>Вся аналитика →</button></div><div className="bar-chart">{workload.length ? workload.map((row) => <div className="bar-row" key={row.id}><span title={row.name}>{row.name}</span><div><i style={{ width: `${Math.max(3,row.workMinutes/maxWorkload*100)}%` }} /><em style={{ width: `${Math.max(0,row.flightMinutes/maxWorkload*100)}%` }} /></div><strong>{formatDuration(row.workMinutes)}<small> · налёт {formatDuration(row.flightMinutes)}</small></strong></div>) : <div className="panel-empty">В текущем месяце смен пока нет</div>}</div><div className="chart-legend"><span><i />Рабочее время</span><span><i className="flight" />Полётное время</span></div></article>
       <article className="panel chart-card aircraft-usage-card"><div className="insight-heading"><div><p className="eyebrow">Текущий месяц</p><h2>Использование воздушных судов</h2></div><button className="link-button" onClick={() => onNavigate("shifts")}>Открыть журнал →</button></div><div className="aircraft-bars">{aircraftUsage.length ? aircraftUsage.map((row) => <div className="aircraft-bar" key={row.aircraft}><div><strong>{row.aircraft}</strong><small>{row.shiftCount} смен</small></div><span><i style={{ width: `${Math.max(4,row.flightMinutes/maxAircraftFlight*100)}%` }} /></span><b>{formatDuration(row.flightMinutes)}</b></div>) : <div className="panel-empty">Нет полётных смен с указанными бортами</div>}</div></article>
     </section>

@@ -122,6 +122,25 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 
 .dashboard-main-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "work control" "crews recent" "expiry recent"; gap: 18px; align-items: stretch; }
 .dashboard-insights { display: grid; grid-template-columns: minmax(360px,.82fr) minmax(520px,1.18fr); gap: 16px; margin-bottom: 16px; }
+.work-time-panel { grid-column: 1 / -1; grid-row: 2; min-width: 0; overflow: hidden; }
+.work-time-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 18px; padding: 12px 20px; border-bottom: 1px solid #e7ecef; }
+.work-time-toolbar [role="tablist"] { display: flex; flex-wrap: wrap; gap: 6px; }
+.work-time-toolbar [role="tab"] { display: flex; align-items: center; gap: 7px; min-height: 36px; padding: 7px 11px; border: 1px solid transparent; border-radius: 7px; color: #637d89; background: #f2f5f6; font-size: 12px; font-weight: 700; }
+.work-time-toolbar [role="tab"][aria-selected="true"] { border-color: #c0dcd7; color: #176c65; background: #eaf5f2; }
+.work-time-toolbar [role="tab"] span { padding: 1px 5px; border-radius: 4px; background: #fff; }
+.work-time-toolbar > span { color: #82919a; font-size: 12px; }
+.work-time-row { display: grid; grid-template-columns: minmax(190px, 1fr) minmax(170px, .8fr) minmax(250px, 1.4fr); gap: 12px 22px; align-items: start; padding: 15px 20px; border-bottom: 1px solid #edf0f2; }
+.work-time-person { display: flex; gap: 11px; min-width: 0; }
+.work-time-person > i { flex: 0 0 27px; display: grid; place-items: center; height: 27px; border-radius: 7px; color: #317a5f; background: #eaf5ef; font-style: normal; font-weight: 800; }
+.work-time-row.danger .work-time-person > i { color: #a03c3c; background: #fff0ee; }
+.work-time-row.warning .work-time-person > i { color: #94651e; background: #fff7e8; }
+.work-time-row strong { display: block; color: #294957; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.work-time-row small { display: block; margin-top: 3px; color: #7a8e99; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.work-time-hours strong { font-size: 15px; font-variant-numeric: tabular-nums; }
+.work-time-row.danger .work-time-status > strong, .work-time-row .work-time-violation { color: #a03c3c; }
+.work-time-row.warning .work-time-status > strong { color: #94651e; }
+.work-time-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 18px; padding: 12px 20px; }
+.work-time-footer > small { color: #82919a; font-size: 11px; line-height: 1.5; }
 .insight-heading { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 17px 20px; border-bottom: 1px solid #e7ecef; }
 .insight-heading h2 { margin: 0; color: #183245; font-size: 17px; }
 .readiness-content { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 22px; min-height: 220px; padding: 22px; }
@@ -130,7 +149,7 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .readiness-donut strong,.readiness-donut span { display: block; }.readiness-donut strong { color: #173f46; font-size: 27px; }.readiness-donut span { color: #7b8c94; font-size: 12px; }
 .readiness-legend { display: grid; gap: 11px; }.readiness-legend span { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 9px; color: #657985; font-size: 13px; }.readiness-legend i { width: 9px; height: 9px; border-radius: 50%; background: #dce4e8; }.readiness-legend i.good { background:#317a5f; }.readiness-legend i.warning { background:#d5a34e; }.readiness-legend i.danger { background:#c84c4c; }
 .deadline-list { min-height: 220px; }.deadline-row { width: 100%; min-height: 49px; display: grid; grid-template-columns: 28px minmax(0,1fr) 16px; align-items: center; gap: 10px; padding: 8px 17px; border: 0; border-bottom: 1px solid #edf0f2; color: #3a5360; background: white; text-align: left; }.deadline-row:hover { background:#f7fafb; }.deadline-row > i { display:grid; width:25px; height:25px; place-items:center; border-radius:7px; font-style:normal; font-weight:900; }.deadline-row.danger > i { color:#a03c3c; background:#fff0ee; }.deadline-row.warning > i { color:#94651e; background:#fff7e8; }.deadline-row strong,.deadline-row small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.deadline-row small { margin-top:2px; color:#82919a; }.deadline-row > b { color:#9aabb3; }
-.chart-card { min-height: 330px; }.workload-card { grid-column: 2; grid-row: 2; }.aircraft-usage-card { grid-column: 1; grid-row: 2; }.bar-chart { display:grid; gap:10px; padding:17px 20px 7px; }.bar-row { display:grid; grid-template-columns: minmax(130px,190px) minmax(140px,1fr) 178px; align-items:center; gap:12px; }.bar-row > span { overflow:hidden; color:#3b5562; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }.bar-row > div { position:relative; height:14px; overflow:hidden; border-radius:6px; background:#edf2f4; }.bar-row i,.bar-row em { position:absolute; top:0; bottom:0; left:0; display:block; border-radius:6px; }.bar-row i { background:#b7d9d5; }.bar-row em { top:4px; bottom:4px; background:#0d8d82; }.bar-row > strong { color:#284957; font-size:12px; text-align:right; }.bar-row > strong small { color:#72858f; font-weight:500; }.chart-legend { display:flex; justify-content:flex-end; gap:16px; padding:8px 20px 15px; color:#748791; font-size:12px; }.chart-legend span { display:flex; align-items:center; gap:6px; }.chart-legend i { width:17px; height:7px; border-radius:3px; background:#b7d9d5; }.chart-legend i.flight { background:#0d8d82; }
+.chart-card { min-height: 330px; }.workload-card { grid-column: 2; grid-row: 3; }.aircraft-usage-card { grid-column: 1; grid-row: 3; }.bar-chart { display:grid; gap:10px; padding:17px 20px 7px; }.bar-row { display:grid; grid-template-columns: minmax(130px,190px) minmax(140px,1fr) 178px; align-items:center; gap:12px; }.bar-row > span { overflow:hidden; color:#3b5562; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }.bar-row > div { position:relative; height:14px; overflow:hidden; border-radius:6px; background:#edf2f4; }.bar-row i,.bar-row em { position:absolute; top:0; bottom:0; left:0; display:block; border-radius:6px; }.bar-row i { background:#b7d9d5; }.bar-row em { top:4px; bottom:4px; background:#0d8d82; }.bar-row > strong { color:#284957; font-size:12px; text-align:right; }.bar-row > strong small { color:#72858f; font-weight:500; }.chart-legend { display:flex; justify-content:flex-end; gap:16px; padding:8px 20px 15px; color:#748791; font-size:12px; }.chart-legend span { display:flex; align-items:center; gap:6px; }.chart-legend i { width:17px; height:7px; border-radius:3px; background:#b7d9d5; }.chart-legend i.flight { background:#0d8d82; }
 .aircraft-bars { display:grid; gap:13px; padding:20px; }.aircraft-bar { display:grid; grid-template-columns:110px 1fr 58px; align-items:center; gap:12px; }.aircraft-bar > div strong,.aircraft-bar > div small { display:block; }.aircraft-bar > div strong { color:#294d5d; }.aircraft-bar > div small { margin-top:2px; color:#87969e; }.aircraft-bar > span { height:12px; overflow:hidden; border-radius:6px; background:#edf2f4; }.aircraft-bar > span i { display:block; height:100%; border-radius:6px; background:linear-gradient(90deg,#60b5ab,#0d8d82); }.aircraft-bar > b { color:#285b63; text-align:right; }
 .dashboard-tools { overflow:hidden; }.dashboard-tools summary { min-height:78px; display:flex; align-items:center; justify-content:space-between; padding:17px 20px; cursor:pointer; list-style:none; }.dashboard-tools summary::-webkit-details-marker { display:none; }.dashboard-tools summary span b,.dashboard-tools summary span small { display:block; }.dashboard-tools summary span b { color:#294957; }.dashboard-tools summary span small { margin-top:5px; color:#7f9098; }.dashboard-tools summary > i { color:#6d858f; font-style:normal; font-size:18px; transition:.16s; }.dashboard-tools[open] summary > i { transform:rotate(180deg); }.dashboard-tools > div { border-top:1px solid #e7ecef; }
 .dashboard-area { min-width: 0; }
@@ -889,7 +908,7 @@ td strong { color: #314956; }
 
 @media (max-width: 1100px) {
   .dashboard-insights { grid-template-columns: 1fr; }
-  .workload-card, .aircraft-usage-card { grid-column: auto; grid-row: auto; }
+  .workload-card, .aircraft-usage-card, .work-time-panel { grid-column: auto; grid-row: auto; }
   .bar-row { grid-template-columns: minmax(140px, 190px) minmax(160px, 1fr) 165px; }
   .app-header { grid-template-columns: auto 1fr; gap: 14px 22px; }
   .quick-nav { justify-content: flex-end; }
@@ -964,6 +983,11 @@ td strong { color: #314956; }
 .cloud-gate { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 15% 10%,#dcecef 0,transparent 36%),linear-gradient(160deg,#f3f6f7,#dfe9ec); }.cloud-login,.cloud-migration { width: min(520px,100%); padding: 28px; }.cloud-login .brand-mark { margin-bottom: 14px; }.cloud-login h1,.cloud-migration h1 { margin: 5px 0 10px; }.cloud-login form { margin: 20px 0 12px; }.cloud-login .primary-button { width: 100%; }.cloud-migration { width: min(650px,100%); }.cloud-migration .import-current-state { margin: 18px 0; }
 
 @media (max-width: 760px) {
+  .work-time-panel .insight-heading { align-items: flex-start; flex-wrap: wrap; gap: 10px; }
+  .work-time-toolbar, .work-time-footer { padding: 12px 16px; }
+  .work-time-toolbar > span { display: none; }
+  .work-time-row { grid-template-columns: minmax(0, 1fr); gap: 9px; padding: 15px 16px; }
+  .work-time-hours, .work-time-status { padding-left: 38px; }
   .dashboard-insights { gap: 12px; }
   .readiness-content { grid-template-columns: 120px 1fr; gap: 15px; padding: 17px; }
   .readiness-donut { width: 112px; height: 112px; }
