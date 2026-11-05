@@ -8,6 +8,7 @@ import { normalizeTrainingRecord } from "./training-record-rules";
 import {
   downloadEmploymentReport,
   downloadFlightReport,
+  downloadMonthlyFlightReport,
   downloadSummaryFlightReport,
 } from "./monthly-report";
 import {
@@ -2063,7 +2064,7 @@ function FlightReportModal({ people, shifts, externalFlights, cumulativeFlightSo
   const today = new Date();
   const reportShifts = useMemo(() => expandLinkedCrewShifts(shifts), [shifts]);
 
-  type ReportType = "flight" | "employment" | "cumulative" | "summary";
+  type ReportType = "flight" | "monthly" | "employment" | "cumulative" | "summary";
   const [reportType, setReportType] = useState<ReportType>("flight");
   const [dateFrom, setDateFrom] = useState(localIsoDate(new Date(today.getFullYear(), today.getMonth(), 1)));
   const [dateTo, setDateTo] = useState(localIsoDate(new Date(today.getFullYear(), today.getMonth() + 1, 0)));
@@ -2077,6 +2078,7 @@ function FlightReportModal({ people, shifts, externalFlights, cumulativeFlightSo
     try {
       const flightReportShifts = reportType === "employment" ? reportShifts : [...reportShifts, ...externalFlightsForReport(externalFlights, reportType === "cumulative" ? CUMULATIVE_APPEND_START : dateFrom, dateTo, personId || null)];
       if (reportType === "flight") await downloadFlightReport(dateFrom, dateTo, people, flightReportShifts, personId || null);
+      else if (reportType === "monthly") await downloadMonthlyFlightReport(dateFrom, dateTo, people, flightReportShifts, personId || null);
       else if (reportType === "employment") await downloadEmploymentReport(dateFrom, dateTo, people, reportShifts, personId || null, assignments, busyEntries);
       else if (reportType === "cumulative") await downloadCumulativeFlightExcel(dateTo, people, flightReportShifts, cumulativeFlightSource);
       else await downloadSummaryFlightReport(dateFrom, dateTo, people, flightReportShifts, personId || null);
@@ -2090,6 +2092,8 @@ function FlightReportModal({ people, shifts, externalFlights, cumulativeFlightSo
   }
   const reportHint = reportType === "flight"
     ? "Справка показывает налёт по креслу, типу ВС и цели полёта, объединяя все борта одного типа и отмечает разделённые смены."
+    : reportType === "monthly"
+      ? "Налёт по каждому месяцу: кресло, тип ВС, цель, общий и ночной налёт. Итоги за месяц и весь период, включая дополнительный налёт по справкам. Борта одного типа объединяются; месяцы без налёта показываются с нулём."
     : reportType === "employment"
       ? "Фактические смены имеют приоритет. Если записи нет, отчёт использует месячный план: свободный день становится ожиданием полёта, а после 6 рабочих дней подряд — выходным."
       : reportType === "cumulative"
@@ -2103,7 +2107,7 @@ function FlightReportModal({ people, shifts, externalFlights, cumulativeFlightSo
       setPersonId("");
     }
     setError("");
-  }}><option value="flight">Справка о налёте</option><option value="employment">Отчёт о занятости</option><option value="cumulative">Отчёт по нарастающему налёту</option><option value="summary">Итоговая справка о налёте</option></select></Field>{reportType === "cumulative" ? <Field label="Дополнить исходный отчёт по дату"><input required min={CUMULATIVE_APPEND_START} type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field> : <><div className="form-grid two"><Field label="Период с"><input required type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></Field><Field label="Период по"><input required type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field></div><Field label="Состав отчёта"><select value={personId} onChange={(event) => setPersonId(event.target.value)}><option value="">Все сотрудники — общий отчёт</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field></>}<div className="report-scope-note">{reportHint}</div>{error && <div className="form-error">{error}</div>}<div className="form-actions"><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button" disabled={exporting}>{exporting ? "Формирую…" : reportType === "cumulative" ? "Скачать Excel" : "Скачать PDF"}</button></div></form></Modal>;
+  }}><option value="flight">Справка о налёте</option><option value="monthly">Справка о налёте по месяцам</option><option value="employment">Отчёт о занятости</option><option value="cumulative">Отчёт по нарастающему налёту</option><option value="summary">Итоговая справка о налёте</option></select></Field>{reportType === "cumulative" ? <Field label="Дополнить исходный отчёт по дату"><input required min={CUMULATIVE_APPEND_START} type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field> : <><div className="form-grid two"><Field label="Период с"><input required type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></Field><Field label="Период по"><input required type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></Field></div><Field label="Состав отчёта"><select value={personId} onChange={(event) => setPersonId(event.target.value)}><option value="">Все сотрудники — общий отчёт</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></Field></>}<div className="report-scope-note">{reportHint}</div>{error && <div className="form-error">{error}</div>}<div className="form-actions"><button type="button" className="secondary-button" onClick={onClose}>Отмена</button><button type="submit" className="primary-button" disabled={exporting}>{exporting ? "Формирую…" : reportType === "cumulative" ? "Скачать Excel" : "Скачать PDF"}</button></div></form></Modal>;
 }
 
 function PeopleView({ people, shifts, readinessByPerson, onAdd, onEdit, onOpenPersonal, onEmploymentChange }: { people: Person[]; shifts: Shift[]; readinessByPerson: Record<string, EmployeeReadiness>; onAdd: () => void; onEdit: (person: Person) => void; onOpenPersonal: (personId: string) => void; onEmploymentChange: (person: Person) => void }) {

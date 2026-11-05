@@ -360,6 +360,124 @@ export function buildFlightReport(
   };
 }
 
+function reportMonths(dateFrom: string, dateTo: string): string[] {
+  const months: string[] = [];
+  const current = new Date(`${dateFrom.slice(0, 7)}-01T12:00:00`);
+  const end = new Date(`${dateTo.slice(0, 7)}-01T12:00:00`);
+  while (current <= end) {
+    months.push(`${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, "0")}`);
+    current.setMonth(current.getMonth() + 1);
+  }
+  return months;
+}
+
+function monthLabel(month: string): string {
+  const label = new Intl.DateTimeFormat("ru-RU", { month: "long", year: "numeric" })
+    .format(new Date(`${month}-01T12:00:00`)).replace(/\s*г\.$/, "");
+  return label.charAt(0).toLocaleUpperCase("ru-RU") + label.slice(1);
+}
+
+function monthlyFlightTable(months: string[], byMonth: Map<string, Map<string, FlightDetail>>): Content {
+  const body: TableCell[][] = [[
+    { text: "Месяц", style: "tableHeader" },
+    { text: "Кресло", style: "tableHeader" },
+    { text: "Тип ВС", style: "tableHeader" },
+    { text: "Цель", style: "tableHeader" },
+    { text: "Налёт", style: "tableHeader", alignment: "right" },
+    { text: "Из них ночь", style: "tableHeader", alignment: "right" },
+  ]];
+  let totalFlight = 0;
+  let totalNight = 0;
+  for (const month of months) {
+    const rows = [...(byMonth.get(month)?.values() ?? [])].sort((a, b) =>
+      `${a.seat}\u0001${a.aircraftType}\u0001${a.purpose}`.localeCompare(`${b.seat}\u0001${b.aircraftType}\u0001${b.purpose}`, "ru-RU"));
+    let flight = 0;
+    let night = 0;
+    for (const row of rows) {
+      flight += row.flight;
+      night += row.night;
+      body.push([
+        { text: monthLabel(month) }, { text: row.seat }, { text: row.aircraftType }, { text: row.purpose },
+        { text: formatMinutes(row.flight), alignment: "right" },
+        { text: formatMinutes(row.night), alignment: "right" },
+      ]);
+    }
+    body.push([
+      { text: `${rows.length ? "Итого" : "Нет налёта"}: ${monthLabel(month)}`, colSpan: 4, bold: true, fillColor: "#f0f5f6" }, {}, {}, {},
+      { text: formatMinutes(flight), alignment: "right", bold: true, fillColor: "#f0f5f6" },
+      { text: formatMinutes(night), alignment: "right", bold: true, fillColor: "#f0f5f6" },
+    ]);
+    totalFlight += flight;
+    totalNight += night;
+  }
+  body.push([
+    { text: "ИТОГО ЗА ПЕРИОД", colSpan: 4, bold: true, fillColor: "#dcefee" }, {}, {}, {},
+    { text: formatMinutes(totalFlight), alignment: "right", bold: true, fillColor: "#dcefee" },
+    { text: formatMinutes(totalNight), alignment: "right", bold: true, fillColor: "#dcefee" },
+  ]);
+  return {
+    table: { headerRows: 1, dontBreakRows: true, widths: [78, 90, 48, "*", 54, 54], body },
+    layout: "lightHorizontalLines", margin: [0, 0, 0, 12],
+  };
+}
+
+export function buildMonthlyFlightReport(
+  dateFrom: string,
+  dateTo: string,
+  people: FlightReportPerson[],
+  shifts: FlightReportShift[],
+  personId: string | null = null,
+  logoDataUrl?: string,
+): TDocumentDefinitions {
+  const months = reportMonths(dateFrom, dateTo);
+  const periodShifts = shifts.filter((shift) => shift.activity === "flight" && shift.date.slice(0, 10) >= dateFrom && shift.date.slice(0, 10) <= dateTo);
+  const peopleWithFlights = new Set(periodShifts.map((shift) => shift.personId));
+  const includedPeople = people.filter((person) => personId ? person.id === personId : person.active || peopleWithFlights.has(person.id))
+    .sort((a, b) => a.name.localeCompare(b.name, "ru-RU"));
+  const overallByMonth = new Map<string, Map<string, FlightDetail>>();
+  const byPerson = new Map(includedPeople.map((person) => {
+    const ownShifts = periodShifts.filter((shift) => shift.personId === person.id);
+    const byMonth = new Map(months.map((month) => {
+      const details = collectPersonTotals(person, ownShifts.filter((shift) => shift.date.startsWith(month))).details;
+      const overall = overallByMonth.get(month) ?? new Map<string, FlightDetail>();
+      mergeDetails(overall, details);
+      overallByMonth.set(month, overall);
+      return [month, details];
+    }));
+    return [person.id, { byMonth, total: collectPersonTotals(person, ownShifts) }];
+  }));
+  const content: Content[] = reportHeader("Справка о налёте по месяцам", dateFrom, dateTo, logoDataUrl);
+  const note = (): Content => ({ text: "Время указано в формате часы:минуты. Налёт объединён по креслу, типу ВС и цели полёта без разделения по бортовым номерам. В неполных месяцах учитываются только даты выбранного периода. Дополнительный налёт включён в месяц, указанный в справке.", style: "note", margin: [0, 0, 0, 12] });
+  if (!includedPeople.length) content.push({ text: "В составе нет сотрудников для формирования отчёта.", style: "empty" });
+  else if (!personId) {
+    const overall = [...byPerson.values()].reduce((sum, person) => ({ flight: sum.flight + person.total.flight, night: sum.night + person.total.night }), { flight: 0, night: 0 });
+    content.push(
+      { text: "Общий итог по всем сотрудникам", style: "personName" },
+      { text: "Суммарный налёт лётного состава", style: "position" },
+      metrics(overall.flight, overall.night, "СОТРУДНИКОВ", String(includedPeople.length)),
+      monthlyFlightTable(months, overallByMonth), note(),
+    );
+  }
+  for (const person of includedPeople) {
+    const own = byPerson.get(person.id)!;
+    content.push({
+      stack: [
+        { text: person.name, style: "personName" },
+        { text: person.position || "Должность не указана", style: "position" },
+        metrics(own.total.flight, own.total.night, "МЕСЯЦЕВ В ПЕРИОДЕ", String(months.length)),
+        monthlyFlightTable(months, own.byMonth), note(),
+      ],
+      pageBreak: !personId ? "before" : undefined,
+    });
+  }
+  return {
+    pageSize: "A4", pageMargins: [42, 48, 42, 42],
+    info: { title: `Справка о налёте по месяцам за ${periodLabel(dateFrom, dateTo)}`, author: "ШТАБ ЛС - Центр авиации «Солярис»", subject: "Помесячная справка о налёте" },
+    content, footer: reportFooter,
+    defaultStyle: { font: "Roboto", fontSize: 8.5, color: "#334b59", lineHeight: 1.2 }, styles: commonStyles(),
+  };
+}
+
 type SummaryFlightRow = {
   personName: string;
   aircraftType: string;
@@ -738,6 +856,19 @@ export async function downloadFlightReport(
   const [pdfMake, logoDataUrl] = await Promise.all([getPdfMake(), getReportLogo()]);
   const scope = personId ? "pilot" : "all";
   pdfMake.createPdf(buildFlightReport(dateFrom, dateTo, people, shifts, personId, logoDataUrl)).download(`nalet-${dateFrom}-${dateTo}-${scope}.pdf`);
+}
+
+export async function downloadMonthlyFlightReport(
+  dateFrom: string,
+  dateTo: string,
+  people: FlightReportPerson[],
+  shifts: FlightReportShift[],
+  personId: string | null = null,
+) {
+  const [pdfMake, logoDataUrl] = await Promise.all([getPdfMake(), getReportLogo()]);
+  const scope = personId ? "pilot" : "all";
+  pdfMake.createPdf(buildMonthlyFlightReport(dateFrom, dateTo, people, shifts, personId, logoDataUrl))
+    .download(`nalet-po-mesyatsam-${dateFrom}-${dateTo}-${scope}.pdf`);
 }
 
 export async function downloadEmploymentReport(
